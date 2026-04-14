@@ -1,0 +1,37 @@
+# Core
+fastapi==0.115.12
+uvicorn[standard]==0.34.2
+pydantic==2.11.3
+pydantic-settings==2.9.1
+
+# Async HTTP
+httpx==0.28.1
+
+# WebSocket
+websockets==15.0.1
+
+# Redis
+redis[hiredis]==6.2.0
+
+# Celery + RabbitMQ
+celery[redis]==5.5.2
+
+# Database (읽기 + 피드백 쓰기)
+sqlalchemy[asyncio]==2.0.40
+asyncpg==0.30.0
+
+# AI Pipeline
+google-cloud-speech==2.33.0
+anthropic==0.52.0
+elevenlabs==1.50.7
+
+# Audio
+pydub==0.25.1
+
+# JWT
+PyJWT==2.10.1
+
+# Dev/Test
+pytest==8.3.5
+pytest-asyncio==0.26.0
+ruff==0.11.7
