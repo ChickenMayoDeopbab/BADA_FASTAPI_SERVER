@@ -5,9 +5,21 @@ __pycache__/
 .venv/
 venv/
 *.egg-info/
+*.egg
+build/
+dist/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
 
 # Env
 .env
+.env.local
+.env.*.local
+secrets/
+*.pem
+*.key
 
 # IDE
 .idea/
