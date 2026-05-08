@@ -13,16 +13,12 @@ async def voice_stream(
         token: str = Query(..., description="JWT access token"),
 ) -> None:
     await ws.accept()
-    print(f"[DEBUG] received token: {token!r}")  # <- 추가
 
     try:
         user_id, role = await authenticate_ws(ws, token)
     except Exception as e:
-        print(f"[DEBUG] auth failed: {e!r}")  # <- 추가
-
         # authenticate_ws가 예외 처리 해줌
         return
-    print(f"[DEBUG] auth ok: user_id={user_id}")  # <- 추가
 
     logging.info(
         "웹소켓 연결됨",
