@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     internal_secret: str
 
     # STT
-    google_stt_credentials_path: str
+    google_stt_credentials_path: str | None = None
     google_stt_language: str = "ko-KR"
 
     # LLM(실시간)
