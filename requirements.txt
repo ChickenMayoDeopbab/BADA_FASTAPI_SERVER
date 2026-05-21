@@ -31,8 +31,3 @@ pydub==0.25.1
 
 # JWT
 PyJWT==2.10.1
-
-# Dev/Test
-pytest==8.3.5
-pytest-asyncio==0.26.0
-ruff==0.11.7
