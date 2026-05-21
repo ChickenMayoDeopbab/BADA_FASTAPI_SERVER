@@ -36,6 +36,7 @@ class ScenarioInfo(BaseModel):
     personalities: list[Personality]
     scenario_image: Optional[str] = None
     tts_voice_id: Optional[str] = None
+    ai_prompt: str
     is_custom: bool
 
 class ScenarioListResponse(BaseModel):
