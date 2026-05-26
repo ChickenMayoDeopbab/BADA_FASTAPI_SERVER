@@ -25,6 +25,9 @@ class Settings(BaseSettings):
 
     # STT
     google_stt_credentials_path: str | None = None
+    google_project_id: str
+    google_stt_location: str = "asia-northeast1"
+    google_stt_model: str = "chirp_3"
     google_stt_language: str = "ko-KR"
 
     # LLM(실시간)
