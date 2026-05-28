@@ -33,3 +33,4 @@ Thumbs.db
 # Test/Coverage
 htmlcov/
 .coverage
+tests/output/
