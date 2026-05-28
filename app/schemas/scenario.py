@@ -11,8 +11,6 @@ class CallSession(BaseModel):
     session_type: SessionType
     personality: Personality
     difficulty: Difficulty
-    call_target: str = Field(..., max_length=100)
-    call_purpose: str = Field(..., max_length=200)
     created_at: datetime
 
 class Scenario(BaseModel):
@@ -24,6 +22,8 @@ class Scenario(BaseModel):
     ai_prompt: str = None
     user_id: Optional[int] = None
     is_custom: bool = False
+    call_target: str = Field(..., max_length=100)
+    call_purpose: str = Field(..., max_length=200)
     created_at: datetime
 
 
@@ -48,8 +48,6 @@ class CreateSessionRequest(BaseModel):
     session_type: SessionType = SessionType.TRAINING
     personality: Personality = Personality.NEUTRAL
     difficulty: Difficulty = Difficulty.MEDIUM
-    call_target: str = Field(..., min_length=2, max_length=100)
-    call_purpose: str = Field(..., min_length=5, max_length=200)
 
 class CreateSessionResponse(BaseModel):
     session_id: int
@@ -57,8 +55,6 @@ class CreateSessionResponse(BaseModel):
     session_type: SessionType
     personality: Personality
     difficulty: Difficulty
-    call_target: str
-    call_purpose: str
     ai_prompt: str
     tts_voice_id: Optional[str]
     created_at: datetime
