@@ -43,6 +43,8 @@ class Settings(BaseSettings):
     # Internal callback
     spring_boot_internal_url: str
 
+    # DB
+    database_url: str
 
 @lru_cache
 def get_settings() -> Settings:

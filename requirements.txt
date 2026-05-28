@@ -36,3 +36,7 @@ PyJWT==2.10.1
 pytest==8.3.5
 pytest-asyncio==0.26.0
 ruff==0.11.7
+
+# DB
+sqlalchemy[asyncio]
+asyncpg

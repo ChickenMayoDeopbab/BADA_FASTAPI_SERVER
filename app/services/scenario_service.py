@@ -8,32 +8,59 @@ from app.core.prompt_matrix import PERSONALITY_BASE, build_system_prompt
 from app.schemas.scenario import (
     CallSession, CreateSessionRequest, CreateSessionResponse,
     CustomSessionRequest, CustomSessionResponse,
-    GenerateDetailScenario, Scenario, ScenarioListResponse,
+    GenerateDetailScenario, Scenario, ScenarioListResponse, ScenarioInfo,
 )
 from anthropic.types import MessageParam
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.db.models import ScenarioORM, CallSessionORM
 
 _client = AsyncAnthropic()
 
-_id_counter = 1000
-def _next_id() -> int:
-    global _id_counter
-    _id_counter += 1
-    return _id_counter
+async def get_scenarios(
+        db: AsyncSession,
+        category: ScenarioCategory | None,
+        difficulty: Difficulty | None) -> ScenarioListResponse:
+    stmt = select(ScenarioORM).where(ScenarioORM.is_custom == False)
+    result = await db.execute(stmt)
+    rows = result.scalars().all()
 
-def get_scenarios(category: ScenarioCategory | None,
-                  difficulty: Difficulty | None) -> ScenarioListResponse:
-    result = PRESET_SCENARIOS
-    if category:
-        result = [s for s in result if s["category"] == category]
-    if difficulty:
-        result = [s for s in result if difficulty in s["difficulties"]]
+    if not rows:
+        result_list = PRESET_SCENARIOS
+        if category:
+            result_list = [s for s in result_list if s["category"] == category]
+        if difficulty:
+            result_list = [s for s in result_list if difficulty in s["difficulties"]]
+        return ScenarioListResponse(scenarios=[scenario_to_info(s) for s in result_list])
 
-    return ScenarioListResponse(scenarios=[scenario_to_info(s) for s in result])
+    infos = []
+    for row in rows:
+        seed = PRESET_MAP.get(row.scenario_id)
+        if seed is None:
+            continue
+        if category and seed["category"] != category:
+            continue
+        if difficulty and difficulty not in seed["difficulties"]:
+            continue
+        infos.append(ScenarioInfo(
+            scenario_id=row.scenario_id,
+            title=row.title,
+            content=row.content,
+            category=seed["category"],
+            difficulties=seed["difficulties"],
+            personalities=seed["personalities"],
+            scenario_image=row.scenario_image,
+            tts_voice_id=row.tts_voice_id,
+            ai_prompt=row.ai_prompt,
+            is_custom=row.is_custom,
+        ))
+    return ScenarioListResponse(scenarios=infos)
 
-def create_session(
+async def create_session(
+        db: AsyncSession,
         request: CreateSessionRequest,
         user_id: int,
-) -> tuple[CreateSessionResponse, CallSession]:
+) -> CreateSessionResponse:
     scenario = PRESET_MAP.get(request.scenario_id)
     if scenario is None:
         raise ValueError("시나리오를 찾을 수 없습니다.")
@@ -45,10 +72,8 @@ def create_session(
         base_prompt=scenario["ai_prompt"],
     )
     now = datetime.now(timezone.utc)
-    session_id = _next_id()
 
-    db_record = CallSession(
-        session_id=session_id,
+    db_record = CallSessionORM(
         scenario_id=request.scenario_id,
         user_id=user_id,
         session_type=request.session_type,
@@ -56,9 +81,12 @@ def create_session(
         difficulty=request.difficulty,
         created_at=now,
     )
+    db.add(db_record)
+    await db.commit()
+    await db.refresh(db_record)
 
-    response = CreateSessionResponse(
-        session_id=session_id,
+    return CreateSessionResponse(
+        session_id=db_record.session_id,
         scenario_id=request.scenario_id,
         session_type=request.session_type,
         personality=request.personality,
@@ -67,7 +95,6 @@ def create_session(
         tts_voice_id=scenario["tts_voice_id"],
         created_at=now,
     )
-    return response, db_record
 
 _SCENARIO_GEN_SYSTEM = """You are an expert scenario designer for a Korean phone call training application.
 Your task is to generate a realistic phone call training scenario based on the user's input.
@@ -83,13 +110,14 @@ JSON schema:
 
 
 async def create_custom_session(
-        req: CustomSessionRequest,
+        db: AsyncSession,
+        request: CustomSessionRequest,
         user_id: int,
-) -> tuple[CustomSessionResponse, Scenario, CallSession]:
+) -> CustomSessionResponse:
     user_msg = (
-        f"Call purpose: {req.call_purpose}\n"
-        f"Call target: {req.call_target}\n"
-        f"Personality: {req.personality.value} — {PERSONALITY_BASE[req.personality]}"
+        f"Call purpose: {request.call_purpose}\n"
+        f"Call target: {request.call_target}\n"
+        f"Personality: {request.personality.value} — {PERSONALITY_BASE[request.personality]}"
     )
 
     ai_response = await _client.messages.create(
@@ -107,52 +135,51 @@ async def create_custom_session(
     data: dict = json.loads(raw.strip())
 
     now = datetime.now(timezone.utc)
-    scenario_id = _next_id()
-    session_id = _next_id()
 
-    scenario_record = Scenario(
-        scenario_id=scenario_id,
+    scenario_orm = ScenarioORM(
         title=data["title"],
         content=data["content"],
         scenario_image=None,
         tts_voice_id=None,
         ai_prompt=data["ai_prompt"],
-        call_target=req.call_target,
-        call_purpose=req.call_purpose,
+        call_target=request.call_target,
+        call_purpose=request.call_purpose,
         user_id=user_id,
         is_custom=True,
         created_at=now,
     )
+    db.add(scenario_orm)
+    await db.flush()
 
     system_prompt = build_system_prompt(
-        personality=req.personality,
-        call_target=req.call_target,
-        call_purpose=req.call_purpose,
+        personality=request.personality,
+        call_target=request.call_target,
+        call_purpose=request.call_purpose,
         base_prompt=data["ai_prompt"],
     )
 
-    # TODO: DB → INSERT INTO call_session (...) VALUES (...)
-    db_session = CallSession(
-        session_id=session_id,
-        scenario_id=scenario_id,
+    session_orm = CallSessionORM(
+        scenario_id=scenario_orm.scenario_id,
         user_id=user_id,
         session_type=SessionType.TRAINING,
-        personality=req.personality,
-        difficulty=req.difficulty,
+        personality=request.personality,
+        difficulty=request.difficulty,
         created_at=now,
     )
+    db.add(session_orm)
+    await db.commit()
+    await db.refresh(session_orm)
 
-    response = CustomSessionResponse(
-        session_id=session_id,
+    return CustomSessionResponse(
+        session_id=session_orm.session_id,
         scenario=GenerateDetailScenario(
-            scenario_id=scenario_id,
+            scenario_id=scenario_orm.scenario_id,
             title=data["title"],
             content=data["content"],
             ai_prompt=system_prompt,
             tts_voice_id=None,
         ),
-        personality=req.personality,
-        difficulty=req.difficulty,
+        personality=request.personality,
+        difficulty=request.difficulty,
         created_at=now,
     )
-    return response, scenario_record, db_session
