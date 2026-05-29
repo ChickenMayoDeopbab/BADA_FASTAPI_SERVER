@@ -13,9 +13,9 @@ logger = logging.getLogger("tts_stream_check")
 from app.core.config import get_settings
 from app.services.tts import ElevenLabsTTSClient
 
-OUT_DIR = Path(__file__).resolve().parent.parent / "output"   # tests/output/
+OUT_DIR = Path(__file__).resolve().parent.parent / "output"
 OUT_WAV = OUT_DIR / "tts_check_output.wav"
-SAMPLE_RATE = 16000  # pcm_16000과 일치
+SAMPLE_RATE = 16000
 TEXT = "안녕하세요, 무엇을 도와드릴까요?"
 
 

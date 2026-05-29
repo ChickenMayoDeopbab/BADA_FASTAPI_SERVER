@@ -12,6 +12,7 @@ logging.basicConfig(
 logger = logging.getLogger("tts_manual")
 
 from app.core.config import get_settings
+from app.schemas.llm import AiEmotion
 from app.services.tts import ElevenLabsTTSClient
 
 SAMPLE_RATE = 16000
@@ -23,18 +24,17 @@ TEST_TEXTS = [
     "총 3명이고, 금액은 45000원입니다.",
 ]
 
-
 async def text_once(text: str) -> AsyncIterator[str]:
     yield text
 
 
-async def synth_and_play(client: ElevenLabsTTSClient, text: str) -> None:
-    logger.info("입력: %r", text)
+async def synth_and_play(client: ElevenLabsTTSClient, text: str, emotion: AiEmotion.NEUTRAL) -> None:
+    logger.info("입력: %r [%s]", text, emotion.value)
     chunks: list[bytes] = []
     start = asyncio.get_event_loop().time()
     first = None
 
-    async for pcm in client.stream(text_once(text)):
+    async for pcm in client.stream(text_once(text), emotion):
         if first is None:
             first = asyncio.get_event_loop().time()
             logger.info("  TTFB = %.0fms", (first - start) * 1000)
@@ -57,11 +57,16 @@ async def synth_and_play(client: ElevenLabsTTSClient, text: str) -> None:
 async def main() -> None:
     settings = get_settings()
     client = ElevenLabsTTSClient(settings)
+    text = "예약은 토요일 저녁 7시 30분으로 잡아드릴게요."
     logger.info("voice_id=%s, model=%s", settings.elevenlabs_voice_id, settings.elevenlabs_model)
+
+    # for emotion in AiEmotion:
+    #     await synth_and_play(client, text, emotion)
+    #     await asyncio.sleep(0.5)
 
     for text in TEST_TEXTS:
         try:
-            await synth_and_play(client, text)
+            await synth_and_play(client, text, AiEmotion.NEUTRAL)
         except Exception:
             logger.exception("합성/재생 실패: %r", text)
         await asyncio.sleep(0.3)
