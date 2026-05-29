@@ -34,3 +34,5 @@ Thumbs.db
 htmlcov/
 .coverage
 tests/output/
+
+records/
