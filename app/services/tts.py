@@ -8,8 +8,17 @@ import websockets
 from websockets.exceptions import WebSocketException
 
 from app.core.config import Settings
+from app.schemas.llm import AiEmotion
 
 logger = logging.getLogger(__name__)
+
+_EMOTION_VOICE_OVERRIDES: dict[AiEmotion, dict] = {
+    AiEmotion.NEUTRAL:    {},
+    AiEmotion.FRIENDLY:   {"stability": 0.40, "style": 0.30, "speed": 1.03},
+    AiEmotion.ANNOYED:    {"stability": 0.45, "style": 0.20, "speed": 1.05},
+    AiEmotion.ANGRY:      {"stability": 0.30, "style": 0.50, "speed": 1.08},
+    AiEmotion.APOLOGETIC: {"stability": 0.60, "style": 0.10, "speed": 0.96},
+}
 
 class ElevenLabsTTSClient:
     """TTS 클라이언트, Elevenlabs Flash 2.5 모델 사용, 턴당 ws 연결"""
@@ -40,9 +49,13 @@ class ElevenLabsTTSClient:
             f"&apply_text_normalization={self._text_normalization}"
         )
 
-    def _build_init_message(self) -> dict:
-        return {"text": " ", "voice_settings": self._voice_settings}
+    def _voice_settings_for(self, emotion: AiEmotion):
+        settings = dict(self._voice_settings)
+        settings.update(_EMOTION_VOICE_OVERRIDES.get(emotion, {}))
+        return settings
 
+    def _build_init_message(self, emotion: AiEmotion) -> dict:
+        return {"text": " ", "voice_settings": self._voice_settings_for(emotion)}
 
     async def _send_text(self, ws, text_source: AsyncIterator[str]) -> None:
         async for chunk in text_source:
@@ -52,13 +65,17 @@ class ElevenLabsTTSClient:
             await ws.send(json.dumps({"text": payload}))
         await ws.send(json.dumps({"text": ""}))
 
-    async def stream(self, text_source: AsyncIterator[str]) -> AsyncIterator[bytes]:
+    async def stream(
+            self,
+            text_source: AsyncIterator[str],
+            emotion: AiEmotion = AiEmotion.NEUTRAL
+    ) -> AsyncIterator[bytes]:
         uri = self._build_uri()
         headers = {"xi-api-key": self._api_key}
 
         try:
             async with websockets.connect(uri, additional_headers=headers) as ws:
-                await ws.send(json.dumps(self._build_init_message()))
+                await ws.send(json.dumps(self._build_init_message(emotion)))
 
                 sender = asyncio.create_task(self._send_text(ws, text_source))
                 try:
