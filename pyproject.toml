@@ -3,15 +3,31 @@ name = "bada-ai-server"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
+    # Core
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
     "pydantic>=2.9",
     "pydantic-settings>=2.5",
     "python-json-logger>=2.0.7",
-    "redis>=5.0.8",
+
+    # Infra
+    "redis[hiredis]>=5.0.8",
     "aio-pika>=9.4.3",
+    "celery[redis]>=5.4",
+
+    # Database
+    "sqlalchemy[asyncio]>=2.0.40",
+    "asyncpg>=0.30",
+
+    # Async HTTP / WebSocket
+    "httpx>=0.28",
+    "websockets>=15.0",
+
+    # AI Pipeline
+    "google-cloud-speech>=2.33",
     "google-genai>=1.0",
-    "anthropic>=0.40",
+    "anthropic>=0.52",
+    "elevenlabs>=1.50",
     "PyJWT>=2.9",
 ]
 
@@ -21,7 +37,9 @@ dev = [
     "pytest-asyncio>=0.26",
     "ruff>=0.11",
     "sounddevice>=0.4",
-    "numpy==1.26.4"
+    "soundfile>=0.12",
+    "librosa>=0.10,<0.11",
+    "numpy==1.26.4",
 ]
 
 [tool.ruff]
@@ -33,6 +51,9 @@ select = ["E", "F", "W", "I", "N", "UP", "B", "A", "SIM"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["app"]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
