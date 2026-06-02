@@ -1,0 +1,403 @@
+import asyncio
+import json
+import logging
+import time
+from contextlib import suppress
+from enum import Enum
+
+from fastapi import WebSocket, WebSocketDisconnect
+from google.api_core.exceptions import GoogleAPICallError
+
+from app.core.config import Settings
+from app.schemas.frames import (
+    EndReason,
+    emotion_frame,
+    end_frame,
+    error_frame,
+    interrupt_frame,
+    speaking_end_frame,
+)
+from app.schemas.llm import AiEmotion, LLMEventType
+from app.services.llm import LLMClient
+from app.services.session import build_turn_context
+from app.services.spring_client import SpringInternalClient
+from app.services.stt import AUDIO_EOS, GoogleSTTClient, STTEventType
+from app.services.tts import ElevenLabsTTSClient, TTSSession
+
+logger = logging.getLogger(__name__)
+
+# barge-in(AI 발화 중 끼어들기). RN의 AEC(에코 제거)가 전제라 아직 미검증 -> 기본 OFF.
+# OFF면 하프듀플렉스(발화 중 유저 입력 무시). 나중에 제대로 구현 시 True로.
+_BARGE_IN_ENABLED = False
+_BARGE_IN_MIN_CHARS = 2
+_STT_RECYCLE_SECONDS = 240.0
+_SAFETY_FALLBACK = "죄송해요, 그 부분은 지금 답하기 어렵네요."
+
+
+class _State(str, Enum):
+    LISTENING = "LISTENING" # 듣는중
+    THINKING = "THINKING" # 생각중
+    SPEAKING = "SPEAKING" # 말하는중
+    CLOSING = "CLOSING" # 끝
+
+
+class VoicePipeline:
+    def __init__(
+        self,
+        ws: WebSocket,
+        session_id: str,
+        session: dict,
+        *,
+        settings: Settings,
+        spring: SpringInternalClient,
+    ) -> None:
+        self._ws = ws
+        self._session_id = session_id
+        self._session = session
+        self._settings = settings
+        self._spring = spring
+
+        self._stt = GoogleSTTClient(
+            project_id=settings.google_project_id,
+            location=settings.google_stt_location,
+            model=settings.google_stt_model,
+            language=settings.google_stt_language,
+        )
+        self._llm = LLMClient()
+        self._tts = ElevenLabsTTSClient(settings)
+
+        self._audio_queue: asyncio.Queue[bytes | None] = asyncio.Queue()
+        self._state = _State.LISTENING
+        self._history: list[dict] = []
+        self._current_step = 1
+        self._muted = False
+        self._ws_alive = True
+        self._time_up = False
+
+        self._turn_task: asyncio.Task | None = None
+        self._closing = asyncio.Event()
+        self._end_reason: EndReason | None = None
+
+        max_duration = session.get("maxDurationSeconds")
+        if max_duration is None and session.get("type") == "WARMUP":
+            max_duration = 30  # Spring이 안 박아도 워밍업은 30초 보장
+        self._max_duration = int(max_duration) if max_duration else None
+
+        scenario = session.get("scenario") or {}
+        script = scenario.get("script") if isinstance(scenario, dict) else None
+        self._script_len = len(script) if isinstance(script, list) else 0
+
+    async def run(self) -> None:
+        """진입점"""
+        tasks: list[asyncio.Task] = [
+            asyncio.create_task(self._recv_loop()),
+            asyncio.create_task(self._stt_consumer()),
+        ]
+        if self._max_duration:
+            tasks.append(asyncio.create_task(self._max_duration_timer()))
+        closing = asyncio.create_task(self._closing.wait())
+
+        try:
+            done, _ = await asyncio.wait(
+                {*tasks, closing}, return_when=asyncio.FIRST_COMPLETED
+            )
+            for task in done:
+                if task is closing or task.cancelled():
+                    continue
+                exc = task.exception()
+                if exc is not None:
+                    logger.error(
+                        "백그라운드 태스크 비정상 종료",
+                        extra={"session_id": self._session_id},
+                        exc_info=exc,
+                    )
+            if not self._closing.is_set():
+                await self._close(EndReason.ERROR)
+        finally:
+            closing.cancel()
+            with suppress(asyncio.CancelledError):
+                await closing
+            await self._teardown(*tasks)
+
+    async def _recv_loop(self) -> None:
+        # 수신
+        try:
+            while not self._closing.is_set():
+                msg = await self._ws.receive()
+                if msg.get("type") == "websocket.disconnect":
+                    self._ws_alive = False
+                    await self._close(EndReason.USER_END)
+                    return
+                if msg.get("bytes") is not None:
+                    if not self._muted:
+                        await self._audio_queue.put(msg["bytes"])
+                elif msg.get("text") is not None:
+                    await self._handle_client_text(msg["text"])
+        except (WebSocketDisconnect, RuntimeError):
+            self._ws_alive = False
+            await self._close(EndReason.USER_END)
+
+    async def _handle_client_text(self, raw: str) -> None:
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            logger.warning("클라 텍스트 프레임 파싱 실패", extra={"session_id": self._session_id})
+            return
+        mtype = data.get("type")
+        if mtype == "end":
+            await self._close(EndReason.USER_END)
+        elif mtype == "ping":
+            await self._send_json({"type": "pong"})
+        elif mtype == "mute":
+            self._muted = bool(data.get("muted", False))
+
+    async def _stt_consumer(self) -> None:
+        """stt 소비. chirp_3가 스트림당 FINAL 1개 후 먹통이라 발화마다 스트림 재오픈."""
+        try:
+            while not self._closing.is_set():
+                await self._consume_one_stream(self._audio_queue)
+        except GoogleAPICallError:
+            logger.exception("STT 스트리밍 실패", extra={"session_id": self._session_id})
+            await self._close(EndReason.ERROR)
+        except asyncio.CancelledError:
+            raise
+
+    async def _consume_one_stream(self, queue: "asyncio.Queue[bytes | None]") -> None:
+        """한 스트림을 FINAL(또는 재활용 한계)까지 소비하고 즉시 닫는다.
+
+        plain async for라 orphan __anext__ 태스크가 없고(=aclose 충돌 없음),
+        닫을 땐 EOS로 요청 스트림을 먼저 끝낸 뒤 aclose로 즉시 종료한다(블로킹 없음).
+        """
+        recycle_at = time.monotonic() + _STT_RECYCLE_SECONDS
+        stream = self._stt.stream(queue)
+        try:
+            async for event in stream:
+                await self._handle_stt_event(event)
+                # 발화 1개 = 스트림 1개. FINAL이면 이 스트림을 닫고 새로 연다.
+                if event.type == STTEventType.FINAL or time.monotonic() >= recycle_at:
+                    break
+        finally:
+            # recv_loop를 새 큐로 먼저 돌리고(오디오 유실 최소화), 옛 스트림은 즉시 정리.
+            if not self._closing.is_set() and self._audio_queue is queue:
+                self._audio_queue = asyncio.Queue()
+            with suppress(Exception):
+                queue.put_nowait(AUDIO_EOS)  # 요청 스트림 종료 신호
+            with suppress(Exception):
+                await stream.aclose()  # 강제 종료(즉시 반환)
+
+    async def _handle_stt_event(self, event) -> None:
+        if self._state == _State.CLOSING:
+            return
+        if event.type == STTEventType.INTERIM:
+            if (
+                _BARGE_IN_ENABLED
+                and self._state in (_State.THINKING, _State.SPEAKING)
+                and len(event.text.strip()) >= _BARGE_IN_MIN_CHARS
+            ):
+                await self._barge_in()
+        elif event.type == STTEventType.FINAL:
+            text = event.text.strip()
+            if text and self._state == _State.LISTENING and not self._time_up:
+                self._start_turn(text)
+
+    def _start_turn(self, user_utterance: str) -> None:
+        """LLM -> TTS"""
+        self._state = _State.THINKING
+        self._turn_task = asyncio.create_task(self._run_turn(user_utterance))
+
+    async def _run_turn(self, user_utterance: str) -> None:
+        ctx = build_turn_context(
+            self._session,
+            current_step=self._current_step,
+            history=self._history,
+            user_utterance=user_utterance,
+        )
+
+        connect_task = asyncio.create_task(self._tts.open())
+        text_q: asyncio.Queue[str | None] = asyncio.Queue()
+        emotion_ready = asyncio.Event()
+        ai_parts: list[str] = []
+        flags = {"step_done": False, "end_call": False, "error": False}
+        box: dict[str, TTSSession | None] = {"tts": None}
+
+        async def ensure_tts(emotion: AiEmotion) -> None:
+            if box["tts"] is not None:
+                return
+            session = await connect_task
+            await session.begin(emotion)
+            box["tts"] = session
+            await self._send_json(emotion_frame(emotion))
+            emotion_ready.set()
+
+        async def produce() -> None:
+            try:
+                async for ev in self._llm.stream(ctx):
+                    if ev.type == LLMEventType.EMOTION_RESOLVED:
+                        await ensure_tts(ev.emotion or AiEmotion.NEUTRAL)
+                    elif ev.type == LLMEventType.TEXT_DELTA:
+                        ai_parts.append(ev.text)
+                        await text_q.put(ev.text)
+                    elif ev.type == LLMEventType.STEP_DONE:
+                        flags["step_done"] = True
+                    elif ev.type == LLMEventType.END_CALL:
+                        flags["end_call"] = True
+                    elif ev.type == LLMEventType.SAFETY_BLOCK:
+                        await ensure_tts(AiEmotion.NEUTRAL)
+                        ai_parts.append(_SAFETY_FALLBACK)
+                        await text_q.put(_SAFETY_FALLBACK)
+                    elif ev.type == LLMEventType.ERROR:
+                        flags["error"] = True
+            finally:
+                await text_q.put(None)
+                emotion_ready.set()
+
+        async def consume() -> None:
+            await emotion_ready.wait()
+            tts = box["tts"]
+            if tts is None:
+                return
+
+            async def text_source():
+                while True:
+                    chunk = await text_q.get()
+                    if chunk is None:
+                        return
+                    yield chunk
+
+            self._state = _State.SPEAKING
+            async for pcm in tts.stream(text_source()):
+                if not self._ws_alive:
+                    break
+                try:
+                    await self._ws.send_bytes(pcm)
+                except Exception:
+                    self._ws_alive = False
+                    break
+            await self._send_json(speaking_end_frame())
+
+        try:
+            await asyncio.gather(produce(), consume())
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("턴 실행 중 예외", extra={"session_id": self._session_id})
+            flags["error"] = True
+        finally:
+            await self._cleanup_turn_tts(connect_task, box["tts"])
+
+        await self._finalize_turn(user_utterance, ai_parts, flags)
+
+    async def _cleanup_turn_tts(
+        self, connect_task: asyncio.Task, used: TTSSession | None
+    ) -> None:
+        """턴이 끝나거나 취소되면 TTS ws 닫기"""
+        if used is not None:
+            await used.aclose()
+            return
+        if connect_task.done():
+            if not connect_task.cancelled():
+                with suppress(Exception):
+                    session = connect_task.result()
+                    await session.aclose()
+        else:
+            connect_task.cancel()
+            with suppress(asyncio.CancelledError, Exception):
+                session = await connect_task
+                await session.aclose()
+
+    async def _finalize_turn(
+        self, user_utterance: str, ai_parts: list[str], flags: dict
+    ) -> None:
+        ai_text = "".join(ai_parts).strip()
+        self._history.append({"role": "user", "text": user_utterance})
+        if ai_text:
+            self._history.append({"role": "assistant", "text": ai_text})
+
+        if flags["error"]:
+            await self._close(EndReason.ERROR)
+            return
+        if flags["end_call"]:
+            await self._close(EndReason.END_CALL)
+            return
+        if flags["step_done"]:
+            if self._current_step < self._script_len:
+                self._current_step += 1
+            elif self._script_len:
+                await self._close(EndReason.SCENARIO_DONE)
+                return
+
+        self._turn_task = None
+        self._state = _State.LISTENING
+
+    async def _barge_in(self) -> None:
+        if self._turn_task and not self._turn_task.done():
+            self._turn_task.cancel()
+            with suppress(asyncio.CancelledError, Exception):
+                await self._turn_task
+        self._turn_task = None
+        await self._send_json(interrupt_frame())
+        self._state = _State.LISTENING
+        logger.info("barge-in 처리", extra={"session_id": self._session_id})
+
+    async def _max_duration_timer(self) -> None:
+        """종료"""
+        assert self._max_duration is not None
+        await asyncio.sleep(self._max_duration)
+        self._time_up = True  # 이후 새 턴 시작 금지
+        logger.info(
+            "최대 시간 도달, 현재 턴 마무리 후 종료",
+            extra={"session_id": self._session_id},
+        )
+        turn = self._turn_task
+        if turn is not None and not turn.done():
+            with suppress(asyncio.CancelledError, Exception):
+                await turn  # 진행 중 턴은 끝까지 말하게 둔다
+        await self._close(EndReason.TIMEOUT)
+
+    async def _close(self, reason: EndReason) -> None:
+        if self._closing.is_set():
+            return
+        self._end_reason = reason
+        self._state = _State.CLOSING
+        self._closing.set()
+        logger.info(
+            "파이프라인 종료 트리거",
+            extra={"session_id": self._session_id, "reason": reason.value},
+        )
+
+    async def _teardown(self, *tasks: asyncio.Task | None) -> None:
+        if self._turn_task and not self._turn_task.done():
+            self._turn_task.cancel()
+            with suppress(asyncio.CancelledError, Exception):
+                await self._turn_task
+
+        for task in tasks:
+            if task is not None:
+                task.cancel()
+        for task in tasks:
+            if task is not None:
+                with suppress(asyncio.CancelledError, Exception):
+                    await task
+
+        reason = self._end_reason or EndReason.USER_END
+        if self._ws_alive:
+            if reason == EndReason.ERROR:
+                await self._send_json(error_frame("PIPELINE_ERROR"))
+            else:
+                await self._send_json(end_frame(reason))
+            with suppress(Exception):
+                await self._ws.close()
+
+        await self._spring.notify_session_closed(
+            self._session_id, reason=reason, transcript=self._history
+        )
+
+    async def _send_json(self, payload: dict) -> None:
+        """송신 도움"""
+        if not self._ws_alive:
+            return
+        try:
+            await self._ws.send_json(payload)
+        except Exception:
+            self._ws_alive = False
+            logger.debug("프레임 송신 실패, ws 종료로 간주", exc_info=True)
