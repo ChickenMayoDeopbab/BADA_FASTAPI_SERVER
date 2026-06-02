@@ -26,8 +26,8 @@ from app.services.tts import ElevenLabsTTSClient, TTSSession
 
 logger = logging.getLogger(__name__)
 
-# barge-in(AI 발화 중 끼어들기). RN의 AEC(에코 제거)가 전제라 아직 미검증 -> 기본 OFF.
-# OFF면 하프듀플렉스(발화 중 유저 입력 무시). 나중에 제대로 구현 시 True로.
+# barge-in off 해뒀음
+# OFF면 AI가 발화중에 입력 무시 나중에 제대로 구현 시 True로 고민
 _BARGE_IN_ENABLED = False
 _BARGE_IN_MIN_CHARS = 2
 _STT_RECYCLE_SECONDS = 240.0
@@ -138,6 +138,7 @@ class VoicePipeline:
             await self._close(EndReason.USER_END)
 
     async def _handle_client_text(self, raw: str) -> None:
+        """클라이언트 텍스트 핸들링"""
         try:
             data = json.loads(raw)
         except json.JSONDecodeError:
@@ -152,7 +153,7 @@ class VoicePipeline:
             self._muted = bool(data.get("muted", False))
 
     async def _stt_consumer(self) -> None:
-        """stt 소비. chirp_3가 스트림당 FINAL 1개 후 먹통이라 발화마다 스트림 재오픈."""
+        """stt 소비 발화마다 스트림 재오픈함"""
         try:
             while not self._closing.is_set():
                 await self._consume_one_stream(self._audio_queue)
@@ -163,27 +164,21 @@ class VoicePipeline:
             raise
 
     async def _consume_one_stream(self, queue: "asyncio.Queue[bytes | None]") -> None:
-        """한 스트림을 FINAL(또는 재활용 한계)까지 소비하고 즉시 닫는다.
-
-        plain async for라 orphan __anext__ 태스크가 없고(=aclose 충돌 없음),
-        닫을 땐 EOS로 요청 스트림을 먼저 끝낸 뒤 aclose로 즉시 종료한다(블로킹 없음).
-        """
+        """한 스트림을 FINAL까지 소비하고 닫음"""
         recycle_at = time.monotonic() + _STT_RECYCLE_SECONDS
         stream = self._stt.stream(queue)
         try:
             async for event in stream:
                 await self._handle_stt_event(event)
-                # 발화 1개 = 스트림 1개. FINAL이면 이 스트림을 닫고 새로 연다.
                 if event.type == STTEventType.FINAL or time.monotonic() >= recycle_at:
                     break
         finally:
-            # recv_loop를 새 큐로 먼저 돌리고(오디오 유실 최소화), 옛 스트림은 즉시 정리.
             if not self._closing.is_set() and self._audio_queue is queue:
                 self._audio_queue = asyncio.Queue()
             with suppress(Exception):
-                queue.put_nowait(AUDIO_EOS)  # 요청 스트림 종료 신호
+                queue.put_nowait(AUDIO_EOS)
             with suppress(Exception):
-                await stream.aclose()  # 강제 종료(즉시 반환)
+                await stream.aclose()  # 강제 종료
 
     async def _handle_stt_event(self, event) -> None:
         if self._state == _State.CLOSING:
@@ -206,6 +201,7 @@ class VoicePipeline:
         self._turn_task = asyncio.create_task(self._run_turn(user_utterance))
 
     async def _run_turn(self, user_utterance: str) -> None:
+        """턴 시작"""
         ctx = build_turn_context(
             self._session,
             current_step=self._current_step,
@@ -230,6 +226,7 @@ class VoicePipeline:
             emotion_ready.set()
 
         async def produce() -> None:
+            """이벤트 타입따라 분기"""
             try:
                 async for ev in self._llm.stream(ctx):
                     if ev.type == LLMEventType.EMOTION_RESOLVED:
@@ -343,7 +340,7 @@ class VoicePipeline:
         """종료"""
         assert self._max_duration is not None
         await asyncio.sleep(self._max_duration)
-        self._time_up = True  # 이후 새 턴 시작 금지
+        self._time_up = True
         logger.info(
             "최대 시간 도달, 현재 턴 마무리 후 종료",
             extra={"session_id": self._session_id},
@@ -351,7 +348,7 @@ class VoicePipeline:
         turn = self._turn_task
         if turn is not None and not turn.done():
             with suppress(asyncio.CancelledError, Exception):
-                await turn  # 진행 중 턴은 끝까지 말하게 둔다
+                await turn
         await self._close(EndReason.TIMEOUT)
 
     async def _close(self, reason: EndReason) -> None:
