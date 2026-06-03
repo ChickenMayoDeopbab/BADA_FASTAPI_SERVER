@@ -20,9 +20,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.settings = settings
     app.state.redis = await init_redis(settings.redis_url)
 
-    yield
-
-    await close_redis(app.state.redis)
+    try:
+        yield
+    finally:
+        await close_redis(app.state.redis)
 
 
 def create_app() -> FastAPI:

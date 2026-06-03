@@ -31,9 +31,8 @@ secrets/
 Thumbs.db
 
 # Test/Coverage
-.pytest_cache/
 htmlcov/
 .coverage
+tests/output/
 
-# Ruff
-.ruff_cache/
+records/

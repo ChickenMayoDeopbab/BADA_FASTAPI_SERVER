@@ -1,6 +1,10 @@
 import logging
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect, status
+from fastapi import Depends
+from redis.asyncio import Redis
 
+from app.deps.redis import get_redis
+from app.services.session import authenticate_session
 from app.core.security import authenticate_ws
 
 logger = logging.getLogger(__name__)
@@ -11,13 +15,20 @@ async def voice_stream(
         ws: WebSocket,
         session_id: str,
         token: str = Query(..., description="JWT access token"),
+        redis: Redis = Depends(get_redis),
 ) -> None:
+    """웹소켓 연결"""
     await ws.accept()
 
     try:
         user_id, role = await authenticate_ws(ws, token)
     except Exception as e:
         # authenticate_ws가 예외 처리 해줌
+        return
+
+    try:
+        session = await authenticate_session(ws, redis, session_id, user_id)
+    except RuntimeError:
         return
 
     logging.info(
