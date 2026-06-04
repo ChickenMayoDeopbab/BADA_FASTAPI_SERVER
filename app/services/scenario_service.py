@@ -1,8 +1,11 @@
 from __future__ import annotations
 import json
 from datetime import datetime
+
 from anthropic import AsyncAnthropic
-from app.core.enums import ScenarioCategory, Difficulty, SessionType
+
+from app.core.config import get_settings
+from app.core.enums import Difficulty, Personality, ScenarioCategory, SessionType
 from app.core.preset_scenarios import PRESET_MAP, PRESET_SCENARIOS, scenario_to_info
 from app.core.prompt_matrix import PERSONALITY_BASE, build_system_prompt
 from app.schemas.scenario import (
@@ -15,12 +18,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import ScenarioORM, CallSessionORM
 
-_client = AsyncAnthropic()
-
 async def get_scenarios(
         db: AsyncSession,
         category: ScenarioCategory | None) -> ScenarioListResponse:
-    stmt = select(ScenarioORM).where(ScenarioORM.is_custom == False)
+    stmt = select(ScenarioORM)
     result = await db.execute(stmt)
     rows = result.scalars().all()
 
@@ -32,6 +33,28 @@ async def get_scenarios(
 
     infos = []
     for row in rows:
+        if row.is_custom:
+            if category and category != ScenarioCategory.CUSTOM:
+                continue
+            infos.append(ScenarioInfo(
+                scenario_id=row.scenario_id,
+                title=row.title,
+                content=row.content,
+                category=ScenarioCategory.CUSTOM,
+                difficulties=[Difficulty.LOW, Difficulty.MEDIUM, Difficulty.HIGH],
+                personalities=[
+                    Personality.FRIENDLY,
+                    Personality.NEUTRAL,
+                    Personality.PICKY,
+                    Personality.RUDE,
+                ],
+                scenario_image=row.scenario_image,
+                tts_voice_id=row.tts_voice_id,
+                ai_prompt=row.ai_prompt,
+                is_custom=row.is_custom,
+            ))
+            continue
+
         seed = PRESET_MAP.get(row.scenario_id)
         if seed is None:
             continue
@@ -109,14 +132,19 @@ async def create_custom_session(
         request: CustomSessionRequest,
         user_id: int,
 ) -> CustomSessionResponse:
+    settings = get_settings()
+    if not settings.anthropic_api_key:
+        raise ValueError("ANTHROPIC_API_KEY가 설정되어 있지 않습니다.")
+
     user_msg = (
         f"Call purpose: {request.call_purpose}\n"
         f"Call target: {request.call_target}\n"
         f"Personality: {request.personality.value} — {PERSONALITY_BASE[request.personality]}"
     )
 
-    ai_response = await _client.messages.create(
-        model="claude-sonnet-4-20250514",
+    client = AsyncAnthropic(api_key=settings.anthropic_api_key)
+    ai_response = await client.messages.create(
+        model=settings.llm_analysis_model,
         max_tokens=500,
         system=_SCENARIO_GEN_SYSTEM,
         messages=[MessageParam(role="user", content=user_msg)],

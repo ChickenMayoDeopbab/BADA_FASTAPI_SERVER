@@ -10,7 +10,7 @@ def get_current_user_id(
 ) -> int:
     payload = decode_access_token(credentials.credentials)
     try:
-        return payload["sub"]
+        return int(payload["sub"])
     except(KeyError, ValueError) as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
