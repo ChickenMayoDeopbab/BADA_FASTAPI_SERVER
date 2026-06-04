@@ -3,8 +3,10 @@ import base64
 import json
 import logging
 from collections.abc import AsyncIterator
+from contextlib import suppress
 
 import websockets
+from websockets.asyncio.client import ClientConnection
 from websockets.exceptions import WebSocketException
 
 from app.core.config import Settings
@@ -20,8 +22,67 @@ _EMOTION_VOICE_OVERRIDES: dict[AiEmotion, dict] = {
     AiEmotion.APOLOGETIC: {"stability": 0.60, "style": 0.10, "speed": 0.96},
 }
 
+
+class TTSSession:
+    """턴 1번마다 ElevenLabs ws 연결"""
+
+    def __init__(self, ws: ClientConnection, voice_settings: dict[str, object]) -> None:
+        self._ws = ws
+        self._base_voice_settings = voice_settings
+        self._inited = False
+        self._closed = False
+
+    def _voice_settings_for(self, emotion: AiEmotion) -> dict:
+        settings = dict(self._base_voice_settings)
+        settings.update(_EMOTION_VOICE_OVERRIDES.get(emotion, {}))
+        return settings
+
+    async def begin(self, emotion: AiEmotion = AiEmotion.NEUTRAL) -> None:
+        if self._inited:
+            return
+        await self._ws.send(
+            json.dumps({"text": " ", "voice_settings": self._voice_settings_for(emotion)})
+        )
+        self._inited = True
+
+    async def _send_text(self, text_source: AsyncIterator[str]) -> None:
+        async for chunk in text_source:
+            if not chunk:
+                continue
+            payload = chunk if chunk.endswith(" ") else chunk + " "
+            await self._ws.send(json.dumps({"text": payload}))
+        await self._ws.send(json.dumps({"text": ""}))
+
+    async def stream(self, text_source: AsyncIterator[str]) -> AsyncIterator[bytes]:
+        if not self._inited:
+            raise RuntimeError("TTSSession.begin()을 먼저 호출해야 합니다.")
+
+        sender = asyncio.create_task(self._send_text(text_source))
+        try:
+            async for raw in self._ws:
+                msg = json.loads(raw)
+                audio_b64 = msg.get("audio")
+                if audio_b64:
+                    yield base64.b64decode(audio_b64)
+                if msg.get("isFinal"):
+                    break
+        finally:
+            if not sender.done():
+                sender.cancel()
+            with suppress(asyncio.CancelledError):
+                await sender
+
+    async def aclose(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            await self._ws.close()
+        except Exception:
+            logger.debug("TTS ws close 중 무시된 예외", exc_info=True)
+
+
 class ElevenLabsTTSClient:
-    """TTS 클라이언트, Elevenlabs Flash 2.5 모델 사용, 턴당 ws 연결"""
     def __init__(self, settings: Settings) -> None:
         self._api_key = settings.elevenlabs_api_key
         self._voice_id = settings.elevenlabs_voice_id
@@ -36,7 +97,7 @@ class ElevenLabsTTSClient:
             "similarity_boost": settings.elevenlabs_similarity_boost,
             "style": settings.elevenlabs_style,
             "use_speaker_boost": settings.elevenlabs_speaker_boost,
-            "speed": settings.elevenlabs_speed
+            "speed": settings.elevenlabs_speed,
         }
 
     def _build_uri(self) -> str:
@@ -49,55 +110,27 @@ class ElevenLabsTTSClient:
             f"&apply_text_normalization={self._text_normalization}"
         )
 
-    def _voice_settings_for(self, emotion: AiEmotion):
-        settings = dict(self._voice_settings)
-        settings.update(_EMOTION_VOICE_OVERRIDES.get(emotion, {}))
-        return settings
-
-    def _build_init_message(self, emotion: AiEmotion) -> dict:
-        return {"text": " ", "voice_settings": self._voice_settings_for(emotion)}
-
-    async def _send_text(self, ws, text_source: AsyncIterator[str]) -> None:
-        async for chunk in text_source:
-            if not chunk:
-                continue
-            payload = chunk if chunk.endswith(" ") else chunk + " "
-            await ws.send(json.dumps({"text": payload}))
-        await ws.send(json.dumps({"text": ""}))
+    async def open(self) -> TTSSession:
+        """ws 연결"""
+        try:
+            ws = await websockets.connect(
+                self._build_uri(),
+                additional_headers={"xi-api-key": self._api_key},
+            )
+        except WebSocketException:
+            logger.exception("TTS WebSocket 연결 실패")
+            raise
+        return TTSSession(ws, self._voice_settings)
 
     async def stream(
-            self,
-            text_source: AsyncIterator[str],
-            emotion: AiEmotion = AiEmotion.NEUTRAL
+        self,
+        text_source: AsyncIterator[str],
+        emotion: AiEmotion = AiEmotion.NEUTRAL,
     ) -> AsyncIterator[bytes]:
-        uri = self._build_uri()
-        headers = {"xi-api-key": self._api_key}
-
+        session = await self.open()
         try:
-            async with websockets.connect(uri, additional_headers=headers) as ws:
-                await ws.send(json.dumps(self._build_init_message(emotion)))
-
-                sender = asyncio.create_task(self._send_text(ws, text_source))
-                try:
-                    async for raw in ws:
-                        msg = json.loads(raw)
-
-                        audio_b64 = msg.get("audio")
-                        if audio_b64:
-                            yield base64.b64decode(audio_b64)
-
-                        if msg.get("isFinal"):
-                            break
-                finally:
-                    if not sender.done():
-                        sender.cancel()
-                    try:
-                        await sender
-                    except asyncio.CancelledError:
-                        pass
-
-        except asyncio.CancelledError:
-            raise
-        except WebSocketException:
-            logger.exception("TTS WebSocket 에러")
-            raise
+            await session.begin(emotion)
+            async for pcm in session.stream(text_source):
+                yield pcm
+        finally:
+            await session.aclose()

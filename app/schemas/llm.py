@@ -4,27 +4,30 @@ from enum import Enum
 class AiPersonality(str, Enum):
     """AI 성격"""
 
-    KIND = "KIND" # 친절
-    NORMAL = "NORMAL" # 보통
-    TOUGH = "TOUGH" # 까다로움
-    RUDE = "RUDE" # 진상
+    KIND = "KIND"       # 친절
+    NORMAL = "NORMAL"   # 보통
+    TOUGH = "TOUGH"     # 까다로움
+    RUDE = "RUDE"       # 진상
 
 class AiEmotion(str, Enum):
     """AI 감정 상태"""
 
-    NEUTRAL = "NEUTRAL" # 평상시
-    FRIENDLY = "FRIENDLY" # 긍정
-    ANNOYED = "ANNOYED" # 약간 짜증냄
-    ANGRY = "ANGRY" # 화남
-    APOLOGETIC = "APOLOGETIC" # 미안함
+    NEUTRAL = "NEUTRAL"         # 평상시
+    FRIENDLY = "FRIENDLY"       # 긍정
+    ANNOYED = "ANNOYED"         # 약간 짜증냄
+    ANGRY = "ANGRY"             # 화남
+    APOLOGETIC = "APOLOGETIC"   # 미안함
 
 class LLMEventType(str, Enum):
     """LLM 이벤트 상태"""
 
-    EMOTION_RESOLVED = "EMOTION_RESOLVED" # 감정 확정
-    TEXT_DELTA = "TEXT_DELTA" # 텍스트 스트리밍
-    TURN_END = "TURN_END" # 응답 완료
-    SAFETY_BLOCK = "SAFETY_BLOCK" # 부적절한 응답
+    EMOTION_RESOLVED = "EMOTION_RESOLVED"   # 감정 확정
+    TEXT_DELTA = "TEXT_DELTA"               # 텍스트 스트리밍
+    STEP_DONE = "STEP_DONE"                 # 현재 시나리오 step 완료 신호
+    END_CALL = "END_CALL"                   # 통화 종료 신호
+    TURN_END = "TURN_END"                   # 응답 완료
+    SAFETY_BLOCK = "SAFETY_BLOCK"           # 부적절한 응답
+    ERROR = "ERROR"                         # 서버/네트워크 에러
 
 @dataclass
 class LLMEvent:
@@ -46,10 +49,10 @@ class ScenarioTurn:
 class TurnContext:
     """LLM 호출에 필요한 입력"""
 
-    personality: AiPersonality # AI 성격
-    scenario_title: str # 시나리오 제목
-    scenario_role: str # AI가 연기할 역할
+    personality: AiPersonality  # AI 성격
+    scenario_title: str         # 시나리오 제목
+    scenario_role: str          # AI가 연기할 역할
     script: list[ScenarioTurn]
-    current_step: int # 몇 번째
-    history: list[dict] # 나눴던 대화
-    user_utterance: str # 사용자가 말한 내용
+    current_step: int           # 몇 번째
+    history: list[dict]         # 나눴던 대화
+    user_utterance: str         # 사용자가 말한 내용
