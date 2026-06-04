@@ -43,9 +43,9 @@ async def get_scenarios(
                 category=ScenarioCategory.CUSTOM,
                 difficulties=[Difficulty.LOW, Difficulty.MEDIUM, Difficulty.HIGH],
                 personalities=[
-                    Personality.FRIENDLY,
+                    Personality.KIND,
                     Personality.NEUTRAL,
-                    Personality.PICKY,
+                    Personality.TOUGH,
                     Personality.RUDE,
                 ],
                 scenario_image=row.scenario_image,

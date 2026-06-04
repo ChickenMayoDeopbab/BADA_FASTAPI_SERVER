@@ -2,7 +2,7 @@ import random
 from app.core.enums import Difficulty, Personality
 
 PERSONALITY_BASE: dict[Personality, str] = {
-    Personality.FRIENDLY: (
+    Personality.KIND: (
         "You are extremely warm, patient, and emotionally supportive. "
         "Speak in a calm and gentle tone. "
         "If the user hesitates, speaks awkwardly, or makes mistakes, respond reassuringly and help them continue naturally. "
@@ -16,7 +16,7 @@ PERSONALITY_BASE: dict[Personality, str] = {
         "If the user says something unclear, ask for clarification only once. "
         "Maintain a balanced and realistic conversational tone."
     ),
-    Personality.PICKY: (
+    Personality.TOUGH: (
         "You are strict, detail-oriented, and difficult to satisfy. "
         "When the user gives vague, inaccurate, or incomplete information, immediately point it out and ask for specific details. "
         "Speak briefly and sharply. "

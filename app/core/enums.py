@@ -5,9 +5,9 @@ class SessionType(str, Enum):
     TRAINING = "training"
 
 class Personality(str, Enum):
-    FRIENDLY = "friendly"
+    KIND = "kind"
     NEUTRAL = "neutral"
-    PICKY = "picky"
+    TOUGH = "tough"
     RUDE = "rude"
 
 class Difficulty(str, Enum):

@@ -16,7 +16,7 @@ PRESET_SCENARIOS: list[dict] = [
             "Confirm the customer's preferred date, time, and number of guests, then process the reservation naturally and professionally."
         ),
         "difficulties": [Difficulty.LOW, Difficulty.MEDIUM, Difficulty.HIGH],
-        "personalities": [Personality.FRIENDLY, Personality.NEUTRAL, Personality.PICKY, Personality.RUDE],
+        "personalities": [Personality.KIND, Personality.NEUTRAL, Personality.TOUGH, Personality.RUDE],
         "is_custom": False,
     }, {
         "scenario_id": 2,
@@ -33,7 +33,7 @@ PRESET_SCENARIOS: list[dict] = [
             "If they want to cancel, ask for the reason politely before processing it."
         ),
         "difficulties": [Difficulty.LOW, Difficulty.MEDIUM, Difficulty.HIGH],
-        "personalities": [Personality.FRIENDLY, Personality.NEUTRAL, Personality.PICKY, Personality.RUDE],
+        "personalities": [Personality.KIND, Personality.NEUTRAL, Personality.TOUGH, Personality.RUDE],
         "is_custom": False,
     }, {
         "scenario_id": 3,
@@ -49,7 +49,7 @@ PRESET_SCENARIOS: list[dict] = [
             "Handle appointment requests by confirming the department, preferred date, and available time slots."
         ),
         "difficulties": [Difficulty.LOW, Difficulty.MEDIUM, Difficulty.HIGH],
-        "personalities": [Personality.FRIENDLY, Personality.NEUTRAL, Personality.PICKY, Personality.RUDE],
+        "personalities": [Personality.KIND, Personality.NEUTRAL, Personality.TOUGH, Personality.RUDE],
         "is_custom": False,
     }, {
         "scenario_id": 4,
@@ -65,7 +65,7 @@ PRESET_SCENARIOS: list[dict] = [
             "Provide general guidance naturally and recommend speaking with a doctor if necessary."
         ),
         "difficulties": [Difficulty.LOW, Difficulty.MEDIUM, Difficulty.HIGH],
-        "personalities": [Personality.FRIENDLY, Personality.NEUTRAL, Personality.PICKY, Personality.RUDE],
+        "personalities": [Personality.KIND, Personality.NEUTRAL, Personality.TOUGH, Personality.RUDE],
         "is_custom": False,
     }, {
         "scenario_id": 5,
@@ -81,7 +81,7 @@ PRESET_SCENARIOS: list[dict] = [
             "Listen to the customer's complaint about a delayed delivery, check the current status, and suggest realistic solutions."
         ),
         "difficulties": [Difficulty.LOW, Difficulty.MEDIUM, Difficulty.HIGH],
-        "personalities": [Personality.FRIENDLY, Personality.NEUTRAL, Personality.PICKY, Personality.RUDE],
+        "personalities": [Personality.KIND, Personality.NEUTRAL, Personality.TOUGH, Personality.RUDE],
         "is_custom": False,
     }, {
         "scenario_id": 6,
@@ -97,7 +97,7 @@ PRESET_SCENARIOS: list[dict] = [
             "Handle refund or exchange requests, explain the required process, and ask necessary questions about the product issue."
         ),
         "difficulties": [Difficulty.LOW, Difficulty.MEDIUM, Difficulty.HIGH],
-        "personalities": [Personality.FRIENDLY, Personality.NEUTRAL, Personality.PICKY, Personality.RUDE],
+        "personalities": [Personality.KIND, Personality.NEUTRAL, Personality.TOUGH, Personality.RUDE],
         "is_custom": False,
     }, {
         "scenario_id": 7,
@@ -113,7 +113,7 @@ PRESET_SCENARIOS: list[dict] = [
             "Answer questions about package delivery status and help the customer change the delivery address if possible."
         ),
         "difficulties": [Difficulty.LOW, Difficulty.MEDIUM, Difficulty.HIGH],
-        "personalities": [Personality.FRIENDLY, Personality.NEUTRAL, Personality.PICKY, Personality.RUDE],
+        "personalities": [Personality.KIND, Personality.NEUTRAL, Personality.TOUGH, Personality.RUDE],
         "is_custom": False,
     }, {
         "scenario_id": 8,
@@ -129,7 +129,7 @@ PRESET_SCENARIOS: list[dict] = [
             "Answer customer questions related to bank accounts, transfers, cards, and loans accurately and professionally."
         ),
         "difficulties": [Difficulty.LOW, Difficulty.MEDIUM, Difficulty.HIGH],
-        "personalities": [Personality.FRIENDLY, Personality.NEUTRAL, Personality.PICKY, Personality.RUDE],
+        "personalities": [Personality.KIND, Personality.NEUTRAL, Personality.TOUGH, Personality.RUDE],
         "is_custom": False,
     }
 ]
