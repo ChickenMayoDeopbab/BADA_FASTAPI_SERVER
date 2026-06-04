@@ -8,6 +8,8 @@ from app.api.v1 import internal, websocket
 from app.core.config import get_settings
 from app.core.logging import setup_logging
 from app.deps.redis import close_redis, init_redis
+from app.api.v1.scenario import router as scenario_router
+from app.db.base import init_db
 
 
 @asynccontextmanager
@@ -18,6 +20,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     app.state.settings = settings
     app.state.redis = await init_redis(settings.redis_url)
+
+    await init_db()
 
     try:
         yield
@@ -48,7 +52,7 @@ def create_app() -> FastAPI:
 
     app.include_router(websocket.router, prefix="/ws", tags=["websocket"])
     app.include_router(internal.router, prefix="/internal/v1", tags=["internal"])
-
+    app.include_router(scenario_router)
     return app
 
 app = create_app()

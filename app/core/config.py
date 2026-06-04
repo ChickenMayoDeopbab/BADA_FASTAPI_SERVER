@@ -36,7 +36,7 @@ class Settings(BaseSettings):
 
     # LLM(분석)
     anthropic_api_key: str
-    llm_analysis_model: str = "claude-sonnet-4-6"
+    llm_analysis_model: str = "claude-sonnet-4-20250514"
 
     # TTS
     elevenlabs_api_key: str
@@ -56,6 +56,8 @@ class Settings(BaseSettings):
     # Internal callback
     spring_boot_internal_url: str
 
+    # DB
+    database_url: str
 
 @lru_cache
 def get_settings() -> Settings:
