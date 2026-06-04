@@ -1,6 +1,6 @@
 from __future__ import annotations
 import json
-from datetime import datetime, timezone
+from datetime import datetime
 from anthropic import AsyncAnthropic
 from app.core.enums import ScenarioCategory, Difficulty, SessionType
 from app.core.preset_scenarios import PRESET_MAP, PRESET_SCENARIOS, scenario_to_info
@@ -19,8 +19,7 @@ _client = AsyncAnthropic()
 
 async def get_scenarios(
         db: AsyncSession,
-        category: ScenarioCategory | None,
-        difficulty: Difficulty | None) -> ScenarioListResponse:
+        category: ScenarioCategory | None) -> ScenarioListResponse:
     stmt = select(ScenarioORM).where(ScenarioORM.is_custom == False)
     result = await db.execute(stmt)
     rows = result.scalars().all()
@@ -29,8 +28,6 @@ async def get_scenarios(
         result_list = PRESET_SCENARIOS
         if category:
             result_list = [s for s in result_list if s["category"] == category]
-        if difficulty:
-            result_list = [s for s in result_list if difficulty in s["difficulties"]]
         return ScenarioListResponse(scenarios=[scenario_to_info(s) for s in result_list])
 
     infos = []
@@ -39,8 +36,6 @@ async def get_scenarios(
         if seed is None:
             continue
         if category and seed["category"] != category:
-            continue
-        if difficulty and difficulty not in seed["difficulties"]:
             continue
         infos.append(ScenarioInfo(
             scenario_id=row.scenario_id,
@@ -71,7 +66,7 @@ async def create_session(
         call_purpose=scenario["call_purpose"],
         base_prompt=scenario["ai_prompt"],
     )
-    now = datetime.now(timezone.utc)
+    now = datetime.utcnow()
 
     db_record = CallSessionORM(
         scenario_id=request.scenario_id,
@@ -134,7 +129,7 @@ async def create_custom_session(
             raw = raw[4:]
     data: dict = json.loads(raw.strip())
 
-    now = datetime.now(timezone.utc)
+    now = datetime.utcnow()
 
     scenario_orm = ScenarioORM(
         title=data["title"],

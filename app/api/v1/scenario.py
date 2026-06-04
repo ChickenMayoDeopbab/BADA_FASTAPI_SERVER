@@ -30,9 +30,8 @@ router = APIRouter(prefix="/api/v1/scenario", tags=["scenario"])
 async def list_scenarios(
     db: AsyncSession = Depends(get_db),
     category:   ScenarioCategory | None = Query(None, description="카테고리 선택"),
-    difficulty: Difficulty        | None = Query(None, description="난이도 선택"),
 ) -> ScenarioListResponse:
-    return await svc_get_scenarios(db, category, difficulty)
+    return await svc_get_scenarios(db, category)
 
 @router.post(
 "/sessions",

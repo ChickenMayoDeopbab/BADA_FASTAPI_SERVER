@@ -9,6 +9,7 @@ from app.core.config import get_settings
 from app.core.logging import setup_logging
 from app.deps.redis import close_redis, init_redis
 from app.api.v1.scenario import router as scenario_router
+from app.db.base import init_db
 
 
 @asynccontextmanager
@@ -19,6 +20,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     app.state.settings = settings
     app.state.redis = await init_redis(settings.redis_url)
+
+    await init_db()
 
     try:
         yield
