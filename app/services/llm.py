@@ -1,8 +1,9 @@
+import asyncio
 import logging
 import re
 
 from google import genai
-from google.genai import types
+from google.genai import errors, types
 
 from app.core.config import get_settings
 from app.schemas.llm import AiEmotion, LLMEvent, LLMEventType, TurnContext
@@ -12,6 +13,58 @@ logger = logging.getLogger(__name__)
 
 _EMOTION_PATTERN = re.compile(r"\[EMOTION:\s*([A-Z_]+)\s*\]", re.IGNORECASE)
 _EMOTION_PREFIX = "[EMOTION"
+
+_CONTROL_TAGS: dict[str, LLMEventType] = {
+    "[STEP_DONE]": LLMEventType.STEP_DONE,
+    "[END_CALL]": LLMEventType.END_CALL,
+}
+
+
+def _find_first_tag(buffer: str) -> tuple[int, str] | None:
+    best_idx: int | None = None
+    best_tag = ""
+    for tag in _CONTROL_TAGS:
+        idx = buffer.find(tag)
+        if idx != -1 and (best_idx is None or idx < best_idx):
+            best_idx, best_tag = idx, tag
+    if best_idx is None:
+        return None
+    return best_idx, best_tag
+
+
+def _trailing_partial_len(buffer: str) -> int:
+    max_hold = 0
+    for tag in _CONTROL_TAGS:
+        limit = min(len(buffer), len(tag) - 1)
+        for k in range(limit, 0, -1):
+            if tag.startswith(buffer[-k:]):
+                max_hold = max(max_hold, k)
+                break
+    return max_hold
+
+
+def _drain_pending(pending: str) -> tuple[str, list[LLMEventType], str]:
+    emit_parts: list[str] = []
+    controls: list[LLMEventType] = []
+
+    while True:
+        found = _find_first_tag(pending)
+        if found is None:
+            break
+        idx, tag = found
+        if idx > 0:
+            emit_parts.append(pending[:idx])
+        controls.append(_CONTROL_TAGS[tag])
+        pending = pending[idx + len(tag):]
+
+    hold = _trailing_partial_len(pending)
+    if hold:
+        emit_parts.append(pending[:-hold])
+        pending = pending[-hold:]
+    else:
+        emit_parts.append(pending)
+        pending = ""
+    return "".join(emit_parts), controls, pending
 
 # 혐오, 증오, 성적 표현 막기
 _SAFETY_SETTINGS = [
@@ -79,6 +132,7 @@ class LLMClient:
 
         head_buffer = ""
         emotion_resolved = False
+        pending = ""
 
         try:
             stream = await self._client.aio.models.generate_content_stream(
@@ -93,44 +147,68 @@ class LLMClient:
                     return
 
                 delta = chunk.text or ""
-
                 if not delta:
                     continue
 
+                if not emotion_resolved:
+                    head_buffer += delta
+                    parsed = self._emit_emotion_head(head_buffer)
+                    if parsed is None:
+                        if self._looks_like_partial_head(head_buffer):
+                            continue
+                        yield LLMEvent(
+                            type=LLMEventType.EMOTION_RESOLVED, emotion=AiEmotion.NEUTRAL
+                        )
+                        emotion_resolved = True
+                        pending = head_buffer
+                        head_buffer = ""
+                    else:
+                        emotion, remainder = parsed
+                        emotion_resolved = True
+                        head_buffer = ""
+                        yield LLMEvent(
+                            type=LLMEventType.EMOTION_RESOLVED, emotion=emotion
+                        )
+                        pending = remainder
+                else:
+                    pending += delta
+
                 if emotion_resolved:
-                    yield LLMEvent(type=LLMEventType.TEXT_DELTA, text=delta)
-                    continue
-
-                head_buffer += delta
-                parsed = self._emit_emotion_head(head_buffer)
-                if parsed is None:
-                    if self._looks_like_partial_head(head_buffer):
-                        continue
-                    yield LLMEvent(type=LLMEventType.EMOTION_RESOLVED, emotion=AiEmotion.NEUTRAL)
-                    yield LLMEvent(type=LLMEventType.TEXT_DELTA, text=head_buffer)
-                    emotion_resolved = True
-                    head_buffer = ""
-                    continue
-
-                emotion, remainder = parsed
-                emotion_resolved = True
-                head_buffer = ""
-                yield LLMEvent(type=LLMEventType.EMOTION_RESOLVED, emotion=emotion)
-                if remainder:
-                    yield LLMEvent(type=LLMEventType.TEXT_DELTA, text=remainder)
+                    text, controls, pending = _drain_pending(pending)
+                    if text:
+                        yield LLMEvent(type=LLMEventType.TEXT_DELTA, text=text)
+                    for control in controls:
+                        yield LLMEvent(type=control)
 
             if not emotion_resolved:
-                yield LLMEvent(type=LLMEventType.EMOTION_RESOLVED, emotion=AiEmotion.NEUTRAL)
+                yield LLMEvent(
+                    type=LLMEventType.EMOTION_RESOLVED, emotion=AiEmotion.NEUTRAL
+                )
                 if head_buffer and not self._looks_like_partial_head(head_buffer):
-                    yield LLMEvent(type=LLMEventType.TEXT_DELTA, text=head_buffer)
+                    text, controls, _ = _drain_pending(head_buffer)
+                    if text:
+                        yield LLMEvent(type=LLMEventType.TEXT_DELTA, text=text)
+                    for control in controls:
+                        yield LLMEvent(type=control)
                 elif head_buffer:
                     logger.warning("미완성 emotion 태그로 응답 종료, 대사 없음: %r", head_buffer)
+            elif pending:
+                if _trailing_partial_len(pending) == len(pending):
+                    logger.debug("미완성 제어 태그로 종료, 누락: %r", pending)
+                else:
+                    yield LLMEvent(type=LLMEventType.TEXT_DELTA, text=pending)
 
             yield LLMEvent(type=LLMEventType.TURN_END)
 
+        except asyncio.CancelledError:
+            logger.debug("LLM 스트림 취소(barge-in 등)")
+            raise
+        except errors.APIError:
+            logger.exception("LLM API 에러(rate limit/네트워크 등)")
+            yield LLMEvent(type=LLMEventType.ERROR)
         except Exception:
-            logger.exception("LLM 스트리밍 중 예외 발생")
-            yield LLMEvent(type=LLMEventType.SAFETY_BLOCK)
+            logger.exception("LLM 스트리밍 중 예상치 못한 예외")
+            yield LLMEvent(type=LLMEventType.ERROR)
 
     @staticmethod
     def _is_blocked(chunk) -> bool:

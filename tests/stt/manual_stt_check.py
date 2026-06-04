@@ -7,6 +7,7 @@ import time
 import sounddevice as sd
 
 from app.services.stt import AUDIO_EOS, GoogleSTTClient, STTEventType
+from app.core.config import get_settings
 
 logging.basicConfig(
     level=logging.INFO,
@@ -75,16 +76,13 @@ async def consume_events(client: GoogleSTTClient, audio_queue) -> None:
 
 
 async def main() -> None:
-    project_id = os.environ.get("GOOGLE_PROJECT_ID")
-    if not project_id:
-        logger.error("GOOGLE_PROJECT_ID 환경변수가 필요합니다.")
-        sys.exit(1)
+    settings = get_settings()
 
     client = GoogleSTTClient(
-        project_id=project_id,
-        location=os.environ.get("GOOGLE_STT_LOCATION", "us"),
-        model=os.environ.get("GOOGLE_STT_MODEL", "chirp_3"),
-        language=os.environ.get("GOOGLE_STT_LANGUAGE", "ko-KR"),
+        project_id=settings.google_project_id,
+        location=settings.google_stt_location,
+        model=settings.google_stt_model,
+        language=settings.google_stt_language,
         sample_rate_hertz=SAMPLE_RATE,
     )
 

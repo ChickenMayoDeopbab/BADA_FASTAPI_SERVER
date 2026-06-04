@@ -45,6 +45,16 @@ _EMOTION_INSTRUCTION = (
     "그 다음 줄부터 실제 대사를 쓴다. 감정 태그는 한 번만, 맨 앞에만 출력한다."
 )
 
+# 시나리오 진행/종료 제어 태그. emotion 헤드랑 같은 방식으로 오케스트레이터가 파싱함 ㅇㅇ
+_CONTROL_TAG_INSTRUCTION = (
+    "대사 안에는 제어 태그를 절대 섞지 않는다. 제어 태그는 항상 대사를 모두 끝낸 뒤, "
+    "응답의 맨 마지막 줄에만 단독으로 출력한다.\n"
+    "- 이번 턴으로 현재 단계의 목적이 충분히 달성됐다고 판단하면 마지막 줄에 [STEP_DONE] 을 출력한다.\n"
+    "- 통화를 끝내야 할 때(시나리오 마지막 마무리 인사를 마쳤거나, 위기 신호로 통화를 "
+    "정중히 종료한 직후)만 마지막 줄에 [END_CALL] 을 출력한다. 그 외에는 절대 쓰지 않는다.\n"
+    "- 두 태그가 동시에 필요하면 [STEP_DONE] 을 먼저, [END_CALL] 을 그 다음 줄에 출력한다."
+)
+
 # 숫자 정규화 금지하는거
 _NUMBER_RULE = (
     "숫자는 아라비아 숫자 그대로 쓴다(예: '3시 30분', '2명'). "
@@ -78,6 +88,7 @@ def build_system_prompt(ctx: TurnContext) -> str:
         f"[의료/윤리]\n{_MEDICAL_GUARD}\n\n"
         f"[{_SAFETY_BOUNDARY}]\n\n"
         f"[출력 형식]\n{_EMOTION_INSTRUCTION}\n\n"
+        f"[진행/종료 제어]\n{_CONTROL_TAG_INSTRUCTION}\n\n"
         f"[표현 규칙]\n{_NUMBER_RULE}\n{_STYLE_RULE}"
     )
 

@@ -5,6 +5,8 @@ from typing import Any
 from fastapi import WebSocket, status
 from redis.asyncio import Redis
 
+from app.schemas.llm import AiPersonality, ScenarioTurn, TurnContext
+
 logger = logging.getLogger(__name__)
 
 SESSION_KEY_PREFIX = "session:"
@@ -78,3 +80,53 @@ async def authenticate_session(
         raise RuntimeError("SESSION_FORBIDDEN")
 
     return session
+
+
+def _parse_script(raw_script: Any) -> list[ScenarioTurn]:
+    """세션의 리스트 딕셔너리를 ScenarioTurn 리스트로."""
+    turns: list[ScenarioTurn] = []
+    if not isinstance(raw_script, list):
+        return turns
+    for item in raw_script:
+        if not isinstance(item, dict):
+            continue
+        try:
+            turns.append(
+                ScenarioTurn(
+                    step=int(item["step"]),
+                    ai_goal=str(item["aiGoal"]),
+                    hint=str(item.get("hint", "")),
+                )
+            )
+        except (KeyError, TypeError, ValueError):
+            logger.warning("시나리오 턴 파싱 실패, 건너뜀: %r", item)
+    return sorted(turns, key=lambda t: t.step)
+
+
+def build_turn_context(
+    session: dict[str, Any],
+    *,
+    current_step: int,
+    history: list[dict],
+    user_utterance: str,
+) -> TurnContext:
+    raw_personality = session.get("aiPersonality", AiPersonality.NORMAL.value)
+    try:
+        personality = AiPersonality(str(raw_personality).upper())
+    except ValueError:
+        logger.warning("알 수 없는 aiPersonality, NORMAL로 대체: %r", raw_personality)
+        personality = AiPersonality.NORMAL
+
+    scenario = session.get("scenario") or {}
+    if not isinstance(scenario, dict):
+        scenario = {}
+
+    return TurnContext(
+        personality=personality,
+        scenario_title=str(scenario.get("title", "")),
+        scenario_role=str(scenario.get("aiRole", "")),
+        script=_parse_script(scenario.get("script")),
+        current_step=current_step,
+        history=history,
+        user_utterance=user_utterance,
+    )
