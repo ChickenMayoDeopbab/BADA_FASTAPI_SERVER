@@ -79,6 +79,9 @@ class VoicePipeline:
         self._closing = asyncio.Event()
         self._end_reason: EndReason | None = None
 
+        self._listening_since: float | None = None
+        self._silence_total: float = 0
+
         max_duration = session.get("maxDurationSeconds")
         if max_duration is None and session.get("type") == SessionType.WARMUP:
             max_duration = 30  # Spring이 안 박아도 워밍업은 30초 보장
@@ -195,6 +198,13 @@ class VoicePipeline:
             text = event.text.strip()
             if text and self._state == _State.LISTENING and not self._time_up:
                 self._start_turn(text)
+        elif event.type == STTEventType.SPEECH_BEGIN:
+            if (
+                    self._listening_since is not None and
+                    time.monotonic() - self._listening_since > 1.5 and
+                    self._state == _State.LISTENING):
+                self._silence_total += time.monotonic() - self._listening_since
+                self._listening_since = None
 
     def _start_turn(self, user_utterance: str) -> None:
         """LLM -> TTS"""
@@ -326,6 +336,7 @@ class VoicePipeline:
 
         self._turn_task = None
         self._state = _State.LISTENING
+        self._listening_since = time.monotonic()
 
     async def _barge_in(self) -> None:
         if self._turn_task and not self._turn_task.done():
@@ -387,7 +398,7 @@ class VoicePipeline:
                 await self._ws.close()
 
         await self._spring.notify_session_closed(
-            self._session_id, reason=reason, transcript=self._history
+            self._session_id, reason=reason, transcript=self._history, silence_total=self._silence_total
         )
 
     async def _send_json(self, payload: dict) -> None:

@@ -18,9 +18,10 @@ class SpringInternalClient:
         *,
         reason: EndReason,
         transcript: list[dict],
+        silence_total: float
     ) -> None:
         url = f"{self._base_url}/internal/v1/sessions/{session_id}/closed"
-        payload = {"reason": reason.value, "transcript": transcript}
+        payload = {"reason": reason.value, "transcript": transcript, "silence_total": silence_total}
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
                 resp = await client.post(

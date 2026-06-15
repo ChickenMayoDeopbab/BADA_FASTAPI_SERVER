@@ -1,8 +1,7 @@
 from datetime import datetime
-
-from sqlalchemy import JSON, BigInteger, Boolean, DateTime, String, Text
+from sqlalchemy import BigInteger, Boolean, DateTime, Enum, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
-
+from app.core.enums import Difficulty, Personality, SessionType
 from app.db.base import Base
 
 
@@ -20,4 +19,14 @@ class ScenarioORM(Base):
     call_target: Mapped[str] = mapped_column(String(100), nullable=False)
     call_purpose: Mapped[str] = mapped_column(String(200), nullable=False)
     script: Mapped[list | None] = mapped_column(JSON, nullable=True) # [{"step", "ai_goal", "hint"}]
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+class feedbackORM(Base):
+    __tablename__ = "feedback"
+
+    feedback_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    scenario_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("scenario.scenario_id"), nullable=False)
+    shake_count: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    silence_duration: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    highlights: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
