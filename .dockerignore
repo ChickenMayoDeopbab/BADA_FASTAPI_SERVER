@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+.venv/
+venv/
+build/
+dist/
+
+# Caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Tests / records
+tests/
+records/
+
+# Env / secrets
+.env
+.env.*
+secrets/
+*.pem
+*.key
+
+# Tooling / IDE / VCS
+.git/
+.github/
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docs
+README.md
