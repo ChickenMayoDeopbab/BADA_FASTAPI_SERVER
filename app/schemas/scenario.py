@@ -1,8 +1,11 @@
 from __future__ import annotations
+
 from datetime import datetime
-from typing import Optional, List
+
 from pydantic import BaseModel, Field
+
 from app.core.enums import Difficulty, Personality, ScenarioCategory, SessionType
+
 
 class CallSession(BaseModel):
     session_id: int
@@ -17,10 +20,10 @@ class Scenario(BaseModel):
     scenario_id: int
     title: str = Field(..., max_length=50)
     content: str
-    scenario_image: Optional[str] = None
-    tts_voice_id: Optional[str] = None
+    scenario_image: str | None = None
+    tts_voice_id: str | None = None
     ai_prompt: str = None
-    user_id: Optional[int] = None
+    user_id: int | None = None
     is_custom: bool = False
     call_target: str = Field(..., max_length=100)
     call_purpose: str = Field(..., max_length=200)
@@ -34,13 +37,13 @@ class ScenarioInfo(BaseModel):
     category: ScenarioCategory
     difficulties: list[Difficulty]
     personalities: list[Personality]
-    scenario_image: Optional[str] = None
-    tts_voice_id: Optional[str] = None
+    scenario_image: str | None = None
+    tts_voice_id: str | None = None
     ai_prompt: str
     is_custom: bool
 
 class ScenarioListResponse(BaseModel):
-    scenarios: List[ScenarioInfo]
+    scenarios: list[ScenarioInfo]
 
 
 class CreateSessionRequest(BaseModel):
@@ -56,7 +59,7 @@ class CreateSessionResponse(BaseModel):
     personality: Personality
     difficulty: Difficulty
     ai_prompt: str
-    tts_voice_id: Optional[str]
+    tts_voice_id: str | None
     created_at: datetime
     message: str = "훈련 세선이 생성되었습니다."
 
@@ -72,7 +75,7 @@ class GenerateDetailScenario(BaseModel):
     title: str
     content: str
     ai_prompt: str
-    tts_voice_id: Optional[str]
+    tts_voice_id: str | None
 
 class CustomSessionResponse(BaseModel):
     session_id: int

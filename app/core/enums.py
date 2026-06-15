@@ -1,5 +1,6 @@
 from enum import Enum
 
+
 class SessionType(str, Enum):
     WARMUP = "warmup"
     TRAINING = "training"

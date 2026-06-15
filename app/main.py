@@ -5,11 +5,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1 import internal, websocket
+from app.api.v1.scenario import router as scenario_router
 from app.core.config import get_settings
 from app.core.logging import setup_logging
-from app.deps.redis import close_redis, init_redis
-from app.api.v1.scenario import router as scenario_router
 from app.db.base import init_db
+from app.deps.redis import close_redis, init_redis
 
 
 @asynccontextmanager

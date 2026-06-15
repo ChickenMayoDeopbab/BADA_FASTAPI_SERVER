@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from enum import Enum
 
+
 class AiPersonality(str, Enum):
     """AI 성격"""
 

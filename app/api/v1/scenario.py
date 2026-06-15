@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.enums import Difficulty, ScenarioCategory
+from app.core.enums import ScenarioCategory
 from app.deps.auth import get_current_user_id
 from app.deps.db import get_db
 from app.schemas.scenario import (
@@ -15,7 +15,11 @@ from app.schemas.scenario import (
 )
 from app.services.scenario_service import (
     create_custom_session as svc_create_custom_session,
+)
+from app.services.scenario_service import (
     create_session as svc_create_session,
+)
+from app.services.scenario_service import (
     get_scenarios as svc_get_scenarios,
 )
 

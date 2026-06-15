@@ -1,22 +1,28 @@
 from __future__ import annotations
+
 import json
 from datetime import datetime
 
 from anthropic import AsyncAnthropic
+from anthropic.types import MessageParam
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.enums import Difficulty, Personality, ScenarioCategory, SessionType
 from app.core.preset_scenarios import PRESET_MAP, PRESET_SCENARIOS, scenario_to_info
 from app.core.prompt_matrix import PERSONALITY_BASE, build_system_prompt
+from app.db.models import CallSessionORM, ScenarioORM
 from app.schemas.scenario import (
-    CallSession, CreateSessionRequest, CreateSessionResponse,
-    CustomSessionRequest, CustomSessionResponse,
-    GenerateDetailScenario, Scenario, ScenarioListResponse, ScenarioInfo,
+    CreateSessionRequest,
+    CreateSessionResponse,
+    CustomSessionRequest,
+    CustomSessionResponse,
+    GenerateDetailScenario,
+    ScenarioInfo,
+    ScenarioListResponse,
 )
-from anthropic.types import MessageParam
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-from app.db.models import ScenarioORM, CallSessionORM
+
 
 async def get_scenarios(
         db: AsyncSession,
