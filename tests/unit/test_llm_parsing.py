@@ -6,6 +6,7 @@ from app.services.llm import (
     _trailing_partial_len,
 )
 
+
 def test_find_first_tag_none_when_absent() -> None:
     assert _find_first_tag("그냥 평범한 대사입니다") is None
 

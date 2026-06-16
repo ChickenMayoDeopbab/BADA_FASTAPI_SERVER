@@ -13,7 +13,8 @@ PRESET_SCENARIOS: list[dict] = [
         "tts_voice_id": None,
         "ai_prompt": (
             "You are handling restaurant reservations over the phone. "
-            "Confirm the customer's preferred date, time, and number of guests, then process the reservation naturally and professionally."
+            "Confirm the customer's preferred date, time, and number of guests, "
+            "then process the reservation naturally and professionally."
         ),
         "difficulties": [Difficulty.LOW, Difficulty.MEDIUM, Difficulty.HIGH],
         "personalities": [Personality.KIND, Personality.NEUTRAL, Personality.TOUGH, Personality.RUDE],
@@ -78,7 +79,8 @@ PRESET_SCENARIOS: list[dict] = [
         "tts_voice_id": None,
         "ai_prompt": (
             "You are working at a delivery service customer support center. "
-            "Listen to the customer's complaint about a delayed delivery, check the current status, and suggest realistic solutions."
+            "Listen to the customer's complaint about a delayed delivery, "
+            "check the current status, and suggest realistic solutions."
         ),
         "difficulties": [Difficulty.LOW, Difficulty.MEDIUM, Difficulty.HIGH],
         "personalities": [Personality.KIND, Personality.NEUTRAL, Personality.TOUGH, Personality.RUDE],
@@ -94,7 +96,8 @@ PRESET_SCENARIOS: list[dict] = [
         "tts_voice_id": None,
         "ai_prompt": (
             "You are a shopping mall customer support agent. "
-            "Handle refund or exchange requests, explain the required process, and ask necessary questions about the product issue."
+            "Handle refund or exchange requests, explain the required process, "
+            "and ask necessary questions about the product issue."
         ),
         "difficulties": [Difficulty.LOW, Difficulty.MEDIUM, Difficulty.HIGH],
         "personalities": [Personality.KIND, Personality.NEUTRAL, Personality.TOUGH, Personality.RUDE],
@@ -110,7 +113,8 @@ PRESET_SCENARIOS: list[dict] = [
         "tts_voice_id": None,
         "ai_prompt": (
             "You are a courier company customer support agent. "
-            "Answer questions about package delivery status and help the customer change the delivery address if possible."
+            "Answer questions about package delivery status and "
+            "help the customer change the delivery address if possible."
         ),
         "difficulties": [Difficulty.LOW, Difficulty.MEDIUM, Difficulty.HIGH],
         "personalities": [Personality.KIND, Personality.NEUTRAL, Personality.TOUGH, Personality.RUDE],
@@ -126,7 +130,8 @@ PRESET_SCENARIOS: list[dict] = [
         "tts_voice_id": None,
         "ai_prompt": (
             "You are a bank customer service representative. "
-            "Answer customer questions related to bank accounts, transfers, cards, and loans accurately and professionally."
+            "Answer customer questions related to bank accounts, transfers, cards, "
+            "and loans accurately and professionally."
         ),
         "difficulties": [Difficulty.LOW, Difficulty.MEDIUM, Difficulty.HIGH],
         "personalities": [Personality.KIND, Personality.NEUTRAL, Personality.TOUGH, Personality.RUDE],

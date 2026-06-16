@@ -57,7 +57,7 @@ async def create_training_session(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(e),
-        )
+        ) from e
     return response
 
 @router.post(
@@ -80,10 +80,10 @@ async def create_custom_session(
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"AI 시나리오 생성 실패: {e.message}",
-        )
+        ) from e
     except (ValueError, KeyError) as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"응답 파싱 오류: {str(e)}",
-        )
+        ) from e
     return response

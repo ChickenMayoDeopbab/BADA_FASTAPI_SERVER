@@ -128,7 +128,8 @@ JSON schema:
 {
   "title": "Scenario title (max 15 Korean characters)",
   "content": "Short one-line scenario description (max 40 Korean characters)",
-  "ai_prompt": "Pure role instruction for the AI character (max 150 characters, excluding personality or difficulty instructions)"
+  "ai_prompt": "Pure role instruction for the AI character (max 150 characters, \
+excluding personality or difficulty instructions)"
 }
 """
 

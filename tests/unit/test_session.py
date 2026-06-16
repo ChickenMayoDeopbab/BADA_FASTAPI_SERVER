@@ -5,6 +5,7 @@ from app.services.session import (
     is_session_owner,
 )
 
+
 def test_owner_match_int() -> None:
     assert is_session_owner({"userId": 7}, 7) is True
 
