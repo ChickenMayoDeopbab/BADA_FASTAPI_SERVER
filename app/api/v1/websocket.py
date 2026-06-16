@@ -1,4 +1,5 @@
 import logging
+from contextlib import suppress
 
 from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect, status
 from redis.asyncio import Redis
@@ -61,7 +62,5 @@ async def voice_stream(
             "파이프라인 예상치 못한 에러",
             extra={"session_id": session_id, "user_id": user_id},
         )
-        try:
+        with suppress(Exception):
             await ws.close(code=status.WS_1011_INTERNAL_ERROR)
-        except Exception:
-            pass
