@@ -3,6 +3,7 @@ from fastapi import Header, HTTPException, WebSocket, status
 
 from app.core.config import get_settings
 
+
 async def require_internal_secret(
     x_internal_secret: str | None = Header(default=None),
 ) -> None:

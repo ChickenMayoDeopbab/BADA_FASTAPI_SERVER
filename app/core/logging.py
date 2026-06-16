@@ -3,6 +3,7 @@ from logging.config import dictConfig
 
 from app.core.config import get_settings
 
+
 def setup_logging() -> None:
     """
     uvicorn 로거 통합
