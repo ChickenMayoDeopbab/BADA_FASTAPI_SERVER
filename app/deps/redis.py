@@ -1,7 +1,6 @@
 import logging
 
 from fastapi import Request
-
 from redis.asyncio import Redis, from_url
 
 logger = logging.getLogger(__name__)

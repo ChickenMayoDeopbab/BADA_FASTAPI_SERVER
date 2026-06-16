@@ -1,4 +1,4 @@
-from app.core.enums import Difficulty, ScenarioCategory, Personality
+from app.core.enums import Difficulty, Personality, ScenarioCategory
 from app.schemas.scenario import ScenarioInfo
 
 PRESET_SCENARIOS: list[dict] = [

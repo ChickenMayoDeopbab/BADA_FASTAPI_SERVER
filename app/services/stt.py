@@ -82,7 +82,7 @@ class GoogleSTTClient:
 
     async def _request_generator(
             self,
-            audio_queue: "syncio.Queue[bytes | None]"
+            audio_queue: "asyncio.Queue[bytes | None]"
     ) -> AsyncIterator[cs.StreamingRecognizeRequest]:
         """streaming_recognize에 넘길 요청 스트림"""
         yield self._build_config_request()

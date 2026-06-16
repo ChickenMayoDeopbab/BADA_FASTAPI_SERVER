@@ -1,5 +1,4 @@
-import random
-from app.core.enums import Difficulty, Personality
+from app.core.enums import Personality
 
 PERSONALITY_BASE: dict[Personality, str] = {
     Personality.KIND: (

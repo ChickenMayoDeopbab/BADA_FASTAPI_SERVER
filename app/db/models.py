@@ -1,6 +1,8 @@
 from datetime import datetime
+
 from sqlalchemy import BigInteger, Boolean, DateTime, Enum, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
+
 from app.core.enums import Difficulty, Personality, SessionType
 from app.db.base import Base
 

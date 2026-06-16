@@ -1,8 +1,8 @@
-import logging
 import sys
 from logging.config import dictConfig
 
 from app.core.config import get_settings
+
 
 def setup_logging() -> None:
     """
