@@ -13,14 +13,6 @@ services:
       DATABASE_URL: postgresql+asyncpg://bada:${POSTGRES_PASSWORD:-bada}@db:5432/bada
       REDIS_URL: redis://redis:6379/0
       RABBITMQ_URL: amqp://${RABBITMQ_USER:-bada}:${RABBITMQ_PASSWORD:-bada}@rabbitmq:5672/
-      JWT_SECRET: ${JWT_SECRET}
-      INTERNAL_SECRET: ${INTERNAL_SECRET}
-      GOOGLE_PROJECT_ID: ${GOOGLE_PROJECT_ID}
-      GEMINI_API_KEY: ${GEMINI_API_KEY}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY}
-      ELEVENLABS_VOICE_ID: ${ELEVENLABS_VOICE_ID}
-      SPRING_BOOT_INTERNAL_URL: ${SPRING_BOOT_INTERNAL_URL}
     depends_on:
       db:
         condition: service_healthy
