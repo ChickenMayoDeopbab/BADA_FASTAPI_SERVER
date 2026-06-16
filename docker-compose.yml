@@ -5,11 +5,12 @@ services:
     ports:
       - "8000:8000"
     env_file:
-      - .env
+      - path: .env
+        required: false
     environment:
-      DATABASE_URL: postgresql+asyncpg://bada:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@db:5432/bada
+      DATABASE_URL: postgresql+asyncpg://bada:${POSTGRES_PASSWORD:-bada}@db:5432/bada
       REDIS_URL: redis://redis:6379/0
-      RABBITMQ_URL: amqp://${RABBITMQ_USER:-bada}:${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD must be set}@rabbitmq:5672/
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-bada}:${RABBITMQ_PASSWORD:-bada}@rabbitmq:5672/
     depends_on:
       db:
         condition: service_healthy
@@ -23,7 +24,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: bada
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bada}
       POSTGRES_DB: bada
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -49,7 +50,7 @@ services:
       - "15672:15672"
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-bada}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD must be set}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-bada}
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
     healthcheck:
