@@ -10,7 +10,7 @@ _SECRET = "test-internal-secret"
 
 
 class _CapturingHandler(BaseHTTPRequestHandler):
-    def do_post(self) -> None:
+    def do_POST(self) -> None:  # noqa: N802 (BaseHTTPRequestHandler API requires this name)
         length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(length)
         self.server.captured = {
