@@ -1,4 +1,10 @@
+# Production override. Always run together with the base file:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# ports / env_file / restart / depends_on are inherited from docker-compose.yml.
 services:
   app:
+    # Drop the inherited `build: .` so `up` never needs a build context on the
+    # server (image is pulled from GHCR). IMAGE is injected at deploy time.
+    build: !reset null
     image: ${IMAGE:?IMAGE env (GHCR image ref) is required}
     pull_policy: always
