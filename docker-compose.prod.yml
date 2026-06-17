@@ -1,0 +1,4 @@
+services:
+  app:
+    image: ${IMAGE:?IMAGE env (GHCR image ref) is required}
+    pull_policy: always
