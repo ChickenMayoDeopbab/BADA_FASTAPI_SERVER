@@ -1,8 +1,8 @@
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 
-class AiPersonality(str, Enum):
+class AiPersonality(StrEnum):
     """AI 성격"""
 
     KIND = "KIND"       # 친절
@@ -10,7 +10,7 @@ class AiPersonality(str, Enum):
     TOUGH = "TOUGH"     # 까다로움
     RUDE = "RUDE"       # 진상
 
-class AiEmotion(str, Enum):
+class AiEmotion(StrEnum):
     """AI 감정 상태"""
 
     NEUTRAL = "NEUTRAL"         # 평상시
@@ -19,7 +19,7 @@ class AiEmotion(str, Enum):
     ANGRY = "ANGRY"             # 화남
     APOLOGETIC = "APOLOGETIC"   # 미안함
 
-class LLMEventType(str, Enum):
+class LLMEventType(StrEnum):
     """LLM 이벤트 상태"""
 
     EMOTION_RESOLVED = "EMOTION_RESOLVED"   # 감정 확정

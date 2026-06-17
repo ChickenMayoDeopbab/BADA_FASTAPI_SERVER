@@ -3,7 +3,7 @@ import json
 import logging
 import time
 from contextlib import suppress
-from enum import Enum
+from enum import StrEnum
 
 from fastapi import WebSocket, WebSocketDisconnect
 from google.api_core.exceptions import GoogleAPICallError
@@ -34,7 +34,7 @@ _STT_RECYCLE_SECONDS = 240.0
 _SAFETY_FALLBACK = "죄송해요, 그 부분은 지금 답하기 어렵네요."
 
 
-class _State(str, Enum):
+class _State(StrEnum):
     LISTENING = "LISTENING" # 듣는중
     THINKING = "THINKING" # 생각중
     SPEAKING = "SPEAKING" # 말하는중

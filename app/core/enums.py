@@ -1,22 +1,22 @@
-from enum import Enum
+from enum import StrEnum
 
 
-class SessionType(str, Enum):
+class SessionType(StrEnum):
     WARMUP = "warmup"
     TRAINING = "training"
 
-class Personality(str, Enum):
+class Personality(StrEnum):
     KIND = "kind"
     NEUTRAL = "neutral"
     TOUGH = "tough"
     RUDE = "rude"
 
-class Difficulty(str, Enum):
+class Difficulty(StrEnum):
     HIGH = "high"
     MEDIUM = "medium"
     LOW = "low"
 
-class ScenarioCategory(str, Enum):
+class ScenarioCategory(StrEnum):
     RESTAURANT = "restaurant"
     HOSPITAL = "hospital"
     COMPLAINT = "complaint"

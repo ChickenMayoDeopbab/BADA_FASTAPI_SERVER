@@ -1,9 +1,9 @@
-from enum import Enum
+from enum import StrEnum
 
 from app.schemas.llm import AiEmotion
 
 
-class FrameType(str, Enum):
+class FrameType(StrEnum):
     EMOTION = "emotion"               # 아바타/음성 전환 트리거
     SPEAKING_END = "speaking_end"     # 이번 턴 오디오 끝
     INTERRUPT = "interrupt"           # 클라 재생 버퍼 비우기
@@ -11,7 +11,7 @@ class FrameType(str, Enum):
     ERROR = "error"                   # 복구 불가 에러
 
 
-class EndReason(str, Enum):
+class EndReason(StrEnum):
     SCENARIO_DONE = "SCENARIO_DONE"   # 시나리오 마지막 step 종료
     USER_END = "USER_END"             # 클라가 end 프레임 전송
     TIMEOUT = "TIMEOUT"               # 최대 시간 초과

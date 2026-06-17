@@ -2,7 +2,7 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Final
 
 from google.api_core.client_options import ClientOptions
@@ -17,7 +17,7 @@ AUDIO_EOS: Final = None
 # 5분
 STREAM_LIMIT_SECONDS: Final[int] = 5 * 60
 
-class STTEventType(str, Enum):
+class STTEventType(StrEnum):
     INTERIM = "interim"
     FINAL = "final"
     SPEECH_BEGIN = "speech_begin"
