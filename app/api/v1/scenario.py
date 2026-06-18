@@ -1,23 +1,17 @@
 from anthropic import APIError
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.enums import ScenarioCategory
 from app.deps.auth import get_current_user_id
 from app.deps.db import get_db
 from app.schemas.scenario import (
-    CreateSessionRequest,
-    CreateSessionResponse,
+    CustomScenarioResponse,
     CustomSessionRequest,
-    CustomSessionResponse,
     ScenarioListResponse,
 )
 from app.services.scenario_service import (
-    create_custom_session as svc_create_custom_session,
-)
-from app.services.scenario_service import (
-    create_session as svc_create_session,
+    create_custom_scenario as svc_create_custom_scenario,
 )
 from app.services.scenario_service import (
     get_scenarios as svc_get_scenarios,
@@ -38,44 +32,22 @@ async def list_scenarios(
     return await svc_get_scenarios(db, category)
 
 @router.post(
-"/sessions",
-    response_model=CreateSessionResponse,
+    "/custom",
+    response_model=CustomScenarioResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="훈련 세션 생성",
+    summary="커스텀 시나리오 생성",
     description=(
-        "프리셋 시나리오 + 성격(친절/보통/까다로움/진상) + 난이도(상/중/하)로 세션을 생성합니다."
+        "전화 목적·상대·성격·난이도를 입력하면 AI가 맞춤 시나리오를 생성해 저장합니다. "
+        "실제 훈련 세션 생성은 Spring(POST /api/v1/session)이 담당합니다."
     ),
 )
-async def create_training_session(
-        body: CreateSessionRequest,
-        db: AsyncSession = Depends(get_db),
-        user_id: int = Depends(get_current_user_id),
-) -> CreateSessionResponse:
-    try:
-        response = await svc_create_session(db, body, user_id)
-    except ValidationError as e:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=str(e),
-        ) from e
-    return response
-
-@router.post(
-"/sessions/custom",
-    response_model=CustomSessionResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="커스텀 훈련 세션 생성",
-    description=(
-        "전화 목적·상대·성격·난이도를 입력하면 AI가 맞춤 시나리오를 생성합니다."
-    ),
-)
-async def create_custom_session(
+async def create_custom_scenario(
         body: CustomSessionRequest,
         db: AsyncSession = Depends(get_db),
         user_id: int = Depends(get_current_user_id),
-) -> CustomSessionResponse:
+) -> CustomScenarioResponse:
     try:
-        response = await svc_create_custom_session(db, body, user_id)
+        response = await svc_create_custom_scenario(db, body, user_id)
     except APIError as e:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
