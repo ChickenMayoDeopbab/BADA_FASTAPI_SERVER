@@ -51,15 +51,31 @@ async def test_preset_context_returns_camelcase_with_script() -> None:
     assert first["step"] == 1
 
 
-async def test_custom_context_falls_back_to_call_target_and_empty_script() -> None:
-    row = SimpleNamespace(title="커스텀 시나리오", call_target="구청 민원실 직원")
+async def test_custom_context_returns_stored_script() -> None:
+    row = SimpleNamespace(
+        title="구청 민원 문의",
+        call_target="구청 민원실 직원",
+        script=[
+            {"step": 2, "ai_goal": "필요 서류를 안내한다", "hint": "어떤 서류가 필요한지 물어보세요"},
+            {"step": 1, "ai_goal": "전화를 응대하고 용건을 확인한다", "hint": "민원을 문의한다고 말하세요"},
+        ],
+    )
     resp = await _get(_make_app(db_row=row), "/internal/v1/scenarios/9999/context")
 
     assert resp.status_code == 200
     body = resp.json()
-    assert body["title"] == "커스텀 시나리오"
+    assert body["title"] == "구청 민원 문의"
     assert body["aiRole"] == "구청 민원실 직원"
-    assert body["script"] == []
+    assert len(body["script"]) == 2
+    assert set(body["script"][0].keys()) == {"step", "aiGoal", "hint"}
+
+
+async def test_custom_context_without_script_is_empty() -> None:
+    row = SimpleNamespace(title="커스텀 시나리오", call_target="구청 민원실 직원", script=None)
+    resp = await _get(_make_app(db_row=row), "/internal/v1/scenarios/9999/context")
+
+    assert resp.status_code == 200
+    assert resp.json()["script"] == []
 
 
 async def test_unknown_scenario_returns_404() -> None:
