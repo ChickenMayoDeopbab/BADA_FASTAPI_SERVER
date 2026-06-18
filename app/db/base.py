@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -50,7 +50,7 @@ async def init_db() -> None:
                     is_custom=scenario["is_custom"],
                     call_target=scenario["call_target"],
                     call_purpose=scenario["call_purpose"],
-                    created_at=datetime.utcnow(),
+                    created_at=datetime.now(UTC).replace(tzinfo=None),
                 )
             )
 
