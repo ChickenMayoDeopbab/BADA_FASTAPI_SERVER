@@ -1,14 +1,17 @@
 from dataclasses import dataclass
 from enum import StrEnum
 
+from app.core.enums import AiPersonality
 
-class AiPersonality(StrEnum):
-    """AI 성격"""
+__all__ = [
+    "AiPersonality",
+    "AiEmotion",
+    "LLMEventType",
+    "LLMEvent",
+    "ScenarioTurn",
+    "TurnContext",
+]
 
-    KIND = "KIND"       # 친절
-    NORMAL = "NORMAL"   # 보통
-    TOUGH = "TOUGH"     # 까다로움
-    RUDE = "RUDE"       # 진상
 
 class AiEmotion(StrEnum):
     """AI 감정 상태"""
