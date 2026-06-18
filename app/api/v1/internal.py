@@ -48,9 +48,19 @@ async def get_scenario_context(
             detail="SCENARIO_NOT_FOUND",
         )
 
-    # 커스텀 시나리오는 단계별 script 데이터가 없어 자유 대화로 진행된다.
+    # 커스텀 시나리오 생성은 AI가 만든 script 사용(없으면 자유 대화)
+    raw_script = row.script if isinstance(row.script, list) else []
+    script = [
+        ScriptTurnContext(
+            step=int(turn["step"]),
+            ai_goal=str(turn["ai_goal"]),
+            hint=str(turn.get("hint", "")),
+        )
+        for turn in raw_script
+        if isinstance(turn, dict) and "step" in turn and "ai_goal" in turn
+    ]
     return ScenarioContextResponse(
         title=row.title,
         ai_role=row.call_target,
-        script=[],
+        script=script,
     )
