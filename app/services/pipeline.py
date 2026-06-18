@@ -9,6 +9,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 from google.api_core.exceptions import GoogleAPICallError
 
 from app.core.config import Settings
+from app.core.enums import SessionType
 from app.schemas.frames import (
     EndReason,
     emotion_frame,
@@ -79,7 +80,7 @@ class VoicePipeline:
         self._end_reason: EndReason | None = None
 
         max_duration = session.get("maxDurationSeconds")
-        if max_duration is None and session.get("type") == "WARMUP":
+        if max_duration is None and session.get("type") == SessionType.WARMUP:
             max_duration = 30  # Spring이 안 박아도 워밍업은 30초 보장
         self._max_duration = int(max_duration) if max_duration else None
 

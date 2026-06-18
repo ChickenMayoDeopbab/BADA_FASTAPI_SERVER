@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 
 from anthropic import AsyncAnthropic
 from anthropic.types import MessageParam
@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.core.enums import Difficulty, Personality, ScenarioCategory
+from app.core.enums import ALL_DIFFICULTIES, ALL_PERSONALITIES, ScenarioCategory
 from app.core.preset_scenarios import PRESET_MAP, PRESET_SCENARIOS, scenario_to_info
 from app.core.prompt_matrix import PERSONALITY_BASE
 from app.db.models import ScenarioORM
@@ -46,13 +46,8 @@ async def get_scenarios(
                 title=row.title,
                 content=row.content,
                 category=ScenarioCategory.CUSTOM,
-                difficulties=[Difficulty.LOW, Difficulty.MEDIUM, Difficulty.HIGH],
-                personalities=[
-                    Personality.KIND,
-                    Personality.NEUTRAL,
-                    Personality.TOUGH,
-                    Personality.RUDE,
-                ],
+                difficulties=ALL_DIFFICULTIES,
+                personalities=ALL_PERSONALITIES,
                 scenario_image=row.scenario_image,
                 tts_voice_id=row.tts_voice_id,
                 ai_prompt=row.ai_prompt,
@@ -153,7 +148,7 @@ async def create_custom_scenario(
     data: dict = json.loads(raw.strip())
 
     script = _normalize_script(data.get("script"))
-    now = datetime.utcnow()
+    now = datetime.now(UTC).replace(tzinfo=None)
 
     scenario_orm = ScenarioORM(
         title=request.title,

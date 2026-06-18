@@ -2,14 +2,17 @@ from enum import StrEnum
 
 
 class SessionType(StrEnum):
-    WARMUP = "warmup"
-    TRAINING = "training"
+    WARMUP = "WARMUP"
+    SCENARIO = "SCENARIO"
+    CUSTOM = "CUSTOM"
 
-class Personality(StrEnum):
-    KIND = "kind"
-    NEUTRAL = "neutral"
-    TOUGH = "tough"
-    RUDE = "rude"
+class AiPersonality(StrEnum):
+    """AI 성격"""
+
+    KIND = "KIND"       # 친절
+    NORMAL = "NORMAL"   # 보통
+    TOUGH = "TOUGH"     # 까다로움
+    RUDE = "RUDE"       # 진상
 
 class Difficulty(StrEnum):
     HIGH = "high"
@@ -23,3 +26,11 @@ class ScenarioCategory(StrEnum):
     DELIVERY = "delivery"
     BANK = "bank"
     CUSTOM = "custom"
+
+ALL_DIFFICULTIES: list[Difficulty] = [Difficulty.LOW, Difficulty.MEDIUM, Difficulty.HIGH]
+ALL_PERSONALITIES: list[AiPersonality] = [
+    AiPersonality.KIND,
+    AiPersonality.NORMAL,
+    AiPersonality.TOUGH,
+    AiPersonality.RUDE,
+]
