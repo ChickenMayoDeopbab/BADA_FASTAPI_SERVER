@@ -1,7 +1,7 @@
 import logging
 
-from fastapi import Request
 from redis.asyncio import Redis, from_url
+from starlette.requests import HTTPConnection
 
 logger = logging.getLogger(__name__)
 
@@ -36,9 +36,9 @@ def _mask_url(url: str) -> str:
         return f"{prefix}:***@{host}"
     return url
 
-def get_redis(request: Request) -> Redis:
-    """레디스 얻는거"""
-    redis = getattr(request.app.state, "redis", None)
+def get_redis(conn: HTTPConnection) -> Redis:
+    """레디스 얻는거 (HTTP/WebSocket 라우트 모두 지원)"""
+    redis = getattr(conn.app.state, "redis", None)
     if redis is None:
         raise RuntimeError("레디스 초기화 안됨")
     return redis
