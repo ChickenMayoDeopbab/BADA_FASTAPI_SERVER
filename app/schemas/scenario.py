@@ -2,32 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
-from app.core.enums import Difficulty, Personality, ScenarioCategory, SessionType
-
-
-class CallSession(BaseModel):
-    session_id: int
-    scenario_id: int
-    user_id: int
-    session_type: SessionType
-    personality: Personality
-    difficulty: Difficulty
-    created_at: datetime
-
-class Scenario(BaseModel):
-    scenario_id: int
-    title: str = Field(..., max_length=50)
-    content: str
-    scenario_image: str | None = None
-    tts_voice_id: str | None = None
-    ai_prompt: str = None
-    user_id: int | None = None
-    is_custom: bool = False
-    call_target: str = Field(..., max_length=100)
-    call_purpose: str = Field(..., max_length=200)
-    created_at: datetime
+from app.core.enums import Difficulty, Personality, ScenarioCategory
 
 
 class ScenarioInfo(BaseModel):
@@ -46,23 +23,24 @@ class ScenarioListResponse(BaseModel):
     scenarios: list[ScenarioInfo]
 
 
-class CreateSessionRequest(BaseModel):
-    scenario_id: int
-    session_type: SessionType = SessionType.TRAINING
-    personality: Personality = Personality.NEUTRAL
-    difficulty: Difficulty = Difficulty.MEDIUM
+# --- 내부용: Spring이 세션 생성 시 가져가는 시나리오 컨텍스트 ---
+# JSON 키는 Spring ScenarioContext record와 정확히 일치해야 한다(aiRole, aiGoal).
 
-class CreateSessionResponse(BaseModel):
-    session_id: int
-    scenario_id: int
-    session_type: SessionType
-    personality: Personality
-    difficulty: Difficulty
-    ai_prompt: str
-    tts_voice_id: str | None
-    created_at: datetime
-    message: str = "훈련 세선이 생성되었습니다."
+class ScriptTurnContext(BaseModel):
+    step: int
+    ai_goal: str = Field(serialization_alias="aiGoal")
+    hint: str = ""
+    model_config = ConfigDict(populate_by_name=True)
 
+class ScenarioContextResponse(BaseModel):
+    title: str
+    ai_role: str = Field(serialization_alias="aiRole")
+    script: list[ScriptTurnContext]
+    model_config = ConfigDict(populate_by_name=True)
+
+
+# --- 커스텀 시나리오 생성 ---
+# 세션 생성은 Spring 소유. 여기서는 AI가 시나리오만 만들어 저장하고 반환한다.
 
 class CustomSessionRequest(BaseModel):
     call_target: str = Field(..., min_length=2, max_length=100)
@@ -77,10 +55,7 @@ class GenerateDetailScenario(BaseModel):
     ai_prompt: str
     tts_voice_id: str | None
 
-class CustomSessionResponse(BaseModel):
-    session_id: int
+class CustomScenarioResponse(BaseModel):
     scenario: GenerateDetailScenario
-    personality: Personality
-    difficulty: Difficulty
     created_at: datetime
-    message: str = "커스텀 훈련 세션이 생성되었습니다."
+    message: str = "커스텀 시나리오가 생성되었습니다."
