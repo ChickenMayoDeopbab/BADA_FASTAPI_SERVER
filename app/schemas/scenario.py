@@ -4,7 +4,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.core.enums import Difficulty, Personality, ScenarioCategory
+from app.core.enums import AiPersonality, Difficulty, ScenarioCategory
 
 
 class ScenarioInfo(BaseModel):
@@ -13,7 +13,7 @@ class ScenarioInfo(BaseModel):
     content: str
     category: ScenarioCategory
     difficulties: list[Difficulty]
-    personalities: list[Personality]
+    personalities: list[AiPersonality]
     scenario_image: str | None = None
     tts_voice_id: str | None = None
     ai_prompt: str
@@ -43,7 +43,7 @@ class CustomSessionRequest(BaseModel):
     title: str = Field(..., min_length=1, max_length=50)
     call_target: str = Field(..., min_length=2, max_length=100)
     call_purpose: str = Field(..., min_length=5, max_length=200)
-    personality: Personality = Personality.NEUTRAL
+    personality: AiPersonality = AiPersonality.NORMAL
     difficulty: Difficulty = Difficulty.MEDIUM
 
 class GenerateDetailScenario(BaseModel):

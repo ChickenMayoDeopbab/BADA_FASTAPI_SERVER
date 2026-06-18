@@ -1,4 +1,4 @@
-from app.core.enums import Difficulty, Personality, ScenarioCategory
+from app.core.enums import ALL_DIFFICULTIES, ALL_PERSONALITIES, ScenarioCategory
 from app.schemas.scenario import ScenarioInfo
 
 PRESET_SCENARIOS: list[dict] = [
@@ -23,8 +23,8 @@ PRESET_SCENARIOS: list[dict] = [
             {"step": 3, "ai_goal": "예약 인원수를 확인한다", "hint": "몇 명인지 말하세요"},
             {"step": 4, "ai_goal": "예약 내용을 확정하고 마무리한다", "hint": "예약 내용을 확인하고 인사하세요"},
         ],
-        "difficulties": [Difficulty.LOW, Difficulty.MEDIUM, Difficulty.HIGH],
-        "personalities": [Personality.KIND, Personality.NEUTRAL, Personality.TOUGH, Personality.RUDE],
+        "difficulties": ALL_DIFFICULTIES,
+        "personalities": ALL_PERSONALITIES,
         "is_custom": False,
     }, {
         "scenario_id": 2,
@@ -47,8 +47,8 @@ PRESET_SCENARIOS: list[dict] = [
             {"step": 3, "ai_goal": "변경 내용 또는 취소 사유를 확인한다", "hint": "바꿀 시간이나 취소 이유를 말하세요"},
             {"step": 4, "ai_goal": "처리 결과를 안내하고 마무리한다", "hint": "처리 내용을 확인하고 인사하세요"},
         ],
-        "difficulties": [Difficulty.LOW, Difficulty.MEDIUM, Difficulty.HIGH],
-        "personalities": [Personality.KIND, Personality.NEUTRAL, Personality.TOUGH, Personality.RUDE],
+        "difficulties": ALL_DIFFICULTIES,
+        "personalities": ALL_PERSONALITIES,
         "is_custom": False,
     }, {
         "scenario_id": 3,
@@ -70,8 +70,8 @@ PRESET_SCENARIOS: list[dict] = [
             {"step": 3, "ai_goal": "희망 날짜와 시간을 확인한다", "hint": "원하는 날짜와 시간을 말하세요"},
             {"step": 4, "ai_goal": "예약을 확정하고 준비물을 안내한다", "hint": "예약 내용을 확인하고 인사하세요"},
         ],
-        "difficulties": [Difficulty.LOW, Difficulty.MEDIUM, Difficulty.HIGH],
-        "personalities": [Personality.KIND, Personality.NEUTRAL, Personality.TOUGH, Personality.RUDE],
+        "difficulties": ALL_DIFFICULTIES,
+        "personalities": ALL_PERSONALITIES,
         "is_custom": False,
     }, {
         "scenario_id": 4,
@@ -93,8 +93,8 @@ PRESET_SCENARIOS: list[dict] = [
             {"step": 3, "ai_goal": "검사 결과나 처방을 안내한다", "hint": "궁금한 점을 물어보세요"},
             {"step": 4, "ai_goal": "추가 안내 후 통화를 마무리한다", "hint": "안내를 확인하고 인사하세요"},
         ],
-        "difficulties": [Difficulty.LOW, Difficulty.MEDIUM, Difficulty.HIGH],
-        "personalities": [Personality.KIND, Personality.NEUTRAL, Personality.TOUGH, Personality.RUDE],
+        "difficulties": ALL_DIFFICULTIES,
+        "personalities": ALL_PERSONALITIES,
         "is_custom": False,
     }, {
         "scenario_id": 5,
@@ -117,8 +117,8 @@ PRESET_SCENARIOS: list[dict] = [
             {"step": 3, "ai_goal": "배달 현황을 안내하고 사과한다", "hint": "언제 도착하는지 물어보세요"},
             {"step": 4, "ai_goal": "해결책을 제시하고 마무리한다", "hint": "원하는 조치를 말하고 인사하세요"},
         ],
-        "difficulties": [Difficulty.LOW, Difficulty.MEDIUM, Difficulty.HIGH],
-        "personalities": [Personality.KIND, Personality.NEUTRAL, Personality.TOUGH, Personality.RUDE],
+        "difficulties": ALL_DIFFICULTIES,
+        "personalities": ALL_PERSONALITIES,
         "is_custom": False,
     }, {
         "scenario_id": 6,
@@ -141,8 +141,8 @@ PRESET_SCENARIOS: list[dict] = [
             {"step": 3, "ai_goal": "환불/교환 절차를 안내한다", "hint": "어떻게 진행되는지 물어보세요"},
             {"step": 4, "ai_goal": "처리 방법을 확정하고 마무리한다", "hint": "원하는 처리를 말하고 인사하세요"},
         ],
-        "difficulties": [Difficulty.LOW, Difficulty.MEDIUM, Difficulty.HIGH],
-        "personalities": [Personality.KIND, Personality.NEUTRAL, Personality.TOUGH, Personality.RUDE],
+        "difficulties": ALL_DIFFICULTIES,
+        "personalities": ALL_PERSONALITIES,
         "is_custom": False,
     }, {
         "scenario_id": 7,
@@ -165,8 +165,8 @@ PRESET_SCENARIOS: list[dict] = [
             {"step": 3, "ai_goal": "배송 현황을 안내한다", "hint": "지금 어디쯤인지 물어보세요"},
             {"step": 4, "ai_goal": "수령지 변경을 처리하고 마무리한다", "hint": "받을 주소를 바꾸고 싶다고 말하세요"},
         ],
-        "difficulties": [Difficulty.LOW, Difficulty.MEDIUM, Difficulty.HIGH],
-        "personalities": [Personality.KIND, Personality.NEUTRAL, Personality.TOUGH, Personality.RUDE],
+        "difficulties": ALL_DIFFICULTIES,
+        "personalities": ALL_PERSONALITIES,
         "is_custom": False,
     }, {
         "scenario_id": 8,
@@ -189,8 +189,8 @@ PRESET_SCENARIOS: list[dict] = [
             {"step": 3, "ai_goal": "문의 내용을 안내한다", "hint": "궁금한 업무를 물어보세요"},
             {"step": 4, "ai_goal": "추가 안내 후 통화를 마무리한다", "hint": "안내를 확인하고 인사하세요"},
         ],
-        "difficulties": [Difficulty.LOW, Difficulty.MEDIUM, Difficulty.HIGH],
-        "personalities": [Personality.KIND, Personality.NEUTRAL, Personality.TOUGH, Personality.RUDE],
+        "difficulties": ALL_DIFFICULTIES,
+        "personalities": ALL_PERSONALITIES,
         "is_custom": False,
     }
 ]
