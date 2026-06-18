@@ -19,6 +19,7 @@ from app.schemas.scenario import (
     GenerateDetailScenario,
     ScenarioInfo,
     ScenarioListResponse,
+    ScriptTurnContext,
 )
 
 
@@ -80,17 +81,42 @@ async def get_scenarios(
 
 
 _SCENARIO_GEN_SYSTEM = """You are an expert scenario designer for a Korean phone call training application.
-Your task is to generate a realistic phone call training scenario based on the user's input.
+The user provides the scenario title, call purpose, call target, difficulty, and AI personality.
+Generate a realistic phone call training scenario that matches them.
 You must output ONLY valid JSON.
 Do not output markdown, explanations, code fences, comments, or any additional text.
 JSON schema:
 {
-  "title": "Scenario title (max 15 Korean characters)",
-  "content": "Short one-line scenario description (max 40 Korean characters)",
-  "ai_prompt": "Pure role instruction for the AI character (max 150 characters, \
-excluding personality or difficulty instructions)"
+  "content": "Short one-line scenario description in Korean (max 40 Korean characters)",
+  "ai_prompt": "Pure role instruction in English for the AI character (max 150 characters, \
+excluding personality or difficulty instructions)",
+  "script": [
+    {"step": 1, "ai_goal": "이 단계에서 상대역(AI)이 달성할 목표 (Korean)", \
+"hint": "사용자가 무엇을 말해야 하는지 힌트 (Korean)"}
+  ]
 }
+Create 3 to 5 steps ordered from the call opening to the closing, matching the call purpose.
+Higher difficulty means the AI gives less guidance and demands more from the user.
 """
+
+
+def _normalize_script(raw: object) -> list[dict]:
+    """AI가 생성한 script를 {step, ai_goal, hint} 형태로 정규화한다."""
+    if not isinstance(raw, list):
+        return []
+    turns: list[dict] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        try:
+            turns.append({
+                "step": int(item["step"]),
+                "ai_goal": str(item["ai_goal"]),
+                "hint": str(item.get("hint", "")),
+            })
+        except (KeyError, TypeError, ValueError):
+            continue
+    return sorted(turns, key=lambda t: t["step"])
 
 
 async def create_custom_scenario(
@@ -98,21 +124,23 @@ async def create_custom_scenario(
         request: CustomSessionRequest,
         user_id: int,
 ) -> CustomScenarioResponse:
-    """AI가 커스텀 시나리오를 생성해 저장한다. 세션 생성은 Spring 소유."""
+    """사용자 입력(제목/목적/상대)으로 AI가 단계별 script를 생성해 저장한다. 세션 생성은 Spring 소유."""
     settings = get_settings()
     if not settings.anthropic_api_key:
         raise ValueError("ANTHROPIC_API_KEY가 설정되어 있지 않습니다.")
 
     user_msg = (
+        f"Scenario title: {request.title}\n"
         f"Call purpose: {request.call_purpose}\n"
         f"Call target: {request.call_target}\n"
+        f"Difficulty: {request.difficulty.value}\n"
         f"Personality: {request.personality.value} — {PERSONALITY_BASE[request.personality]}"
     )
 
     client = AsyncAnthropic(api_key=settings.anthropic_api_key)
     ai_response = await client.messages.create(
         model=settings.llm_analysis_model,
-        max_tokens=500,
+        max_tokens=1000,
         system=_SCENARIO_GEN_SYSTEM,
         messages=[MessageParam(role="user", content=user_msg)],
     )
@@ -124,10 +152,11 @@ async def create_custom_scenario(
             raw = raw[4:]
     data: dict = json.loads(raw.strip())
 
+    script = _normalize_script(data.get("script"))
     now = datetime.utcnow()
 
     scenario_orm = ScenarioORM(
-        title=data["title"],
+        title=request.title,
         content=data["content"],
         scenario_image=None,
         tts_voice_id=None,
@@ -136,6 +165,7 @@ async def create_custom_scenario(
         call_purpose=request.call_purpose,
         user_id=user_id,
         is_custom=True,
+        script=script,
         created_at=now,
     )
     db.add(scenario_orm)
@@ -145,10 +175,11 @@ async def create_custom_scenario(
     return CustomScenarioResponse(
         scenario=GenerateDetailScenario(
             scenario_id=scenario_orm.scenario_id,
-            title=data["title"],
+            title=request.title,
             content=data["content"],
             ai_prompt=data["ai_prompt"],
             tts_voice_id=None,
+            script=[ScriptTurnContext(**turn) for turn in script],
         ),
         created_at=now,
     )

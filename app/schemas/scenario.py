@@ -38,11 +38,9 @@ class ScenarioContextResponse(BaseModel):
     script: list[ScriptTurnContext]
     model_config = ConfigDict(populate_by_name=True)
 
-
-# --- 커스텀 시나리오 생성 ---
-# 세션 생성은 Spring 소유. 여기서는 AI가 시나리오만 만들어 저장하고 반환한다.
-
 class CustomSessionRequest(BaseModel):
+    """커스텀 시나리오 생성, 생성은 Spring이 여기선 AI가 시나리오만 만들고 저장 후 반환"""
+    title: str = Field(..., min_length=1, max_length=50)
     call_target: str = Field(..., min_length=2, max_length=100)
     call_purpose: str = Field(..., min_length=5, max_length=200)
     personality: Personality = Personality.NEUTRAL
@@ -54,6 +52,7 @@ class GenerateDetailScenario(BaseModel):
     content: str
     ai_prompt: str
     tts_voice_id: str | None
+    script: list[ScriptTurnContext]
 
 class CustomScenarioResponse(BaseModel):
     scenario: GenerateDetailScenario
