@@ -24,6 +24,7 @@ from app.services.session import build_turn_context
 from app.services.spring_client import SpringInternalClient
 from app.services.stt import AUDIO_EOS, GoogleSTTClient, STTEventType
 from app.services.tts import ElevenLabsTTSClient, TTSSession
+from app.services.tremor import TremorAnalyzer
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +82,8 @@ class VoicePipeline:
 
         self._listening_since: float | None = None
         self._silence_total: float = 0
+        self._tremor = TremorAnalyzer()
+        self._tremor_buf = bytearray()
 
         max_duration = session.get("maxDurationSeconds")
         if max_duration is None and session.get("type") == SessionType.WARMUP:
@@ -134,6 +137,7 @@ class VoicePipeline:
                     return
                 if msg.get("bytes") is not None:
                     if not self._muted:
+                        self._tremor_buf.extend(msg["bytes"])
                         await self._audio_queue.put(msg["bytes"])
                 elif msg.get("text") is not None:
                     await self._handle_client_text(msg["text"])
@@ -397,8 +401,28 @@ class VoicePipeline:
             with suppress(Exception):
                 await self._ws.close()
 
+        shake_count = 0
+        if self._tremor_buf:
+            try:
+                result = await asyncio.to_thread(
+                    self._tremor.analyze, bytes(self._tremor_buf)
+                )
+                shake_count = result.shake_count
+            except Exception:
+                logger.warning(
+                    "떨림 분석 실패",
+                    extra={"session_id": self._session_id},
+                    exc_info=True,
+                )
+            finally:
+                self._tremor_buf.clear()
+
         await self._spring.notify_session_closed(
-            self._session_id, reason=reason, transcript=self._history, silence_total=self._silence_total
+            self._session_id,
+            reason=reason,
+            transcript=self._history,
+            silence_total=self._silence_total,
+            shake_count=shake_count,
         )
 
     async def _send_json(self, payload: dict) -> None:
