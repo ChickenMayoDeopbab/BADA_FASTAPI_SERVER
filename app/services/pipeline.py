@@ -376,6 +376,9 @@ class VoicePipeline:
     async def _close(self, reason: EndReason) -> None:
         if self._closing.is_set():
             return
+        if self._state == _State.LISTENING and self._listening_since is not None:
+            self._silence_total += time.monotonic() - self._listening_since
+            self._listening_since = None
         self._end_reason = reason
         self._state = _State.CLOSING
         self._closing.set()
