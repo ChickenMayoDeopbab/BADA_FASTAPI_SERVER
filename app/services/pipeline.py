@@ -80,7 +80,7 @@ class VoicePipeline:
         self._closing = asyncio.Event()
         self._end_reason: EndReason | None = None
 
-        self._listening_since: float | None = None
+        self._listening_since: float | None = time.monotonic()
         self._silence_total: float = 0
         self._tremor = TremorAnalyzer()
         self._tremor_buf = bytearray()
