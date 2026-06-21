@@ -29,6 +29,11 @@ dependencies = [
     "anthropic>=0.52",
     "elevenlabs>=1.50",
     "PyJWT>=2.9",
+
+    # Termor analysis
+    "librosa>=0.10,<0.11",
+    "scipy>=1.13",
+    "numpy==1.26.4",
 ]
 
 [project.optional-dependencies]

@@ -8,7 +8,7 @@ python-json-logger==2.0.7
 # Infra
 redis[hiredis]==5.2.1
 aio-pika==9.5.8
-celery[redis]==5.5.2
+celery==5.5.2
 
 # Database
 sqlalchemy[asyncio]==2.0.40

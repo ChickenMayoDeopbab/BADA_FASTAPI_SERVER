@@ -67,6 +67,9 @@ async def test_notify_session_closed_sends_correct_request() -> None:
                 {"role": "user", "text": "여보세요"},
                 {"role": "assistant", "text": "네, 안녕하세요"},
             ],
+            silence_total=3.5,
+            shake_count=2,
+            good_segments=[{"start": 1.0, "end": 4.0}],
         )
 
         captured = spring.captured
@@ -79,6 +82,9 @@ async def test_notify_session_closed_sends_correct_request() -> None:
                 {"role": "user", "text": "여보세요"},
                 {"role": "assistant", "text": "네, 안녕하세요"},
             ],
+            "silence_total": 3.5,
+            "shake_count": 2,
+            "good_segments": [{"start": 1.0, "end": 4.0}],
         }
 
 
@@ -86,7 +92,7 @@ async def test_trailing_slash_in_base_url_is_normalized() -> None:
     with _MockSpring(status_code=200) as spring:
         client = _client_for(spring.base_url + "/")
         await client.notify_session_closed(
-            "abc", reason=EndReason.USER_END, transcript=[]
+            "abc", reason=EndReason.USER_END, transcript=[], silence_total=0
         )
         assert spring.captured["path"] == "/internal/v1/sessions/abc/closed"
 
@@ -95,7 +101,7 @@ async def test_server_error_is_swallowed() -> None:
     with _MockSpring(status_code=500) as spring:
         client = _client_for(spring.base_url)
         await client.notify_session_closed(
-            "x", reason=EndReason.ERROR, transcript=[]
+            "x", reason=EndReason.ERROR, transcript=[], silence_total=0
         )
 
 
@@ -104,5 +110,5 @@ async def test_unreachable_server_is_swallowed() -> None:
         dead_url = spring.base_url
     client = _client_for(dead_url)
     await client.notify_session_closed(
-        "y", reason=EndReason.TIMEOUT, transcript=[]
+        "y", reason=EndReason.TIMEOUT, transcript=[], silence_total=0
     )

@@ -23,6 +23,7 @@ from app.services.llm import LLMClient
 from app.services.session import build_turn_context
 from app.services.spring_client import SpringInternalClient
 from app.services.stt import AUDIO_EOS, GoogleSTTClient, STTEventType
+from app.services.tremor import TremorAnalyzer
 from app.services.tts import ElevenLabsTTSClient, TTSSession
 
 logger = logging.getLogger(__name__)
@@ -79,6 +80,14 @@ class VoicePipeline:
         self._closing = asyncio.Event()
         self._end_reason: EndReason | None = None
 
+        self._listening_since: float | None = time.monotonic()
+        self._silence_total: float = 0
+        self._tremor = TremorAnalyzer()
+        self._tremor_buf = bytearray()
+
+        self._user_turn_intervals: list[tuple[float, float]] = []
+        self._turn_open_at: float | None = 0.0
+
         max_duration = session.get("maxDurationSeconds")
         if max_duration is None and session.get("type") == SessionType.WARMUP:
             max_duration = 30  # Spring이 안 박아도 워밍업은 30초 보장
@@ -131,6 +140,7 @@ class VoicePipeline:
                     return
                 if msg.get("bytes") is not None:
                     if not self._muted:
+                        self._tremor_buf.extend(msg["bytes"])
                         await self._audio_queue.put(msg["bytes"])
                 elif msg.get("text") is not None:
                     await self._handle_client_text(msg["text"])
@@ -195,9 +205,16 @@ class VoicePipeline:
             text = event.text.strip()
             if text and self._state == _State.LISTENING and not self._time_up:
                 self._start_turn(text)
+        elif event.type == STTEventType.SPEECH_BEGIN and (
+                self._listening_since is not None and
+                time.monotonic() - self._listening_since > 1.5 and
+                self._state == _State.LISTENING):
+            self._silence_total += time.monotonic() - self._listening_since
+            self._listening_since = None
 
     def _start_turn(self, user_utterance: str) -> None:
         """LLM -> TTS"""
+        self._close_user_turn()
         self._state = _State.THINKING
         self._turn_task = asyncio.create_task(self._run_turn(user_utterance))
 
@@ -326,6 +343,8 @@ class VoicePipeline:
 
         self._turn_task = None
         self._state = _State.LISTENING
+        self._listening_since = time.monotonic()
+        self._open_user_turn()
 
     async def _barge_in(self) -> None:
         if self._turn_task and not self._turn_task.done():
@@ -335,6 +354,7 @@ class VoicePipeline:
         self._turn_task = None
         await self._send_json(interrupt_frame())
         self._state = _State.LISTENING
+        self._open_user_turn()
         logger.info("barge-in 처리", extra={"session_id": self._session_id})
 
     async def _max_duration_timer(self) -> None:
@@ -355,6 +375,9 @@ class VoicePipeline:
     async def _close(self, reason: EndReason) -> None:
         if self._closing.is_set():
             return
+        if self._state == _State.LISTENING and self._listening_since is not None:
+            self._silence_total += time.monotonic() - self._listening_since
+            self._listening_since = None
         self._end_reason = reason
         self._state = _State.CLOSING
         self._closing.set()
@@ -378,16 +401,48 @@ class VoicePipeline:
                     await task
 
         reason = self._end_reason or EndReason.USER_END
+
+        self._close_user_turn()
+
+        shake_count = 0
+        good_segments: list[dict] = []
+        if self._tremor_buf:
+            try:
+                result = await asyncio.to_thread(
+                    self._tremor.analyze, bytes(self._tremor_buf)
+                )
+                shake_count = result.shake_count
+                good_segments = self._pick_good_segments(result.good_candidates)
+            except Exception:
+                logger.warning(
+                    "떨림 분석 실패",
+                    extra={"session_id": self._session_id},
+                    exc_info=True,
+                )
+            finally:
+                self._tremor_buf.clear()
+
+        feedback = {
+            "shake_count": shake_count,
+            "silence_total": self._silence_total,
+            "good_segments": good_segments,
+        }
+
         if self._ws_alive:
             if reason == EndReason.ERROR:
                 await self._send_json(error_frame("PIPELINE_ERROR"))
             else:
-                await self._send_json(end_frame(reason))
+                await self._send_json(end_frame(reason, feedback))
             with suppress(Exception):
                 await self._ws.close()
 
         await self._spring.notify_session_closed(
-            self._session_id, reason=reason, transcript=self._history
+            self._session_id,
+            reason=reason,
+            transcript=self._history,
+            silence_total=self._silence_total,
+            shake_count=shake_count,
+            good_segments=good_segments,
         )
 
     async def _send_json(self, payload: dict) -> None:
@@ -399,3 +454,34 @@ class VoicePipeline:
         except Exception:
             self._ws_alive = False
             logger.debug("프레임 송신 실패, ws 종료로 간주", exc_info=True)
+
+    def _buf_sec(self) -> float:
+        return len(self._tremor_buf) / (16000 * 2)
+
+    def _open_user_turn(self) -> None:
+        self._turn_open_at = self._buf_sec()
+
+    def _close_user_turn(self) -> None:
+        if self._turn_open_at is not None:
+            self._user_turn_intervals.append((self._turn_open_at, self._buf_sec()))
+            self._turn_open_at = None
+
+    @staticmethod
+    def _intersect(a, b):
+        """구간 리스트 a, b의 겹치는 부분만 반환."""
+        out = []
+        for s, e in a:
+            for bs, be in b:
+                lo, hi = max(s, bs), min(e, be)
+                if hi > lo:
+                    out.append((lo, hi))
+        return out
+
+    def _pick_good_segments(self, candidates) -> list[dict]:
+        """잘한 구간 후보(발화−떨림) ∩ 사용자 턴 → 가장 긴 3개 (시간순)."""
+        good = self._intersect(candidates, self._user_turn_intervals)
+        good = [(s, e) for s, e in good if e - s >= 1.0]   # min_good_sec
+        good.sort(key=lambda se: se[1] - se[0], reverse=True)
+        good = good[:3]
+        good.sort(key=lambda se: se[0])
+        return [{"start": round(s, 2), "end": round(e, 2)} for s, e in good]
