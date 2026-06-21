@@ -85,6 +85,9 @@ class VoicePipeline:
         self._tremor = TremorAnalyzer()
         self._tremor_buf = bytearray()
 
+        self._user_turn_intervals: list[tuple[float, float]] = []
+        self._turn_open_at: float | None = 0.0
+
         max_duration = session.get("maxDurationSeconds")
         if max_duration is None and session.get("type") == SessionType.WARMUP:
             max_duration = 30  # Spring이 안 박아도 워밍업은 30초 보장
@@ -401,13 +404,17 @@ class VoicePipeline:
             with suppress(Exception):
                 await self._ws.close()
 
+        self._close_user_turn()  # 마지막 열린 발화 턴 닫기 (버퍼 비우기 전)
+
         shake_count = 0
+        good_segments: list[dict] = []
         if self._tremor_buf:
             try:
                 result = await asyncio.to_thread(
                     self._tremor.analyze, bytes(self._tremor_buf)
                 )
                 shake_count = result.shake_count
+                good_segments = self._pick_good_segments(result.good_candidates)
             except Exception:
                 logger.warning(
                     "떨림 분석 실패",
@@ -423,6 +430,7 @@ class VoicePipeline:
             transcript=self._history,
             silence_total=self._silence_total,
             shake_count=shake_count,
+            good_segments=good_segments,
         )
 
     async def _send_json(self, payload: dict) -> None:
@@ -434,3 +442,34 @@ class VoicePipeline:
         except Exception:
             self._ws_alive = False
             logger.debug("프레임 송신 실패, ws 종료로 간주", exc_info=True)
+
+    def _buf_sec(self) -> float:
+        return len(self._tremor_buf) / (16000 * 2)
+
+    def _open_user_turn(self) -> None:
+        self._turn_open_at = self._buf_sec()
+
+    def _close_user_turn(self) -> None:
+        if self._turn_open_at is not None:
+            self._user_turn_intervals.append((self._turn_open_at, self._buf_sec()))
+            self._turn_open_at = None
+
+    @staticmethod
+    def _intersect(a, b):
+        """구간 리스트 a, b의 겹치는 부분만 반환."""
+        out = []
+        for s, e in a:
+            for bs, be in b:
+                lo, hi = max(s, bs), min(e, be)
+                if hi > lo:
+                    out.append((lo, hi))
+        return out
+
+    def _pick_good_segments(self, candidates) -> list[dict]:
+        """잘한 구간 후보(발화−떨림) ∩ 사용자 턴 → 가장 긴 3개 (시간순)."""
+        good = self._intersect(candidates, self._user_turn_intervals)
+        good = [(s, e) for s, e in good if e - s >= 1.0]   # min_good_sec
+        good.sort(key=lambda se: se[1] - se[0], reverse=True)
+        good = good[:3]
+        good.sort(key=lambda se: se[0])
+        return [{"start": round(s, 2), "end": round(e, 2)} for s, e in good]

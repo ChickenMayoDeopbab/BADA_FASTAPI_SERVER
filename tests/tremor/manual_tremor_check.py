@@ -64,6 +64,7 @@ def report(label: str, pcm: bytes) -> int:
     print(f"\n===== {label} =====")
     print(f"  shake_count : {res.shake_count}")
     print(f"  voiced_sec  : {res.voiced_sec:.2f}   sustained_sec: {res.sustained_sec:.2f}")
+    print(f"  good_candidates: {res.good_candidates}")
     print(f"  창(window)  : 전체 {len(dbg)}개 중 on {len(on)}개")
     print(
         f"  관측 최대   : amp={max_amp:.1f} cents (임계 {CFG.amp_thresh_cents})"

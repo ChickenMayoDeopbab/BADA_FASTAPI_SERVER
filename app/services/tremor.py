@@ -42,6 +42,8 @@ class TremorConfig:
     merge_gap_sec: float = 0.15
     min_episode_sec: float = 0.5
 
+    min_silence_sec: float = 1.5  # 이보다 긴 무음 = '공백' → 발화 끊김
+
 
 @dataclass
 class TremorResult:
@@ -50,6 +52,7 @@ class TremorResult:
     voiced_sec: float
     sustained_sec: float = 0.0
     debug_windows: list = field(default_factory=list)
+    good_candidates: list = field(default_factory=list)
 
 
 class TremorAnalyzer:
@@ -133,6 +136,56 @@ class TremorAnalyzer:
                 i += 1
         return mask
 
+    def _speaking_spans(self, voiced: np.ndarray) -> list:
+        """발화 구간을 (시작초, 끝초) 리스트로. min_silence 이상 무음에서만 끊는다."""
+        config = self.config
+        fs = config.contour_fs
+        bridge = int(round(config.min_silence_sec * fs))  # 이보다 짧은 무음은 이어붙임
+        v = voiced.copy()
+        n = len(v)
+        i = 0
+        while i < n:  # 짧은 무음(< min_silence) 메우기
+            if not v[i]:
+                j = i
+                while j < n and not v[j]:
+                    j += 1
+                if 0 < i and j < n and (j - i) < bridge:
+                    v[i:j] = True
+                i = j
+            else:
+                i += 1
+        spans = []
+        i = 0
+        while i < n:  # 유성 런 → 초 단위 구간
+            if v[i]:
+                j = i
+                while j < n and v[j]:
+                    j += 1
+                spans.append((i / fs, j / fs))
+                i = j
+            else:
+                i += 1
+        return spans
+
+    @staticmethod
+    def _subtract(spans, holes):
+        """spans 각 구간에서 holes(떨림)와 겹치는 부분을 빼낸 나머지."""
+        holes = sorted(holes)
+        out = []
+        for s, e in spans:
+            cur = s
+            for hs, he in holes:
+                if he <= cur or hs >= e:   # hole이 현재 구간 밖
+                    continue
+                if hs > cur:               # hole 앞에 남는 발화
+                    out.append((cur, min(hs, e)))
+                cur = max(cur, he)         # 커서를 hole 끝으로
+                if cur >= e:
+                    break
+            if cur < e:                    # 뒤에 남는 발화
+                out.append((cur, e))
+        return out
+
     def analyze(self, pcm: bytes) -> TremorResult:
         config = self.config
         y = self._pcm_to_float(pcm)
@@ -178,11 +231,15 @@ class TremorAnalyzer:
                             fpk=round(peak_freq, 2), on=is_on))
 
         episodes = self._group_episodes(on_flags, centers, dbg)
+        spans = self._speaking_spans(voiced)
+        tremor = [(ep[0], ep[1]) for ep in episodes]
+        good_candidates = self._subtract(spans, tremor)
         return TremorResult(
             len(episodes), episodes,
             voiced_sec=float(voiced.sum()) / fs,
             sustained_sec=float(sustained.sum()) / fs,
             debug_windows=dbg,
+            good_candidates=[(round(s, 2), round(e, 2)) for s, e in good_candidates],
         )
 
     def _group_episodes(self, on_flags, centers, dbg):
