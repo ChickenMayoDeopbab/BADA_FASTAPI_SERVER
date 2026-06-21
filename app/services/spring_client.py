@@ -23,7 +23,13 @@ class SpringInternalClient:
         good_segments: list[dict] | None = None,
     ) -> None:
         url = f"{self._base_url}/internal/v1/sessions/{session_id}/closed"
-        payload = {"reason": reason.value, "transcript": transcript, "silence_total": silence_total, "shake_count": shake_count, "good_segments": good_segments}
+        payload = {
+            "reason": reason.value,
+            "transcript": transcript,
+            "silence_total": silence_total,
+            "shake_count": shake_count,
+            "good_segments": good_segments,
+        }
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
                 resp = await client.post(

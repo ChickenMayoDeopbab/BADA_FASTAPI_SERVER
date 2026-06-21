@@ -1,7 +1,8 @@
 from datetime import datetime
-from sqlalchemy import BigInteger, Boolean, DateTime, Enum, ForeignKey, JSON, String, Text
+
+from sqlalchemy import JSON, BigInteger, Boolean, DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
-from app.core.enums import AiPersonality, Difficulty, SessionType
+
 from app.db.base import Base
 
 

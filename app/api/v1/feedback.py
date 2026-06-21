@@ -1,7 +1,5 @@
 from fastapi import APIRouter
 
-from app.schemas.feedback import FeedbackResponse
-
 router = APIRouter(prefix="/api/v1/feedback", tags=["feedback"])
 
 # @router.get(
