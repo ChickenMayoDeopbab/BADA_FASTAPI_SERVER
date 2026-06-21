@@ -32,8 +32,11 @@ def interrupt_frame() -> dict:
     return {"type": FrameType.INTERRUPT.value}
 
 
-def end_frame(reason: EndReason) -> dict:
-    return {"type": FrameType.END.value, "reason": reason.value}
+def end_frame(reason: EndReason, feedback: dict | None = None) -> dict:
+    frame =  {"type": FrameType.END.value, "reason": reason.value}
+    if feedback is not None:
+        frame["feedback"] = feedback
+    return frame
 
 
 def error_frame(code: str) -> dict:

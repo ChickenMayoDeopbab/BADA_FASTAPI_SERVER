@@ -23,8 +23,8 @@ from app.services.llm import LLMClient
 from app.services.session import build_turn_context
 from app.services.spring_client import SpringInternalClient
 from app.services.stt import AUDIO_EOS, GoogleSTTClient, STTEventType
-from app.services.tts import ElevenLabsTTSClient, TTSSession
 from app.services.tremor import TremorAnalyzer
+from app.services.tts import ElevenLabsTTSClient, TTSSession
 
 logger = logging.getLogger(__name__)
 
@@ -205,13 +205,12 @@ class VoicePipeline:
             text = event.text.strip()
             if text and self._state == _State.LISTENING and not self._time_up:
                 self._start_turn(text)
-        elif event.type == STTEventType.SPEECH_BEGIN:
-            if (
-                    self._listening_since is not None and
-                    time.monotonic() - self._listening_since > 1.5 and
-                    self._state == _State.LISTENING):
-                self._silence_total += time.monotonic() - self._listening_since
-                self._listening_since = None
+        elif event.type == STTEventType.SPEECH_BEGIN and (
+                self._listening_since is not None and
+                time.monotonic() - self._listening_since > 1.5 and
+                self._state == _State.LISTENING):
+            self._silence_total += time.monotonic() - self._listening_since
+            self._listening_since = None
 
     def _start_turn(self, user_utterance: str) -> None:
         """LLM -> TTS"""
@@ -402,15 +401,8 @@ class VoicePipeline:
                     await task
 
         reason = self._end_reason or EndReason.USER_END
-        if self._ws_alive:
-            if reason == EndReason.ERROR:
-                await self._send_json(error_frame("PIPELINE_ERROR"))
-            else:
-                await self._send_json(end_frame(reason))
-            with suppress(Exception):
-                await self._ws.close()
 
-        self._close_user_turn()  # 마지막 열린 발화 턴 닫기 (버퍼 비우기 전)
+        self._close_user_turn()
 
         shake_count = 0
         good_segments: list[dict] = []
@@ -429,6 +421,20 @@ class VoicePipeline:
                 )
             finally:
                 self._tremor_buf.clear()
+
+        feedback = {
+            "shake_count": shake_count,
+            "silence_total": self._silence_total,
+            "good_segments": good_segments,
+        }
+
+        if self._ws_alive:
+            if reason == EndReason.ERROR:
+                await self._send_json(error_frame("PIPELINE_ERROR"))
+            else:
+                await self._send_json(end_frame(reason, feedback))
+            with suppress(Exception):
+                await self._ws.close()
 
         await self._spring.notify_session_closed(
             self._session_id,
