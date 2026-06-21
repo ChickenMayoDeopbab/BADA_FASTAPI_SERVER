@@ -215,6 +215,7 @@ class VoicePipeline:
 
     def _start_turn(self, user_utterance: str) -> None:
         """LLM -> TTS"""
+        self._close_user_turn()
         self._state = _State.THINKING
         self._turn_task = asyncio.create_task(self._run_turn(user_utterance))
 
@@ -344,6 +345,7 @@ class VoicePipeline:
         self._turn_task = None
         self._state = _State.LISTENING
         self._listening_since = time.monotonic()
+        self._open_user_turn()
 
     async def _barge_in(self) -> None:
         if self._turn_task and not self._turn_task.done():
@@ -353,6 +355,7 @@ class VoicePipeline:
         self._turn_task = None
         await self._send_json(interrupt_frame())
         self._state = _State.LISTENING
+        self._open_user_turn()
         logger.info("barge-in 처리", extra={"session_id": self._session_id})
 
     async def _max_duration_timer(self) -> None:
