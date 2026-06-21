@@ -119,7 +119,7 @@ class TremorAnalyzer:
                 j = i
                 while j < n and not v[j]:
                     j += 1
-                if 0 < i and j < n and (j - i) <= gap:
+                if i > 0 and j < n and (j - i) <= gap:
                     v[i:j] = True
                 i = j
             else:
@@ -151,7 +151,7 @@ class TremorAnalyzer:
                 j = i
                 while j < n and not v[j]:
                     j += 1
-                if 0 < i and j < n and (j - i) < bridge:
+                if i > 0 and j < n and (j - i) < bridge:
                     v[i:j] = True
                 i = j
             else:
@@ -247,7 +247,7 @@ class TremorAnalyzer:
     def _group_episodes(self, on_flags, centers, dbg):
         config = self.config
         episodes, run, last_on_t = [], [], None
-        for is_on, t, d in zip(on_flags, centers, dbg):
+        for is_on, t, d in zip(on_flags, centers, dbg, strict=True):
             if is_on:
                 if last_on_t is not None and (t - last_on_t) > config.merge_gap_sec:
                     episodes += self._flush(run, config)

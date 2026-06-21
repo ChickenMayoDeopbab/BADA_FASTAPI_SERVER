@@ -21,7 +21,7 @@ class ScenarioORM(Base):
     script: Mapped[list | None] = mapped_column(JSON, nullable=True) # [{"step", "ai_goal", "hint"}]
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
-class feedbackORM(Base):
+class FeedbackORM(Base):
     __tablename__ = "feedback"
 
     feedback_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
