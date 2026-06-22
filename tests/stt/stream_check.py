@@ -1,9 +1,11 @@
-import asyncio, logging
+import asyncio
+import logging
 import os
 
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
-from app.services.stt import GoogleSTTClient, AUDIO_EOS
+from app.services.stt import AUDIO_EOS, GoogleSTTClient
+
 
 async def main():
     client = GoogleSTTClient(

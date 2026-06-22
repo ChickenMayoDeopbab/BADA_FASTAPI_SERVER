@@ -34,6 +34,7 @@ if str(ROOT) not in sys.path:
 
 try:
     import numpy as np
+
     from app.services.tremor import TremorAnalyzer, TremorConfig
 except ModuleNotFoundError as e:
     sys.exit(

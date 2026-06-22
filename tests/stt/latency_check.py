@@ -139,7 +139,7 @@ async def main() -> None:
     logger.info("  endpoint : %s-speech.googleapis.com", settings.google_stt_location)
     logger.info("=" * 50)
 
-    audio_queue: "asyncio.Queue[bytes | None]" = asyncio.Queue()
+    audio_queue: asyncio.Queue[bytes | None] = asyncio.Queue()
     stop_event = asyncio.Event()
 
     feeder = asyncio.create_task(feed_microphone(audio_queue, stop_event))
