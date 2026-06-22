@@ -170,8 +170,11 @@ async def main() -> None:
             await pipeline.run()
         finally:
             watcher.cancel()
+            meter.cancel()
             with suppress(asyncio.CancelledError):
                 await watcher
+            with suppress(asyncio.CancelledError):
+                await meter
 
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import sys
+from contextlib import suppress
 
 import numpy as np
 import sounddevice as sd
@@ -93,11 +94,8 @@ async def main() -> None:
     )
 
     print("테스트 시작")
-    with mic:
-        try:
-            await pipeline.run()
-        except asyncio.CancelledError:
-            pass
+    with mic, suppress(asyncio.CancelledError):
+        await pipeline.run()
 
 
 if __name__ == "__main__":
