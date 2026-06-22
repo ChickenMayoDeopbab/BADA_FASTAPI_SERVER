@@ -54,15 +54,16 @@ line-length = 120
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "A", "SIM"]
 
-[tool.ruff.lint.per-file-ignores]
-"tests/**/manual_*.py" = ["E402", "E401", "E702", "F841", "I001", "SIM105"]
-"tests/**/*_check.py" = ["E402", "E401", "E702", "F841", "I001", "SIM105"]
-
 [tool.ruff.lint.isort]
 known-first-party = ["app"]
 
 [tool.ruff.lint.flake8-bugbear]
 extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Header"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/manual_*.py" = ["E402"]
+"tests/**/*stream_check*.py" = ["E402"]
+"tests/stt/mic_check.py" = ["E402"]
 
 [tool.setuptools.packages.find]
 include = ["app*"]

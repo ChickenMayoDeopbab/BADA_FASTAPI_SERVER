@@ -1,3 +1,5 @@
+import time
+
 import sounddevice as sd
 
 print(sd.query_devices())
@@ -11,5 +13,5 @@ def cb(indata, frames, t, status):
     print("audio level:", round(float(vol), 1))
 
 with sd.InputStream(samplerate=16000, channels=1, dtype="int16", blocksize=1600, callback=cb):
-    import time; time.sleep(5)
+    time.sleep(5)
     print("done")

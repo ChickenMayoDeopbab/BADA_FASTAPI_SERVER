@@ -3,7 +3,10 @@ services:
     build: !reset null
     image: ${IMAGE:?IMAGE env (GHCR image ref) is required}
     pull_policy: always
+    volumes:
+      - ./secrets/gcp-adc.json:/secrets/gcp-adc.json:ro
     environment:
+      GOOGLE_APPLICATION_CREDENTIALS: /secrets/gcp-adc.json
       DATABASE_URL: postgresql+asyncpg://${SPRING_DB_USER:-bada}:${SPRING_DB_PASSWORD:-bada}@${SPRING_DB_HOST:-spring-db}:5432/${SPRING_DB_NAME:-bada}
     networks:
       - default
@@ -13,6 +16,5 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-
   db:
     profiles: ["local-only"]
