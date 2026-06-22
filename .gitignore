@@ -38,3 +38,10 @@ tests/output/
 records/
 
 .claude
+
+# --- harness ---
+.harness/
+AGENTS.md
+CLAUDE.md
+.claude/hooks/stop-gate.sh
+.claude/hooks/session-context.sh
