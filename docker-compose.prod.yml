@@ -1,10 +1,5 @@
-# Production override. Always run together with the base file:
-#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
-# ports / env_file / restart / depends_on are inherited from docker-compose.yml.
 services:
   app:
-    # Drop the inherited `build: .` so `up` never needs a build context on the
-    # server (image is pulled from GHCR). IMAGE is injected at deploy time.
     build: !reset null
     image: ${IMAGE:?IMAGE env (GHCR image ref) is required}
     pull_policy: always
@@ -14,3 +9,14 @@ services:
       - ./secrets/gcp-adc.json:/secrets/gcp-adc.json:ro
     environment:
       GOOGLE_APPLICATION_CREDENTIALS: /secrets/gcp-adc.json
+      DATABASE_URL: postgresql+asyncpg://${SPRING_DB_USER:-bada}:${SPRING_DB_PASSWORD:-bada}@${SPRING_DB_HOST:-spring-db}:5432/${SPRING_DB_NAME:-bada}
+    networks:
+      - default
+      - bada-net
+    depends_on: !override
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+  db:
+    profiles: ["local-only"]
