@@ -21,8 +21,8 @@ class Base(DeclarativeBase):
     pass
 
 async def init_db() -> None:
-    if get_settings().env == "prod":
-        return
+    """FastAPI 소유 테이블 공유 DB에 생성"""
+    from app.db import models  # noqa: F401  (ScenarioORM/FeedbackORM 을 metadata 에 등록)
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
