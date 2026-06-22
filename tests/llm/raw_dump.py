@@ -1,7 +1,5 @@
 import asyncio
 
-from google.genai import types
-
 from app.schemas.llm import AiPersonality, ScenarioTurn, TurnContext
 from app.services.llm import LLMClient
 from app.services.llm_prompt import build_contents, build_system_prompt

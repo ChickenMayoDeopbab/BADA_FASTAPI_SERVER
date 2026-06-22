@@ -1,13 +1,11 @@
 import asyncio
 import logging
-import os
-import sys
 import time
 
 import sounddevice as sd
 
-from app.services.stt import AUDIO_EOS, GoogleSTTClient, STTEventType
 from app.core.config import get_settings
+from app.services.stt import AUDIO_EOS, GoogleSTTClient, STTEventType
 
 logging.basicConfig(
     level=logging.INFO,
@@ -86,7 +84,7 @@ async def main() -> None:
         sample_rate_hertz=SAMPLE_RATE,
     )
 
-    audio_queue: "asyncio.Queue[bytes | None]" = asyncio.Queue()
+    audio_queue: asyncio.Queue[bytes | None] = asyncio.Queue()
     stop_event = asyncio.Event()
 
     feeder = asyncio.create_task(feed_microphone(audio_queue, stop_event))

@@ -1,8 +1,11 @@
 import sounddevice as sd
+
 print(sd.query_devices())
 print("default input:", sd.default.device)
 
 import numpy as np
+
+
 def cb(indata, frames, t, status):
     vol = np.linalg.norm(indata)
     print("audio level:", round(float(vol), 1))
