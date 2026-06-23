@@ -3,6 +3,7 @@ import json
 import logging
 import time
 from contextlib import suppress
+from dataclasses import dataclass
 from enum import StrEnum
 
 from fastapi import WebSocket, WebSocketDisconnect
@@ -10,6 +11,7 @@ from google.api_core.exceptions import GoogleAPICallError
 
 from app.core.config import Settings
 from app.core.enums import SessionType
+from app.core.metrics import log_metric, now_ms
 from app.schemas.frames import (
     EndReason,
     emotion_frame,
@@ -41,6 +43,37 @@ class _State(StrEnum):
     THINKING = "THINKING" # 생각중
     SPEAKING = "SPEAKING" # 말하는중
     CLOSING = "CLOSING" # 끝
+
+
+@dataclass
+class _TurnTimings:
+    """한 음성 턴의 단계별 시점(monotonic ms). 미도달 시점은 None(부분 턴)."""
+
+    final_at: float                      # STT FINAL 수신
+    last_audio_at: float | None = None   # 직전 사용자 오디오 청크 수신
+    ctx_sent_at: float | None = None     # LLM 스트림 시작
+    first_token_at: float | None = None  # 첫 텍스트 토큰
+    last_token_at: float | None = None   # 마지막 텍스트 토큰
+    first_pcm_at: float | None = None    # 첫 PCM 클라 송출
+    last_pcm_at: float | None = None     # 마지막 PCM 클라 송출
+
+    @staticmethod
+    def _delta(start: float | None, end: float | None) -> float | None:
+        if start is None or end is None:
+            return None
+        return round(end - start, 1)
+
+    def as_metrics(self) -> dict[str, float | None]:
+        """지표 정의대로 구간 지연(ms) 산출. 스트리밍이라 구간은 시간상 겹침"""
+        return {
+            "stt_ms": self._delta(self.last_audio_at, self.final_at),
+            "llm_ttft_ms": self._delta(self.ctx_sent_at, self.first_token_at),
+            "llm_total_ms": self._delta(self.ctx_sent_at, self.last_token_at),
+            "tts_ttfb_ms": self._delta(self.first_token_at, self.first_pcm_at),
+            "tts_total_ms": self._delta(self.first_token_at, self.last_pcm_at),
+            "response_ms": self._delta(self.final_at, self.first_pcm_at),
+            "turn_total_ms": self._delta(self.final_at, self.last_pcm_at),
+        }
 
 
 class VoicePipeline:
@@ -75,6 +108,7 @@ class VoicePipeline:
         self._muted = False
         self._ws_alive = True
         self._time_up = False
+        self._last_audio_at: float | None = None
 
         self._turn_task: asyncio.Task | None = None
         self._closing = asyncio.Event()
@@ -140,6 +174,7 @@ class VoicePipeline:
                     return
                 if msg.get("bytes") is not None:
                     if not self._muted:
+                        self._last_audio_at = now_ms()
                         self._tremor_buf.extend(msg["bytes"])
                         await self._audio_queue.put(msg["bytes"])
                 elif msg.get("text") is not None:
@@ -204,7 +239,7 @@ class VoicePipeline:
         elif event.type == STTEventType.FINAL:
             text = event.text.strip()
             if text and self._state == _State.LISTENING and not self._time_up:
-                self._start_turn(text)
+                self._start_turn(text, final_at=now_ms())
         elif event.type == STTEventType.SPEECH_BEGIN and (
                 self._listening_since is not None and
                 time.monotonic() - self._listening_since > 1.5 and
@@ -212,13 +247,14 @@ class VoicePipeline:
             self._silence_total += time.monotonic() - self._listening_since
             self._listening_since = None
 
-    def _start_turn(self, user_utterance: str) -> None:
+    def _start_turn(self, user_utterance: str, *, final_at: float) -> None:
         """LLM -> TTS"""
         self._close_user_turn()
         self._state = _State.THINKING
-        self._turn_task = asyncio.create_task(self._run_turn(user_utterance))
+        timings = _TurnTimings(final_at=final_at, last_audio_at=self._last_audio_at)
+        self._turn_task = asyncio.create_task(self._run_turn(user_utterance, timings))
 
-    async def _run_turn(self, user_utterance: str) -> None:
+    async def _run_turn(self, user_utterance: str, timings: _TurnTimings) -> None:
         """턴 시작"""
         ctx = build_turn_context(
             self._session,
@@ -245,11 +281,15 @@ class VoicePipeline:
 
         async def produce() -> None:
             """이벤트 타입따라 분기"""
+            timings.ctx_sent_at = now_ms()
             try:
                 async for ev in self._llm.stream(ctx):
                     if ev.type == LLMEventType.EMOTION_RESOLVED:
                         await ensure_tts(ev.emotion or AiEmotion.NEUTRAL)
                     elif ev.type == LLMEventType.TEXT_DELTA:
+                        if timings.first_token_at is None:
+                            timings.first_token_at = now_ms()
+                        timings.last_token_at = now_ms()
                         ai_parts.append(ev.text)
                         await text_q.put(ev.text)
                     elif ev.type == LLMEventType.STEP_DONE:
@@ -288,6 +328,9 @@ class VoicePipeline:
                 except Exception:
                     self._ws_alive = False
                     break
+                if timings.first_pcm_at is None:
+                    timings.first_pcm_at = now_ms()
+                timings.last_pcm_at = now_ms()
             await self._send_json(speaking_end_frame())
 
         try:
@@ -300,7 +343,7 @@ class VoicePipeline:
         finally:
             await self._cleanup_turn_tts(connect_task, box["tts"])
 
-        await self._finalize_turn(user_utterance, ai_parts, flags)
+        await self._finalize_turn(user_utterance, ai_parts, flags, timings)
 
     async def _cleanup_turn_tts(
         self, connect_task: asyncio.Task, used: TTSSession | None
@@ -321,8 +364,19 @@ class VoicePipeline:
                 await session.aclose()
 
     async def _finalize_turn(
-        self, user_utterance: str, ai_parts: list[str], flags: dict
+        self,
+        user_utterance: str,
+        ai_parts: list[str],
+        flags: dict,
+        timings: _TurnTimings,
     ) -> None:
+        log_metric(
+            "voice_turn",
+            session_id=self._session_id,
+            step=self._current_step,
+            error=flags["error"],
+            **timings.as_metrics(),
+        )
         ai_text = "".join(ai_parts).strip()
         self._history.append({"role": "user", "text": user_utterance})
         if ai_text:
