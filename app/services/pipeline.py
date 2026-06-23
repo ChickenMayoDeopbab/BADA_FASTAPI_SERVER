@@ -505,9 +505,20 @@ class VoicePipeline:
             return
         try:
             await self._ws.send_json(payload)
+        except (WebSocketDisconnect, RuntimeError) as e:
+            self._ws_alive = False
+            logger.info(
+                "ws 송신 중단(클라이언트 끊김): %s",
+                type(e).__name__,
+                extra={"session_id": self._session_id},
+            )
         except Exception:
             self._ws_alive = False
-            logger.debug("프레임 송신 실패, ws 종료로 간주", exc_info=True)
+            logger.warning(
+                "프레임 송신 실패",
+                exc_info=True,
+                extra={"session_id": self._session_id},
+            )
 
     def _buf_sec(self) -> float:
         return len(self._tremor_buf) / (16000 * 2)
