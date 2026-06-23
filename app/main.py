@@ -1,13 +1,14 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1 import internal, websocket
 from app.api.v1.scenario import router as scenario_router
 from app.core.config import get_settings
 from app.core.logging import setup_logging
+from app.core.metrics import log_metric, now_ms
 from app.db.base import init_db
 from app.deps.redis import close_redis, init_redis
 
@@ -40,6 +41,26 @@ def create_app() -> FastAPI:
         openapi_url="/openapi.json" if settings.env != "prod" else None,
         lifespan=lifespan,
     )
+
+    @app.middleware("http")
+    async def _request_metrics(request: Request, call_next):
+        """REST 요청 단위 지연 계측"""
+        start = now_ms()
+        status = 500
+        try:
+            response = await call_next(request)
+            status = response.status_code
+            return response
+        finally:
+            route = request.scope.get("route")
+            path = getattr(route, "path", None) or request.url.path
+            log_metric(
+                "http_request",
+                method=request.method,
+                path=path,
+                status=status,
+                duration_ms=round(now_ms() - start, 1),
+            )
 
     if settings.env != "prod":
         app.add_middleware(
