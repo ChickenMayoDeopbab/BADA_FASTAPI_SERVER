@@ -17,6 +17,7 @@ class EndReason(StrEnum):
     TIMEOUT = "TIMEOUT"               # 최대 시간 초과
     CRISIS = "CRISIS"                 # 위기 신호로 정중히 종료
     END_CALL = "END_CALL"             # LLM이 끝났다고 신호
+    NO_AUDIO = "NO_AUDIO"             # STT가 오디오 미수신으로 스트림 종료(정상)
     ERROR = "ERROR"                   # 서버 에러로 종료
 
 

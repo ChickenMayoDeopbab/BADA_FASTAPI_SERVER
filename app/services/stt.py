@@ -6,7 +6,7 @@ from enum import StrEnum
 from typing import Final
 
 from google.api_core.client_options import ClientOptions
-from google.api_core.exceptions import GoogleAPICallError
+from google.api_core.exceptions import GoogleAPICallError, OutOfRange
 from google.cloud.speech_v2 import SpeechAsyncClient
 from google.cloud.speech_v2.types import cloud_speech as cs
 
@@ -16,6 +16,17 @@ AUDIO_EOS: Final = None
 
 # 5분
 STREAM_LIMIT_SECONDS: Final[int] = 5 * 60
+
+# Google STT v2가 오디오 미수신으로 스트림을 닫을 때 OutOfRange 메시지에 담기는 마커.
+_IDLE_TIMEOUT_MARKER: Final[str] = "Long duration elapsed without audio"
+
+
+class STTIdleTimeoutError(Exception):
+    """오디오 미수신으로 STT 스트림이 정상 종료된 경우(장애 아님)."""
+
+
+def _is_idle_timeout(exc: GoogleAPICallError) -> bool:
+    return isinstance(exc, OutOfRange) and _IDLE_TIMEOUT_MARKER in str(exc)
 
 class STTEventType(StrEnum):
     INTERIM = "interim"
@@ -140,7 +151,10 @@ class GoogleSTTClient:
             async for response in responses:
                 for event in self._parse_response(response):
                     yield event
-        except GoogleAPICallError:
+        except GoogleAPICallError as exc:
+            if _is_idle_timeout(exc):
+                logger.info("STT idle-timeout: 오디오 미수신으로 스트림 종료")
+                raise STTIdleTimeoutError from exc
             logger.exception("STT 스트리밍 API 에러")
             raise
         except asyncio.CancelledError:
