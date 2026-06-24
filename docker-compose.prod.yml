@@ -8,7 +8,7 @@ services:
     environment:
       GOOGLE_APPLICATION_CREDENTIALS: /secrets/gcp-adc.json
       DATABASE_URL: postgresql+asyncpg://${SPRING_DB_USER:-bada}:${SPRING_DB_PASSWORD:-bada}@${SPRING_DB_HOST:-spring-db}:5432/${SPRING_DB_NAME:-bada}
-      SPRING_BOOT_INTERNAL_URL: http://${SPRING_APP_HOST:-bada_spring_server-app-1}:8080
+      SPRING_BOOT_INTERNAL_URL: http://${SPRING_APP_HOST:-spring-app}:8080
     networks:
       - default
       - bada-net
