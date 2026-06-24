@@ -3,13 +3,12 @@ services:
     build: !reset null
     image: ${IMAGE:?IMAGE env (GHCR image ref) is required}
     pull_policy: always
-    # GCP STT 자격증명: 호스트의 ADC json을 마운트하고 ADC 경로로 노출.
-    # google.auth.default() 가 자동 인식 → 코드 변경 불필요. 로컬 dev(base only)는 미적용.
     volumes:
       - ./secrets/gcp-adc.json:/secrets/gcp-adc.json:ro
     environment:
       GOOGLE_APPLICATION_CREDENTIALS: /secrets/gcp-adc.json
       DATABASE_URL: postgresql+asyncpg://${SPRING_DB_USER:-bada}:${SPRING_DB_PASSWORD:-bada}@${SPRING_DB_HOST:-spring-db}:5432/${SPRING_DB_NAME:-bada}
+      SPRING_BOOT_INTERNAL_URL: http://${SPRING_APP_HOST:-bada_spring_server-app-1}:8080
     networks:
       - default
       - bada-net
