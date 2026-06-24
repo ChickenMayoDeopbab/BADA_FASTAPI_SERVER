@@ -24,7 +24,12 @@ from app.schemas.llm import AiEmotion, LLMEventType
 from app.services.llm import LLMClient
 from app.services.session import build_turn_context
 from app.services.spring_client import SpringInternalClient
-from app.services.stt import AUDIO_EOS, GoogleSTTClient, STTEventType
+from app.services.stt import (
+    AUDIO_EOS,
+    GoogleSTTClient,
+    STTEventType,
+    STTIdleTimeoutError,
+)
 from app.services.tremor import TremorAnalyzer
 from app.services.tts import ElevenLabsTTSClient, TTSSession
 
@@ -203,6 +208,12 @@ class VoicePipeline:
         try:
             while not self._closing.is_set():
                 await self._consume_one_stream(self._audio_queue)
+        except STTIdleTimeoutError:
+            logger.info(
+                "오디오 미수신으로 STT 스트림 종료",
+                extra={"session_id": self._session_id},
+            )
+            await self._close(EndReason.NO_AUDIO)
         except GoogleAPICallError:
             logger.exception("STT 스트리밍 실패", extra={"session_id": self._session_id})
             await self._close(EndReason.ERROR)
