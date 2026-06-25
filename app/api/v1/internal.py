@@ -26,11 +26,16 @@ async def get_scenario_context(
     db: AsyncSession = Depends(get_db),
 ) -> ScenarioContextResponse:
     """프리셋은 PRESET_MAP에서, 커스텀은 DB(ScenarioORM)에서 컨텍스트를 만든다."""
+    row = await db.get(ScenarioORM, scenario_id)
+    if row is not None and row.is_custom:
+        return _custom_context(row)
+
     preset = PRESET_MAP.get(scenario_id)
     if preset is not None:
         return ScenarioContextResponse(
             title=preset["title"],
             ai_role=preset["ai_role"],
+            ai_prompt=preset["ai_prompt"],
             script=[
                 ScriptTurnContext(
                     step=turn["step"],
@@ -41,13 +46,16 @@ async def get_scenario_context(
             ],
         )
 
-    row = await db.get(ScenarioORM, scenario_id)
     if row is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="SCENARIO_NOT_FOUND",
         )
 
+    return _custom_context(row)
+
+
+def _custom_context(row: ScenarioORM) -> ScenarioContextResponse:
     # 커스텀 시나리오 생성은 AI가 만든 script 사용(없으면 자유 대화)
     raw_script = row.script if isinstance(row.script, list) else []
     script = [
@@ -62,5 +70,6 @@ async def get_scenario_context(
     return ScenarioContextResponse(
         title=row.title,
         ai_role=row.call_target,
+        ai_prompt=row.ai_prompt,
         script=script,
     )

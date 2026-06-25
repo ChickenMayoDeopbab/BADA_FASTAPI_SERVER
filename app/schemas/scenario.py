@@ -35,6 +35,7 @@ class ScriptTurnContext(BaseModel):
 class ScenarioContextResponse(BaseModel):
     title: str
     ai_role: str = Field(serialization_alias="aiRole")
+    ai_prompt: str = Field(serialization_alias="aiPrompt")
     script: list[ScriptTurnContext]
     model_config = ConfigDict(populate_by_name=True)
 
