@@ -1,4 +1,5 @@
 from app.schemas.llm import AiPersonality
+from app.services.llm_prompt import build_system_prompt
 from app.services.session import (
     _parse_script,
     build_turn_context,
@@ -58,6 +59,7 @@ def _session() -> dict:
         "scenario": {
             "title": "병원 예약",
             "aiRole": "접수원",
+            "aiPrompt": "You are a hospital receptionist.",
             "script": [{"step": 1, "aiGoal": "용건 확인"}],
         },
     }
@@ -73,9 +75,25 @@ def test_build_turn_context_maps_fields() -> None:
     assert ctx.personality == AiPersonality.TOUGH
     assert ctx.scenario_title == "병원 예약"
     assert ctx.scenario_role == "접수원"
+    assert ctx.scenario_prompt == "You are a hospital receptionist."
     assert ctx.current_step == 1
     assert ctx.user_utterance == "예약하려고요"
     assert len(ctx.script) == 1
+
+
+def test_build_system_prompt_includes_scenario_prompt() -> None:
+    ctx = build_turn_context(
+        _session(),
+        current_step=1,
+        history=[],
+        user_utterance="예약하려고요",
+    )
+    prompt = build_system_prompt(ctx)
+
+    assert "병원 예약" in prompt
+    assert "접수원" in prompt
+    assert "You are a hospital receptionist." in prompt
+    assert "용건 확인 <- 지금 이 단계" in prompt
 
 def test_build_turn_context_unknown_personality_falls_back_normal() -> None:
     session = _session()

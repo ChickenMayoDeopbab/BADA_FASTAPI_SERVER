@@ -60,3 +60,4 @@ class TurnContext:
     current_step: int           # 몇 번째
     history: list[dict]         # 나눴던 대화
     user_utterance: str         # 사용자가 말한 내용
+    scenario_prompt: str = ""   # 시나리오별 역할 지시

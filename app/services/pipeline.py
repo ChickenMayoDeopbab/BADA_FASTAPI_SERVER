@@ -273,6 +273,17 @@ class VoicePipeline:
             history=self._history,
             user_utterance=user_utterance,
         )
+        first_goal = ctx.script[0].ai_goal if ctx.script else ""
+        logger.info(
+            "LLM 턴 컨텍스트 생성",
+            extra={
+                "session_id": self._session_id,
+                "scenario_title": ctx.scenario_title,
+                "scenario_role": ctx.scenario_role,
+                "current_step": self._current_step,
+                "first_script_goal": first_goal,
+            },
+        )
 
         connect_task = asyncio.create_task(self._tts.open())
         text_q: asyncio.Queue[str | None] = asyncio.Queue()
