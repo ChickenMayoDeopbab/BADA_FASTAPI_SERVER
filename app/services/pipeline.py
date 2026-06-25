@@ -255,12 +255,10 @@ class VoicePipeline:
         elif event.type == STTEventType.FINAL:
             text = event.text.strip()
             logger.info(
-                "STT FINAL 수신",
-                extra={
-                    "session_id": self._session_id,
-                    "state": self._state.value,
-                    "text": _clip(text),
-                },
+                "STT FINAL 수신 state=%s text=%r",
+                self._state.value,
+                _clip(text),
+                extra={"session_id": self._session_id},
             )
             if text and self._state == _State.LISTENING and not self._time_up:
                 self._start_turn(text, final_at=now_ms())
@@ -288,14 +286,12 @@ class VoicePipeline:
         )
         first_goal = ctx.script[0].ai_goal if ctx.script else ""
         logger.info(
-            "LLM 턴 컨텍스트 생성",
-            extra={
-                "session_id": self._session_id,
-                "scenario_title": ctx.scenario_title,
-                "scenario_role": ctx.scenario_role,
-                "current_step": self._current_step,
-                "first_script_goal": first_goal,
-            },
+            "LLM 턴 컨텍스트 생성 step=%s title=%r role=%r goal=%r",
+            self._current_step,
+            ctx.scenario_title,
+            ctx.scenario_role,
+            first_goal,
+            extra={"session_id": self._session_id},
         )
 
         connect_task = asyncio.create_task(self._tts.open())
@@ -414,13 +410,11 @@ class VoicePipeline:
         )
         ai_text = "".join(ai_parts).strip()
         logger.info(
-            "턴 완료",
-            extra={
-                "session_id": self._session_id,
-                "step": self._current_step,
-                "user_utterance": _clip(user_utterance),
-                "ai_text": _clip(ai_text),
-            },
+            "턴 완료 step=%s user=%r ai=%r",
+            self._current_step,
+            _clip(user_utterance),
+            _clip(ai_text),
+            extra={"session_id": self._session_id},
         )
         self._history.append({"role": "user", "text": user_utterance})
         if ai_text:
