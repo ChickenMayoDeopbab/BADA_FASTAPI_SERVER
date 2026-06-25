@@ -1,0 +1,8 @@
+{
+  "projectRoot": "/Users/junha0729/Dev/projects/narsha/2026/bada-ai-server",
+  "batchFiles": [
+    {"path": ".github/workflows/ci.yml", "language": "yaml", "sizeLines": 29, "fileCategory": "infra"},
+    {"path": ".github/workflows/deploy.yml", "language": "yaml", "sizeLines": 125, "fileCategory": "infra"}
+  ],
+  "batchImportData": {".github/workflows/ci.yml":[],".github/workflows/deploy.yml":[]}
+}

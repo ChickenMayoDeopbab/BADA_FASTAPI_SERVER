@@ -1,0 +1,4870 @@
+{
+  "scriptCompleted": true,
+  "filesAnalyzed": 16,
+  "filesSkipped": [],
+  "results": [
+    {
+      "path": "app/core/config.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 64,
+      "nonEmptyLines": 51,
+      "functions": [
+        {
+          "name": "get_settings",
+          "startLine": 63,
+          "endLine": 64,
+          "params": []
+        }
+      ],
+      "classes": [
+        {
+          "name": "Settings",
+          "startLine": 7,
+          "endLine": 60,
+          "methods": [],
+          "properties": [
+            "env",
+            "cors_origins",
+            "redis_url",
+            "rabbitmq_url",
+            "jwt_secret",
+            "jwt_algorithm",
+            "internal_secret",
+            "google_stt_credentials_path",
+            "google_project_id",
+            "google_stt_location",
+            "google_stt_model",
+            "google_stt_language",
+            "gemini_api_key",
+            "llm_realtime_model",
+            "anthropic_api_key",
+            "llm_analysis_model",
+            "elevenlabs_api_key",
+            "elevenlabs_model",
+            "elevenlabs_voice_id",
+            "elevenlabs_ws_host",
+            "elevenlabs_output_format",
+            "elevenlabs_language_code",
+            "elevenlabs_apply_text_normalization",
+            "elevenlabs_auto_mode",
+            "elevenlabs_stability",
+            "elevenlabs_similarity_boost",
+            "elevenlabs_style",
+            "elevenlabs_speaker_boost",
+            "elevenlabs_speed",
+            "spring_boot_internal_url",
+            "database_url"
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "name": "Settings",
+          "line": 7,
+          "isDefault": false
+        },
+        {
+          "name": "get_settings",
+          "line": 62,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "get_settings",
+          "callee": "Settings",
+          "lineNumber": 64
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 2,
+        "functionCount": 1,
+        "classCount": 1
+      }
+    },
+    {
+      "path": "app/schemas/frames.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 44,
+      "nonEmptyLines": 29,
+      "functions": [
+        {
+          "name": "emotion_frame",
+          "startLine": 24,
+          "endLine": 25,
+          "params": [
+            "emotion"
+          ]
+        },
+        {
+          "name": "speaking_end_frame",
+          "startLine": 28,
+          "endLine": 29,
+          "params": []
+        },
+        {
+          "name": "interrupt_frame",
+          "startLine": 32,
+          "endLine": 33,
+          "params": []
+        },
+        {
+          "name": "end_frame",
+          "startLine": 36,
+          "endLine": 40,
+          "params": [
+            "reason",
+            "feedback"
+          ]
+        },
+        {
+          "name": "error_frame",
+          "startLine": 43,
+          "endLine": 44,
+          "params": [
+            "code"
+          ]
+        }
+      ],
+      "classes": [
+        {
+          "name": "FrameType",
+          "startLine": 6,
+          "endLine": 11,
+          "methods": [],
+          "properties": []
+        },
+        {
+          "name": "EndReason",
+          "startLine": 14,
+          "endLine": 21,
+          "methods": [],
+          "properties": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "FrameType",
+          "line": 6,
+          "isDefault": false
+        },
+        {
+          "name": "EndReason",
+          "line": 14,
+          "isDefault": false
+        },
+        {
+          "name": "emotion_frame",
+          "line": 24,
+          "isDefault": false
+        },
+        {
+          "name": "speaking_end_frame",
+          "line": 28,
+          "isDefault": false
+        },
+        {
+          "name": "interrupt_frame",
+          "line": 32,
+          "isDefault": false
+        },
+        {
+          "name": "end_frame",
+          "line": 36,
+          "isDefault": false
+        },
+        {
+          "name": "error_frame",
+          "line": 43,
+          "isDefault": false
+        }
+      ],
+      "metrics": {
+        "importCount": 1,
+        "exportCount": 7,
+        "functionCount": 5,
+        "classCount": 2
+      }
+    },
+    {
+      "path": "app/services/pipeline.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 563,
+      "nonEmptyLines": 505,
+      "classes": [
+        {
+          "name": "_State",
+          "startLine": 46,
+          "endLine": 50,
+          "methods": [],
+          "properties": []
+        },
+        {
+          "name": "_TurnTimings",
+          "startLine": 54,
+          "endLine": 81,
+          "methods": [
+            "_delta",
+            "as_metrics"
+          ],
+          "properties": [
+            "final_at",
+            "last_audio_at",
+            "ctx_sent_at",
+            "first_token_at",
+            "last_token_at",
+            "first_pcm_at",
+            "last_pcm_at"
+          ]
+        },
+        {
+          "name": "VoicePipeline",
+          "startLine": 84,
+          "endLine": 563,
+          "methods": [
+            "__init__",
+            "run",
+            "_recv_loop",
+            "_handle_client_text",
+            "_stt_consumer",
+            "_consume_one_stream",
+            "_handle_stt_event",
+            "_start_turn",
+            "_run_turn",
+            "_cleanup_turn_tts",
+            "_finalize_turn",
+            "_barge_in",
+            "_max_duration_timer",
+            "_close",
+            "_teardown",
+            "_send_json",
+            "_buf_sec",
+            "_open_user_turn",
+            "_close_user_turn",
+            "_intersect",
+            "_pick_good_segments"
+          ],
+          "properties": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "_State",
+          "line": 46,
+          "isDefault": false
+        },
+        {
+          "name": "_TurnTimings",
+          "line": 53,
+          "isDefault": false
+        },
+        {
+          "name": "VoicePipeline",
+          "line": 84,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "_delta",
+          "callee": "round",
+          "lineNumber": 69
+        },
+        {
+          "caller": "as_metrics",
+          "callee": "self._delta",
+          "lineNumber": 74
+        },
+        {
+          "caller": "as_metrics",
+          "callee": "self._delta",
+          "lineNumber": 75
+        },
+        {
+          "caller": "as_metrics",
+          "callee": "self._delta",
+          "lineNumber": 76
+        },
+        {
+          "caller": "as_metrics",
+          "callee": "self._delta",
+          "lineNumber": 77
+        },
+        {
+          "caller": "as_metrics",
+          "callee": "self._delta",
+          "lineNumber": 78
+        },
+        {
+          "caller": "as_metrics",
+          "callee": "self._delta",
+          "lineNumber": 79
+        },
+        {
+          "caller": "as_metrics",
+          "callee": "self._delta",
+          "lineNumber": 80
+        },
+        {
+          "caller": "__init__",
+          "callee": "GoogleSTTClient",
+          "lineNumber": 100
+        },
+        {
+          "caller": "__init__",
+          "callee": "LLMClient",
+          "lineNumber": 106
+        },
+        {
+          "caller": "__init__",
+          "callee": "ElevenLabsTTSClient",
+          "lineNumber": 107
+        },
+        {
+          "caller": "__init__",
+          "callee": "asyncio.Queue",
+          "lineNumber": 109
+        },
+        {
+          "caller": "__init__",
+          "callee": "asyncio.Event",
+          "lineNumber": 119
+        },
+        {
+          "caller": "__init__",
+          "callee": "time.monotonic",
+          "lineNumber": 122
+        },
+        {
+          "caller": "__init__",
+          "callee": "TremorAnalyzer",
+          "lineNumber": 124
+        },
+        {
+          "caller": "__init__",
+          "callee": "bytearray",
+          "lineNumber": 125
+        },
+        {
+          "caller": "__init__",
+          "callee": "session.get",
+          "lineNumber": 130
+        },
+        {
+          "caller": "__init__",
+          "callee": "session.get",
+          "lineNumber": 131
+        },
+        {
+          "caller": "__init__",
+          "callee": "int",
+          "lineNumber": 133
+        },
+        {
+          "caller": "__init__",
+          "callee": "session.get",
+          "lineNumber": 135
+        },
+        {
+          "caller": "__init__",
+          "callee": "scenario.get",
+          "lineNumber": 136
+        },
+        {
+          "caller": "__init__",
+          "callee": "isinstance",
+          "lineNumber": 136
+        },
+        {
+          "caller": "__init__",
+          "callee": "len",
+          "lineNumber": 137
+        },
+        {
+          "caller": "__init__",
+          "callee": "isinstance",
+          "lineNumber": 137
+        },
+        {
+          "caller": "run",
+          "callee": "asyncio.create_task",
+          "lineNumber": 142
+        },
+        {
+          "caller": "run",
+          "callee": "self._recv_loop",
+          "lineNumber": 142
+        },
+        {
+          "caller": "run",
+          "callee": "asyncio.create_task",
+          "lineNumber": 143
+        },
+        {
+          "caller": "run",
+          "callee": "self._stt_consumer",
+          "lineNumber": 143
+        },
+        {
+          "caller": "run",
+          "callee": "tasks.append",
+          "lineNumber": 146
+        },
+        {
+          "caller": "run",
+          "callee": "asyncio.create_task",
+          "lineNumber": 146
+        },
+        {
+          "caller": "run",
+          "callee": "self._max_duration_timer",
+          "lineNumber": 146
+        },
+        {
+          "caller": "run",
+          "callee": "asyncio.create_task",
+          "lineNumber": 147
+        },
+        {
+          "caller": "run",
+          "callee": "self._closing.wait",
+          "lineNumber": 147
+        },
+        {
+          "caller": "run",
+          "callee": "asyncio.wait",
+          "lineNumber": 150
+        },
+        {
+          "caller": "run",
+          "callee": "task.cancelled",
+          "lineNumber": 154
+        },
+        {
+          "caller": "run",
+          "callee": "task.exception",
+          "lineNumber": 156
+        },
+        {
+          "caller": "run",
+          "callee": "logger.error",
+          "lineNumber": 158
+        },
+        {
+          "caller": "run",
+          "callee": "self._closing.is_set",
+          "lineNumber": 163
+        },
+        {
+          "caller": "run",
+          "callee": "self._close",
+          "lineNumber": 164
+        },
+        {
+          "caller": "run",
+          "callee": "closing.cancel",
+          "lineNumber": 166
+        },
+        {
+          "caller": "run",
+          "callee": "suppress",
+          "lineNumber": 167
+        },
+        {
+          "caller": "run",
+          "callee": "self._teardown",
+          "lineNumber": 169
+        },
+        {
+          "caller": "_recv_loop",
+          "callee": "self._closing.is_set",
+          "lineNumber": 174
+        },
+        {
+          "caller": "_recv_loop",
+          "callee": "self._ws.receive",
+          "lineNumber": 175
+        },
+        {
+          "caller": "_recv_loop",
+          "callee": "msg.get",
+          "lineNumber": 176
+        },
+        {
+          "caller": "_recv_loop",
+          "callee": "self._close",
+          "lineNumber": 178
+        },
+        {
+          "caller": "_recv_loop",
+          "callee": "msg.get",
+          "lineNumber": 180
+        },
+        {
+          "caller": "_recv_loop",
+          "callee": "now_ms",
+          "lineNumber": 182
+        },
+        {
+          "caller": "_recv_loop",
+          "callee": "self._tremor_buf.extend",
+          "lineNumber": 183
+        },
+        {
+          "caller": "_recv_loop",
+          "callee": "self._audio_queue.put",
+          "lineNumber": 184
+        },
+        {
+          "caller": "_recv_loop",
+          "callee": "msg.get",
+          "lineNumber": 185
+        },
+        {
+          "caller": "_recv_loop",
+          "callee": "self._handle_client_text",
+          "lineNumber": 186
+        },
+        {
+          "caller": "_recv_loop",
+          "callee": "self._close",
+          "lineNumber": 189
+        },
+        {
+          "caller": "_handle_client_text",
+          "callee": "json.loads",
+          "lineNumber": 194
+        },
+        {
+          "caller": "_handle_client_text",
+          "callee": "logger.warning",
+          "lineNumber": 196
+        },
+        {
+          "caller": "_handle_client_text",
+          "callee": "data.get",
+          "lineNumber": 198
+        },
+        {
+          "caller": "_handle_client_text",
+          "callee": "self._close",
+          "lineNumber": 200
+        },
+        {
+          "caller": "_handle_client_text",
+          "callee": "self._send_json",
+          "lineNumber": 202
+        },
+        {
+          "caller": "_handle_client_text",
+          "callee": "bool",
+          "lineNumber": 204
+        },
+        {
+          "caller": "_handle_client_text",
+          "callee": "data.get",
+          "lineNumber": 204
+        },
+        {
+          "caller": "_stt_consumer",
+          "callee": "self._closing.is_set",
+          "lineNumber": 209
+        },
+        {
+          "caller": "_stt_consumer",
+          "callee": "self._consume_one_stream",
+          "lineNumber": 210
+        },
+        {
+          "caller": "_stt_consumer",
+          "callee": "logger.info",
+          "lineNumber": 212
+        },
+        {
+          "caller": "_stt_consumer",
+          "callee": "self._close",
+          "lineNumber": 216
+        },
+        {
+          "caller": "_stt_consumer",
+          "callee": "logger.exception",
+          "lineNumber": 218
+        },
+        {
+          "caller": "_stt_consumer",
+          "callee": "self._close",
+          "lineNumber": 219
+        },
+        {
+          "caller": "_consume_one_stream",
+          "callee": "time.monotonic",
+          "lineNumber": 225
+        },
+        {
+          "caller": "_consume_one_stream",
+          "callee": "self._stt.stream",
+          "lineNumber": 226
+        },
+        {
+          "caller": "_consume_one_stream",
+          "callee": "self._handle_stt_event",
+          "lineNumber": 229
+        },
+        {
+          "caller": "_consume_one_stream",
+          "callee": "time.monotonic",
+          "lineNumber": 230
+        },
+        {
+          "caller": "_consume_one_stream",
+          "callee": "self._closing.is_set",
+          "lineNumber": 233
+        },
+        {
+          "caller": "_consume_one_stream",
+          "callee": "asyncio.Queue",
+          "lineNumber": 234
+        },
+        {
+          "caller": "_consume_one_stream",
+          "callee": "suppress",
+          "lineNumber": 235
+        },
+        {
+          "caller": "_consume_one_stream",
+          "callee": "queue.put_nowait",
+          "lineNumber": 236
+        },
+        {
+          "caller": "_consume_one_stream",
+          "callee": "suppress",
+          "lineNumber": 237
+        },
+        {
+          "caller": "_consume_one_stream",
+          "callee": "stream.aclose",
+          "lineNumber": 238
+        },
+        {
+          "caller": "_handle_stt_event",
+          "callee": "len",
+          "lineNumber": 247
+        },
+        {
+          "caller": "_handle_stt_event",
+          "callee": "event.text.strip",
+          "lineNumber": 247
+        },
+        {
+          "caller": "_handle_stt_event",
+          "callee": "self._barge_in",
+          "lineNumber": 249
+        },
+        {
+          "caller": "_handle_stt_event",
+          "callee": "event.text.strip",
+          "lineNumber": 251
+        },
+        {
+          "caller": "_handle_stt_event",
+          "callee": "self._start_turn",
+          "lineNumber": 253
+        },
+        {
+          "caller": "_handle_stt_event",
+          "callee": "now_ms",
+          "lineNumber": 253
+        },
+        {
+          "caller": "_handle_stt_event",
+          "callee": "time.monotonic",
+          "lineNumber": 256
+        },
+        {
+          "caller": "_handle_stt_event",
+          "callee": "time.monotonic",
+          "lineNumber": 258
+        },
+        {
+          "caller": "_start_turn",
+          "callee": "self._close_user_turn",
+          "lineNumber": 263
+        },
+        {
+          "caller": "_start_turn",
+          "callee": "_TurnTimings",
+          "lineNumber": 265
+        },
+        {
+          "caller": "_start_turn",
+          "callee": "asyncio.create_task",
+          "lineNumber": 266
+        },
+        {
+          "caller": "_start_turn",
+          "callee": "self._run_turn",
+          "lineNumber": 266
+        },
+        {
+          "caller": "_run_turn",
+          "callee": "build_turn_context",
+          "lineNumber": 270
+        },
+        {
+          "caller": "_run_turn",
+          "callee": "asyncio.create_task",
+          "lineNumber": 277
+        },
+        {
+          "caller": "_run_turn",
+          "callee": "self._tts.open",
+          "lineNumber": 277
+        },
+        {
+          "caller": "_run_turn",
+          "callee": "asyncio.Queue",
+          "lineNumber": 278
+        },
+        {
+          "caller": "_run_turn",
+          "callee": "asyncio.Event",
+          "lineNumber": 279
+        },
+        {
+          "caller": "ensure_tts",
+          "callee": "session.begin",
+          "lineNumber": 288
+        },
+        {
+          "caller": "ensure_tts",
+          "callee": "self._send_json",
+          "lineNumber": 290
+        },
+        {
+          "caller": "ensure_tts",
+          "callee": "emotion_frame",
+          "lineNumber": 290
+        },
+        {
+          "caller": "ensure_tts",
+          "callee": "emotion_ready.set",
+          "lineNumber": 291
+        },
+        {
+          "caller": "produce",
+          "callee": "now_ms",
+          "lineNumber": 295
+        },
+        {
+          "caller": "produce",
+          "callee": "self._llm.stream",
+          "lineNumber": 297
+        },
+        {
+          "caller": "produce",
+          "callee": "ensure_tts",
+          "lineNumber": 299
+        },
+        {
+          "caller": "produce",
+          "callee": "now_ms",
+          "lineNumber": 302
+        },
+        {
+          "caller": "produce",
+          "callee": "now_ms",
+          "lineNumber": 303
+        },
+        {
+          "caller": "produce",
+          "callee": "ai_parts.append",
+          "lineNumber": 304
+        },
+        {
+          "caller": "produce",
+          "callee": "text_q.put",
+          "lineNumber": 305
+        },
+        {
+          "caller": "produce",
+          "callee": "ensure_tts",
+          "lineNumber": 311
+        },
+        {
+          "caller": "produce",
+          "callee": "ai_parts.append",
+          "lineNumber": 312
+        },
+        {
+          "caller": "produce",
+          "callee": "text_q.put",
+          "lineNumber": 313
+        },
+        {
+          "caller": "produce",
+          "callee": "text_q.put",
+          "lineNumber": 317
+        },
+        {
+          "caller": "produce",
+          "callee": "emotion_ready.set",
+          "lineNumber": 318
+        },
+        {
+          "caller": "consume",
+          "callee": "emotion_ready.wait",
+          "lineNumber": 321
+        },
+        {
+          "caller": "text_source",
+          "callee": "text_q.get",
+          "lineNumber": 328
+        },
+        {
+          "caller": "consume",
+          "callee": "tts.stream",
+          "lineNumber": 334
+        },
+        {
+          "caller": "consume",
+          "callee": "text_source",
+          "lineNumber": 334
+        },
+        {
+          "caller": "consume",
+          "callee": "self._ws.send_bytes",
+          "lineNumber": 338
+        },
+        {
+          "caller": "consume",
+          "callee": "now_ms",
+          "lineNumber": 343
+        },
+        {
+          "caller": "consume",
+          "callee": "now_ms",
+          "lineNumber": 344
+        },
+        {
+          "caller": "consume",
+          "callee": "self._send_json",
+          "lineNumber": 345
+        },
+        {
+          "caller": "consume",
+          "callee": "speaking_end_frame",
+          "lineNumber": 345
+        },
+        {
+          "caller": "_run_turn",
+          "callee": "asyncio.gather",
+          "lineNumber": 348
+        },
+        {
+          "caller": "_run_turn",
+          "callee": "produce",
+          "lineNumber": 348
+        },
+        {
+          "caller": "_run_turn",
+          "callee": "consume",
+          "lineNumber": 348
+        },
+        {
+          "caller": "_run_turn",
+          "callee": "logger.exception",
+          "lineNumber": 352
+        },
+        {
+          "caller": "_run_turn",
+          "callee": "self._cleanup_turn_tts",
+          "lineNumber": 355
+        },
+        {
+          "caller": "_run_turn",
+          "callee": "self._finalize_turn",
+          "lineNumber": 357
+        },
+        {
+          "caller": "_cleanup_turn_tts",
+          "callee": "used.aclose",
+          "lineNumber": 364
+        },
+        {
+          "caller": "_cleanup_turn_tts",
+          "callee": "connect_task.done",
+          "lineNumber": 366
+        },
+        {
+          "caller": "_cleanup_turn_tts",
+          "callee": "connect_task.cancelled",
+          "lineNumber": 367
+        },
+        {
+          "caller": "_cleanup_turn_tts",
+          "callee": "suppress",
+          "lineNumber": 368
+        },
+        {
+          "caller": "_cleanup_turn_tts",
+          "callee": "connect_task.result",
+          "lineNumber": 369
+        },
+        {
+          "caller": "_cleanup_turn_tts",
+          "callee": "session.aclose",
+          "lineNumber": 370
+        },
+        {
+          "caller": "_cleanup_turn_tts",
+          "callee": "connect_task.cancel",
+          "lineNumber": 372
+        },
+        {
+          "caller": "_cleanup_turn_tts",
+          "callee": "suppress",
+          "lineNumber": 373
+        },
+        {
+          "caller": "_cleanup_turn_tts",
+          "callee": "session.aclose",
+          "lineNumber": 375
+        },
+        {
+          "caller": "_finalize_turn",
+          "callee": "log_metric",
+          "lineNumber": 384
+        },
+        {
+          "caller": "_finalize_turn",
+          "callee": "timings.as_metrics",
+          "lineNumber": 389
+        },
+        {
+          "caller": "_finalize_turn",
+          "callee": "\"\".join(ai_parts).strip",
+          "lineNumber": 391
+        },
+        {
+          "caller": "_finalize_turn",
+          "callee": "\"\".join",
+          "lineNumber": 391
+        },
+        {
+          "caller": "_finalize_turn",
+          "callee": "self._history.append",
+          "lineNumber": 392
+        },
+        {
+          "caller": "_finalize_turn",
+          "callee": "self._history.append",
+          "lineNumber": 394
+        },
+        {
+          "caller": "_finalize_turn",
+          "callee": "self._close",
+          "lineNumber": 397
+        },
+        {
+          "caller": "_finalize_turn",
+          "callee": "self._close",
+          "lineNumber": 400
+        },
+        {
+          "caller": "_finalize_turn",
+          "callee": "self._close",
+          "lineNumber": 406
+        },
+        {
+          "caller": "_finalize_turn",
+          "callee": "time.monotonic",
+          "lineNumber": 411
+        },
+        {
+          "caller": "_finalize_turn",
+          "callee": "self._open_user_turn",
+          "lineNumber": 412
+        },
+        {
+          "caller": "_barge_in",
+          "callee": "self._turn_task.done",
+          "lineNumber": 415
+        },
+        {
+          "caller": "_barge_in",
+          "callee": "self._turn_task.cancel",
+          "lineNumber": 416
+        },
+        {
+          "caller": "_barge_in",
+          "callee": "suppress",
+          "lineNumber": 417
+        },
+        {
+          "caller": "_barge_in",
+          "callee": "self._send_json",
+          "lineNumber": 420
+        },
+        {
+          "caller": "_barge_in",
+          "callee": "interrupt_frame",
+          "lineNumber": 420
+        },
+        {
+          "caller": "_barge_in",
+          "callee": "self._open_user_turn",
+          "lineNumber": 422
+        },
+        {
+          "caller": "_barge_in",
+          "callee": "logger.info",
+          "lineNumber": 423
+        },
+        {
+          "caller": "_max_duration_timer",
+          "callee": "asyncio.sleep",
+          "lineNumber": 428
+        },
+        {
+          "caller": "_max_duration_timer",
+          "callee": "logger.info",
+          "lineNumber": 430
+        },
+        {
+          "caller": "_max_duration_timer",
+          "callee": "turn.done",
+          "lineNumber": 435
+        },
+        {
+          "caller": "_max_duration_timer",
+          "callee": "suppress",
+          "lineNumber": 436
+        },
+        {
+          "caller": "_max_duration_timer",
+          "callee": "self._close",
+          "lineNumber": 438
+        },
+        {
+          "caller": "_close",
+          "callee": "self._closing.is_set",
+          "lineNumber": 441
+        },
+        {
+          "caller": "_close",
+          "callee": "time.monotonic",
+          "lineNumber": 444
+        },
+        {
+          "caller": "_close",
+          "callee": "self._closing.set",
+          "lineNumber": 448
+        },
+        {
+          "caller": "_close",
+          "callee": "logger.info",
+          "lineNumber": 449
+        },
+        {
+          "caller": "_teardown",
+          "callee": "self._turn_task.done",
+          "lineNumber": 455
+        },
+        {
+          "caller": "_teardown",
+          "callee": "self._turn_task.cancel",
+          "lineNumber": 456
+        },
+        {
+          "caller": "_teardown",
+          "callee": "suppress",
+          "lineNumber": 457
+        },
+        {
+          "caller": "_teardown",
+          "callee": "task.cancel",
+          "lineNumber": 462
+        },
+        {
+          "caller": "_teardown",
+          "callee": "suppress",
+          "lineNumber": 465
+        },
+        {
+          "caller": "_teardown",
+          "callee": "self._close_user_turn",
+          "lineNumber": 470
+        },
+        {
+          "caller": "_teardown",
+          "callee": "asyncio.to_thread",
+          "lineNumber": 476
+        },
+        {
+          "caller": "_teardown",
+          "callee": "bytes",
+          "lineNumber": 477
+        },
+        {
+          "caller": "_teardown",
+          "callee": "self._pick_good_segments",
+          "lineNumber": 480
+        },
+        {
+          "caller": "_teardown",
+          "callee": "logger.warning",
+          "lineNumber": 482
+        },
+        {
+          "caller": "_teardown",
+          "callee": "self._tremor_buf.clear",
+          "lineNumber": 488
+        },
+        {
+          "caller": "_teardown",
+          "callee": "self._send_json",
+          "lineNumber": 498
+        },
+        {
+          "caller": "_teardown",
+          "callee": "error_frame",
+          "lineNumber": 498
+        },
+        {
+          "caller": "_teardown",
+          "callee": "self._send_json",
+          "lineNumber": 500
+        },
+        {
+          "caller": "_teardown",
+          "callee": "end_frame",
+          "lineNumber": 500
+        },
+        {
+          "caller": "_teardown",
+          "callee": "suppress",
+          "lineNumber": 501
+        },
+        {
+          "caller": "_teardown",
+          "callee": "self._ws.close",
+          "lineNumber": 502
+        },
+        {
+          "caller": "_teardown",
+          "callee": "self._spring.notify_session_closed",
+          "lineNumber": 504
+        },
+        {
+          "caller": "_send_json",
+          "callee": "self._ws.send_json",
+          "lineNumber": 518
+        },
+        {
+          "caller": "_send_json",
+          "callee": "logger.info",
+          "lineNumber": 521
+        },
+        {
+          "caller": "_send_json",
+          "callee": "type",
+          "lineNumber": 523
+        },
+        {
+          "caller": "_send_json",
+          "callee": "logger.warning",
+          "lineNumber": 528
+        },
+        {
+          "caller": "_buf_sec",
+          "callee": "len",
+          "lineNumber": 535
+        },
+        {
+          "caller": "_open_user_turn",
+          "callee": "self._buf_sec",
+          "lineNumber": 538
+        },
+        {
+          "caller": "_close_user_turn",
+          "callee": "self._user_turn_intervals.append",
+          "lineNumber": 542
+        },
+        {
+          "caller": "_close_user_turn",
+          "callee": "self._buf_sec",
+          "lineNumber": 542
+        },
+        {
+          "caller": "_intersect",
+          "callee": "max",
+          "lineNumber": 551
+        },
+        {
+          "caller": "_intersect",
+          "callee": "min",
+          "lineNumber": 551
+        },
+        {
+          "caller": "_intersect",
+          "callee": "out.append",
+          "lineNumber": 553
+        },
+        {
+          "caller": "_pick_good_segments",
+          "callee": "self._intersect",
+          "lineNumber": 558
+        },
+        {
+          "caller": "_pick_good_segments",
+          "callee": "good.sort",
+          "lineNumber": 560
+        },
+        {
+          "caller": "_pick_good_segments",
+          "callee": "good.sort",
+          "lineNumber": 562
+        },
+        {
+          "caller": "_pick_good_segments",
+          "callee": "round",
+          "lineNumber": 563
+        },
+        {
+          "caller": "_pick_good_segments",
+          "callee": "round",
+          "lineNumber": 563
+        }
+      ],
+      "metrics": {
+        "importCount": 11,
+        "exportCount": 3,
+        "functionCount": 0,
+        "classCount": 3
+      }
+    },
+    {
+      "path": "app/services/spring_client.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 50,
+      "nonEmptyLines": 45,
+      "classes": [
+        {
+          "name": "SpringInternalClient",
+          "startLine": 10,
+          "endLine": 50,
+          "methods": [
+            "__init__",
+            "notify_session_closed"
+          ],
+          "properties": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "SpringInternalClient",
+          "line": 10,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "__init__",
+          "callee": "settings.spring_boot_internal_url.rstrip",
+          "lineNumber": 12
+        },
+        {
+          "caller": "notify_session_closed",
+          "callee": "httpx.AsyncClient",
+          "lineNumber": 34
+        },
+        {
+          "caller": "notify_session_closed",
+          "callee": "client.post",
+          "lineNumber": 35
+        },
+        {
+          "caller": "notify_session_closed",
+          "callee": "resp.raise_for_status",
+          "lineNumber": 40
+        },
+        {
+          "caller": "notify_session_closed",
+          "callee": "logger.info",
+          "lineNumber": 41
+        },
+        {
+          "caller": "notify_session_closed",
+          "callee": "logger.warning",
+          "lineNumber": 46
+        }
+      ],
+      "metrics": {
+        "importCount": 2,
+        "exportCount": 1,
+        "functionCount": 0,
+        "classCount": 1
+      }
+    },
+    {
+      "path": "app/services/stt.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 175,
+      "nonEmptyLines": 152,
+      "functions": [
+        {
+          "name": "_is_idle_timeout",
+          "startLine": 28,
+          "endLine": 29,
+          "params": [
+            "exc"
+          ]
+        },
+        {
+          "name": "_to_seconds",
+          "startLine": 166,
+          "endLine": 175,
+          "params": [
+            "duration"
+          ]
+        }
+      ],
+      "classes": [
+        {
+          "name": "STTIdleTimeoutError",
+          "startLine": 24,
+          "endLine": 25,
+          "methods": [],
+          "properties": []
+        },
+        {
+          "name": "STTEventType",
+          "startLine": 31,
+          "endLine": 35,
+          "methods": [],
+          "properties": []
+        },
+        {
+          "name": "STTEvent",
+          "startLine": 38,
+          "endLine": 42,
+          "methods": [],
+          "properties": [
+            "type",
+            "text",
+            "end_offset_sec"
+          ]
+        },
+        {
+          "name": "GoogleSTTClient",
+          "startLine": 44,
+          "endLine": 164,
+          "methods": [
+            "__init__",
+            "_build_config_request",
+            "_request_generator",
+            "_parse_response",
+            "stream"
+          ],
+          "properties": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "STTIdleTimeoutError",
+          "line": 24,
+          "isDefault": false
+        },
+        {
+          "name": "_is_idle_timeout",
+          "line": 28,
+          "isDefault": false
+        },
+        {
+          "name": "STTEventType",
+          "line": 31,
+          "isDefault": false
+        },
+        {
+          "name": "STTEvent",
+          "line": 37,
+          "isDefault": false
+        },
+        {
+          "name": "GoogleSTTClient",
+          "line": 44,
+          "isDefault": false
+        },
+        {
+          "name": "_to_seconds",
+          "line": 166,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "_is_idle_timeout",
+          "callee": "isinstance",
+          "lineNumber": 29
+        },
+        {
+          "caller": "_is_idle_timeout",
+          "callee": "str",
+          "lineNumber": 29
+        },
+        {
+          "caller": "__init__",
+          "callee": "ClientOptions",
+          "lineNumber": 64
+        },
+        {
+          "caller": "__init__",
+          "callee": "SpeechAsyncClient",
+          "lineNumber": 68
+        },
+        {
+          "caller": "_build_config_request",
+          "callee": "cs.RecognitionConfig",
+          "lineNumber": 71
+        },
+        {
+          "caller": "_build_config_request",
+          "callee": "cs.ExplicitDecodingConfig",
+          "lineNumber": 72
+        },
+        {
+          "caller": "_build_config_request",
+          "callee": "cs.StreamingRecognitionConfig",
+          "lineNumber": 82
+        },
+        {
+          "caller": "_build_config_request",
+          "callee": "cs.StreamingRecognitionFeatures",
+          "lineNumber": 84
+        },
+        {
+          "caller": "_build_config_request",
+          "callee": "cs.StreamingRecognizeRequest",
+          "lineNumber": 89
+        },
+        {
+          "caller": "_request_generator",
+          "callee": "self._build_config_request",
+          "lineNumber": 99
+        },
+        {
+          "caller": "_request_generator",
+          "callee": "audio_queue.get",
+          "lineNumber": 102
+        },
+        {
+          "caller": "_request_generator",
+          "callee": "logger.debug",
+          "lineNumber": 104
+        },
+        {
+          "caller": "_request_generator",
+          "callee": "cs.StreamingRecognizeRequest",
+          "lineNumber": 106
+        },
+        {
+          "caller": "_parse_response",
+          "callee": "events.append",
+          "lineNumber": 120
+        },
+        {
+          "caller": "_parse_response",
+          "callee": "STTEvent",
+          "lineNumber": 120
+        },
+        {
+          "caller": "_parse_response",
+          "callee": "events.append",
+          "lineNumber": 122
+        },
+        {
+          "caller": "_parse_response",
+          "callee": "STTEvent",
+          "lineNumber": 122
+        },
+        {
+          "caller": "_parse_response",
+          "callee": "events.append",
+          "lineNumber": 129
+        },
+        {
+          "caller": "_parse_response",
+          "callee": "STTEvent",
+          "lineNumber": 130
+        },
+        {
+          "caller": "_parse_response",
+          "callee": "_to_seconds",
+          "lineNumber": 133
+        },
+        {
+          "caller": "_parse_response",
+          "callee": "events.append",
+          "lineNumber": 137
+        },
+        {
+          "caller": "_parse_response",
+          "callee": "STTEvent",
+          "lineNumber": 138
+        },
+        {
+          "caller": "stream",
+          "callee": "self._client.streaming_recognize",
+          "lineNumber": 148
+        },
+        {
+          "caller": "stream",
+          "callee": "self._request_generator",
+          "lineNumber": 149
+        },
+        {
+          "caller": "stream",
+          "callee": "self._parse_response",
+          "lineNumber": 152
+        },
+        {
+          "caller": "stream",
+          "callee": "_is_idle_timeout",
+          "lineNumber": 155
+        },
+        {
+          "caller": "stream",
+          "callee": "logger.info",
+          "lineNumber": 156
+        },
+        {
+          "caller": "stream",
+          "callee": "logger.exception",
+          "lineNumber": 158
+        },
+        {
+          "caller": "stream",
+          "callee": "logger.debug",
+          "lineNumber": 161
+        },
+        {
+          "caller": "stream",
+          "callee": "logger.debug",
+          "lineNumber": 164
+        },
+        {
+          "caller": "_to_seconds",
+          "callee": "hasattr",
+          "lineNumber": 170
+        },
+        {
+          "caller": "_to_seconds",
+          "callee": "duration.total_seconds",
+          "lineNumber": 171
+        },
+        {
+          "caller": "_to_seconds",
+          "callee": "hasattr",
+          "lineNumber": 172
+        },
+        {
+          "caller": "_to_seconds",
+          "callee": "getattr",
+          "lineNumber": 173
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 6,
+        "functionCount": 2,
+        "classCount": 4
+      }
+    },
+    {
+      "path": "tests/integration/test_spring_client.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 114,
+      "nonEmptyLines": 93,
+      "functions": [
+        {
+          "name": "_client_for",
+          "startLine": 52,
+          "endLine": 57,
+          "params": [
+            "base_url"
+          ]
+        },
+        {
+          "name": "test_notify_session_closed_sends_correct_request",
+          "startLine": 60,
+          "endLine": 88,
+          "params": []
+        },
+        {
+          "name": "test_trailing_slash_in_base_url_is_normalized",
+          "startLine": 91,
+          "endLine": 97,
+          "params": []
+        },
+        {
+          "name": "test_server_error_is_swallowed",
+          "startLine": 100,
+          "endLine": 105,
+          "params": []
+        },
+        {
+          "name": "test_unreachable_server_is_swallowed",
+          "startLine": 108,
+          "endLine": 114,
+          "params": []
+        }
+      ],
+      "classes": [
+        {
+          "name": "_CapturingHandler",
+          "startLine": 12,
+          "endLine": 25,
+          "methods": [
+            "do_POST",
+            "log_message"
+          ],
+          "properties": []
+        },
+        {
+          "name": "_MockSpring",
+          "startLine": 27,
+          "endLine": 49,
+          "methods": [
+            "__init__",
+            "base_url",
+            "captured",
+            "__enter__",
+            "__exit__"
+          ],
+          "properties": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "_CapturingHandler",
+          "line": 12,
+          "isDefault": false
+        },
+        {
+          "name": "_MockSpring",
+          "line": 27,
+          "isDefault": false
+        },
+        {
+          "name": "_client_for",
+          "line": 52,
+          "isDefault": false
+        },
+        {
+          "name": "test_notify_session_closed_sends_correct_request",
+          "line": 60,
+          "isDefault": false
+        },
+        {
+          "name": "test_trailing_slash_in_base_url_is_normalized",
+          "line": 91,
+          "isDefault": false
+        },
+        {
+          "name": "test_server_error_is_swallowed",
+          "line": 100,
+          "isDefault": false
+        },
+        {
+          "name": "test_unreachable_server_is_swallowed",
+          "line": 108,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "do_POST",
+          "callee": "int",
+          "lineNumber": 14
+        },
+        {
+          "caller": "do_POST",
+          "callee": "self.headers.get",
+          "lineNumber": 14
+        },
+        {
+          "caller": "do_POST",
+          "callee": "self.rfile.read",
+          "lineNumber": 15
+        },
+        {
+          "caller": "do_POST",
+          "callee": "dict",
+          "lineNumber": 18
+        },
+        {
+          "caller": "do_POST",
+          "callee": "json.loads",
+          "lineNumber": 19
+        },
+        {
+          "caller": "do_POST",
+          "callee": "self.send_response",
+          "lineNumber": 21
+        },
+        {
+          "caller": "do_POST",
+          "callee": "self.end_headers",
+          "lineNumber": 22
+        },
+        {
+          "caller": "__init__",
+          "callee": "HTTPServer",
+          "lineNumber": 29
+        },
+        {
+          "caller": "__init__",
+          "callee": "threading.Thread",
+          "lineNumber": 32
+        },
+        {
+          "caller": "__enter__",
+          "callee": "self._thread.start",
+          "lineNumber": 44
+        },
+        {
+          "caller": "__exit__",
+          "callee": "self._server.shutdown",
+          "lineNumber": 48
+        },
+        {
+          "caller": "__exit__",
+          "callee": "self._server.server_close",
+          "lineNumber": 49
+        },
+        {
+          "caller": "_client_for",
+          "callee": "SimpleNamespace",
+          "lineNumber": 53
+        },
+        {
+          "caller": "_client_for",
+          "callee": "SpringInternalClient",
+          "lineNumber": 57
+        },
+        {
+          "caller": "test_notify_session_closed_sends_correct_request",
+          "callee": "_MockSpring",
+          "lineNumber": 61
+        },
+        {
+          "caller": "test_notify_session_closed_sends_correct_request",
+          "callee": "_client_for",
+          "lineNumber": 62
+        },
+        {
+          "caller": "test_notify_session_closed_sends_correct_request",
+          "callee": "client.notify_session_closed",
+          "lineNumber": 63
+        },
+        {
+          "caller": "test_notify_session_closed_sends_correct_request",
+          "callee": "captured[\"headers\"].get",
+          "lineNumber": 78
+        },
+        {
+          "caller": "test_trailing_slash_in_base_url_is_normalized",
+          "callee": "_MockSpring",
+          "lineNumber": 92
+        },
+        {
+          "caller": "test_trailing_slash_in_base_url_is_normalized",
+          "callee": "_client_for",
+          "lineNumber": 93
+        },
+        {
+          "caller": "test_trailing_slash_in_base_url_is_normalized",
+          "callee": "client.notify_session_closed",
+          "lineNumber": 94
+        },
+        {
+          "caller": "test_server_error_is_swallowed",
+          "callee": "_MockSpring",
+          "lineNumber": 101
+        },
+        {
+          "caller": "test_server_error_is_swallowed",
+          "callee": "_client_for",
+          "lineNumber": 102
+        },
+        {
+          "caller": "test_server_error_is_swallowed",
+          "callee": "client.notify_session_closed",
+          "lineNumber": 103
+        },
+        {
+          "caller": "test_unreachable_server_is_swallowed",
+          "callee": "_MockSpring",
+          "lineNumber": 109
+        },
+        {
+          "caller": "test_unreachable_server_is_swallowed",
+          "callee": "_client_for",
+          "lineNumber": 111
+        },
+        {
+          "caller": "test_unreachable_server_is_swallowed",
+          "callee": "client.notify_session_closed",
+          "lineNumber": 112
+        }
+      ],
+      "metrics": {
+        "importCount": 2,
+        "exportCount": 7,
+        "functionCount": 5,
+        "classCount": 2
+      }
+    },
+    {
+      "path": "tests/pipeline/manual_pipeline_check.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 107,
+      "nonEmptyLines": 86,
+      "functions": [
+        {
+          "name": "main",
+          "startLine": 70,
+          "endLine": 98,
+          "params": []
+        }
+      ],
+      "classes": [
+        {
+          "name": "FakeWebSocket",
+          "startLine": 38,
+          "endLine": 67,
+          "methods": [
+            "__init__",
+            "feed_mic",
+            "disconnect",
+            "receive",
+            "send_bytes",
+            "send_json",
+            "close"
+          ],
+          "properties": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "FakeWebSocket",
+          "line": 38,
+          "isDefault": false
+        },
+        {
+          "name": "main",
+          "line": 70,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "__init__",
+          "callee": "asyncio.Queue",
+          "lineNumber": 41
+        },
+        {
+          "caller": "__init__",
+          "callee": "sd.OutputStream",
+          "lineNumber": 42
+        },
+        {
+          "caller": "__init__",
+          "callee": "self._player.start",
+          "lineNumber": 45
+        },
+        {
+          "caller": "feed_mic",
+          "callee": "self._loop.call_soon_threadsafe",
+          "lineNumber": 48
+        },
+        {
+          "caller": "disconnect",
+          "callee": "self._loop.call_soon_threadsafe",
+          "lineNumber": 51
+        },
+        {
+          "caller": "receive",
+          "callee": "self._inbound.get",
+          "lineNumber": 56
+        },
+        {
+          "caller": "send_bytes",
+          "callee": "np.frombuffer",
+          "lineNumber": 59
+        },
+        {
+          "caller": "send_bytes",
+          "callee": "asyncio.to_thread",
+          "lineNumber": 60
+        },
+        {
+          "caller": "send_json",
+          "callee": "logger.info",
+          "lineNumber": 63
+        },
+        {
+          "caller": "close",
+          "callee": "self._player.stop",
+          "lineNumber": 66
+        },
+        {
+          "caller": "close",
+          "callee": "self._player.close",
+          "lineNumber": 67
+        },
+        {
+          "caller": "main",
+          "callee": "get_settings",
+          "lineNumber": 71
+        },
+        {
+          "caller": "main",
+          "callee": "asyncio.get_running_loop",
+          "lineNumber": 72
+        },
+        {
+          "caller": "main",
+          "callee": "FakeWebSocket",
+          "lineNumber": 73
+        },
+        {
+          "caller": "on_mic",
+          "callee": "logger.debug",
+          "lineNumber": 77
+        },
+        {
+          "caller": "on_mic",
+          "callee": "ws.feed_mic",
+          "lineNumber": 78
+        },
+        {
+          "caller": "on_mic",
+          "callee": "bytes",
+          "lineNumber": 78
+        },
+        {
+          "caller": "main",
+          "callee": "VoicePipeline",
+          "lineNumber": 80
+        },
+        {
+          "caller": "main",
+          "callee": "SpringInternalClient",
+          "lineNumber": 85
+        },
+        {
+          "caller": "main",
+          "callee": "sd.RawInputStream",
+          "lineNumber": 88
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 96
+        },
+        {
+          "caller": "main",
+          "callee": "suppress",
+          "lineNumber": 97
+        },
+        {
+          "caller": "main",
+          "callee": "pipeline.run",
+          "lineNumber": 98
+        }
+      ],
+      "metrics": {
+        "importCount": 3,
+        "exportCount": 2,
+        "functionCount": 1,
+        "classCount": 1
+      }
+    },
+    {
+      "path": "tests/pipeline/manual_pipeline_check2.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 186,
+      "nonEmptyLines": 158,
+      "functions": [
+        {
+          "name": "_state_watcher",
+          "startLine": 99,
+          "endLine": 106,
+          "params": [
+            "pipeline"
+          ]
+        },
+        {
+          "name": "main",
+          "startLine": 109,
+          "endLine": 177,
+          "params": []
+        }
+      ],
+      "classes": [
+        {
+          "name": "FakeWebSocket",
+          "startLine": 42,
+          "endLine": 97,
+          "methods": [
+            "__init__",
+            "feed_mic",
+            "disconnect",
+            "receive",
+            "send_bytes",
+            "send_json",
+            "close"
+          ],
+          "properties": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "FakeWebSocket",
+          "line": 42,
+          "isDefault": false
+        },
+        {
+          "name": "_state_watcher",
+          "line": 99,
+          "isDefault": false
+        },
+        {
+          "name": "main",
+          "line": 109,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "__init__",
+          "callee": "asyncio.Queue",
+          "lineNumber": 45
+        },
+        {
+          "caller": "__init__",
+          "callee": "sd.OutputStream",
+          "lineNumber": 46
+        },
+        {
+          "caller": "__init__",
+          "callee": "self._player.start",
+          "lineNumber": 49
+        },
+        {
+          "caller": "feed_mic",
+          "callee": "self._loop.call_soon_threadsafe",
+          "lineNumber": 55
+        },
+        {
+          "caller": "disconnect",
+          "callee": "self._loop.call_soon_threadsafe",
+          "lineNumber": 58
+        },
+        {
+          "caller": "receive",
+          "callee": "self._inbound.get",
+          "lineNumber": 63
+        },
+        {
+          "caller": "send_bytes",
+          "callee": "time.perf_counter",
+          "lineNumber": 66
+        },
+        {
+          "caller": "send_bytes",
+          "callee": "logger.info",
+          "lineNumber": 70
+        },
+        {
+          "caller": "send_bytes",
+          "callee": "len",
+          "lineNumber": 71
+        },
+        {
+          "caller": "send_bytes",
+          "callee": "np.frombuffer",
+          "lineNumber": 72
+        },
+        {
+          "caller": "send_bytes",
+          "callee": "asyncio.to_thread",
+          "lineNumber": 73
+        },
+        {
+          "caller": "send_json",
+          "callee": "payload.get",
+          "lineNumber": 76
+        },
+        {
+          "caller": "send_json",
+          "callee": "time.perf_counter",
+          "lineNumber": 78
+        },
+        {
+          "caller": "send_json",
+          "callee": "logger.info",
+          "lineNumber": 81
+        },
+        {
+          "caller": "send_json",
+          "callee": "payload.get",
+          "lineNumber": 81
+        },
+        {
+          "caller": "send_json",
+          "callee": "logger.info",
+          "lineNumber": 84
+        },
+        {
+          "caller": "send_json",
+          "callee": "logger.info",
+          "lineNumber": 86
+        },
+        {
+          "caller": "send_json",
+          "callee": "logger.info",
+          "lineNumber": 88
+        },
+        {
+          "caller": "send_json",
+          "callee": "payload.get",
+          "lineNumber": 88
+        },
+        {
+          "caller": "send_json",
+          "callee": "logger.info",
+          "lineNumber": 90
+        },
+        {
+          "caller": "send_json",
+          "callee": "payload.get",
+          "lineNumber": 90
+        },
+        {
+          "caller": "send_json",
+          "callee": "logger.info",
+          "lineNumber": 92
+        },
+        {
+          "caller": "close",
+          "callee": "suppress",
+          "lineNumber": 95
+        },
+        {
+          "caller": "close",
+          "callee": "self._player.stop",
+          "lineNumber": 96
+        },
+        {
+          "caller": "close",
+          "callee": "self._player.close",
+          "lineNumber": 97
+        },
+        {
+          "caller": "_state_watcher",
+          "callee": "logger.info",
+          "lineNumber": 104
+        },
+        {
+          "caller": "_state_watcher",
+          "callee": "asyncio.sleep",
+          "lineNumber": 106
+        },
+        {
+          "caller": "main",
+          "callee": "get_settings",
+          "lineNumber": 110
+        },
+        {
+          "caller": "main",
+          "callee": "asyncio.get_running_loop",
+          "lineNumber": 111
+        },
+        {
+          "caller": "main",
+          "callee": "FakeWebSocket",
+          "lineNumber": 112
+        },
+        {
+          "caller": "main",
+          "callee": "VoicePipeline",
+          "lineNumber": 114
+        },
+        {
+          "caller": "main",
+          "callee": "SpringInternalClient",
+          "lineNumber": 119
+        },
+        {
+          "caller": "_logged_handle",
+          "callee": "logger.info",
+          "lineNumber": 124
+        },
+        {
+          "caller": "_logged_handle",
+          "callee": "_orig_handle",
+          "lineNumber": 125
+        },
+        {
+          "caller": "on_mic",
+          "callee": "logger.debug",
+          "lineNumber": 133
+        },
+        {
+          "caller": "on_mic",
+          "callee": "bytes",
+          "lineNumber": 134
+        },
+        {
+          "caller": "on_mic",
+          "callee": "np.frombuffer",
+          "lineNumber": 135
+        },
+        {
+          "caller": "on_mic",
+          "callee": "max",
+          "lineNumber": 137
+        },
+        {
+          "caller": "on_mic",
+          "callee": "int",
+          "lineNumber": 137
+        },
+        {
+          "caller": "on_mic",
+          "callee": "np.abs(samples).max",
+          "lineNumber": 137
+        },
+        {
+          "caller": "on_mic",
+          "callee": "np.abs",
+          "lineNumber": 137
+        },
+        {
+          "caller": "on_mic",
+          "callee": "len",
+          "lineNumber": 139
+        },
+        {
+          "caller": "on_mic",
+          "callee": "ws.feed_mic",
+          "lineNumber": 140
+        },
+        {
+          "caller": "_meter",
+          "callee": "asyncio.sleep",
+          "lineNumber": 144
+        },
+        {
+          "caller": "_meter",
+          "callee": "logger.info",
+          "lineNumber": 145
+        },
+        {
+          "caller": "_meter",
+          "callee": "pipeline._audio_queue.qsize",
+          "lineNumber": 146
+        },
+        {
+          "caller": "main",
+          "callee": "sd.RawInputStream",
+          "lineNumber": 150
+        },
+        {
+          "caller": "wait_enter",
+          "callee": "suppress",
+          "lineNumber": 159
+        },
+        {
+          "caller": "wait_enter",
+          "callee": "input",
+          "lineNumber": 160
+        },
+        {
+          "caller": "wait_enter",
+          "callee": "ws.disconnect",
+          "lineNumber": 161
+        },
+        {
+          "caller": "main",
+          "callee": "threading.Thread(target=wait_enter, daemon=True).start",
+          "lineNumber": 163
+        },
+        {
+          "caller": "main",
+          "callee": "threading.Thread",
+          "lineNumber": 163
+        },
+        {
+          "caller": "main",
+          "callee": "asyncio.create_task",
+          "lineNumber": 164
+        },
+        {
+          "caller": "main",
+          "callee": "_state_watcher",
+          "lineNumber": 164
+        },
+        {
+          "caller": "main",
+          "callee": "asyncio.create_task",
+          "lineNumber": 165
+        },
+        {
+          "caller": "main",
+          "callee": "_meter",
+          "lineNumber": 165
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 167
+        },
+        {
+          "caller": "main",
+          "callee": "pipeline.run",
+          "lineNumber": 170
+        },
+        {
+          "caller": "main",
+          "callee": "watcher.cancel",
+          "lineNumber": 172
+        },
+        {
+          "caller": "main",
+          "callee": "meter.cancel",
+          "lineNumber": 173
+        },
+        {
+          "caller": "main",
+          "callee": "suppress",
+          "lineNumber": 174
+        },
+        {
+          "caller": "main",
+          "callee": "suppress",
+          "lineNumber": 176
+        }
+      ],
+      "metrics": {
+        "importCount": 3,
+        "exportCount": 3,
+        "functionCount": 2,
+        "classCount": 1
+      }
+    },
+    {
+      "path": "tests/pipeline/manual_pipeline_check3.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 303,
+      "nonEmptyLines": 254,
+      "functions": [
+        {
+          "name": "_state_watcher",
+          "startLine": 153,
+          "endLine": 160,
+          "params": [
+            "pipeline"
+          ]
+        },
+        {
+          "name": "_find_input_device",
+          "startLine": 162,
+          "endLine": 166,
+          "params": [
+            "hint"
+          ]
+        },
+        {
+          "name": "_print_summary",
+          "startLine": 168,
+          "endLine": 204,
+          "params": [
+            "metrics",
+            "errors"
+          ]
+        },
+        {
+          "name": "main",
+          "startLine": 207,
+          "endLine": 294,
+          "params": []
+        }
+      ],
+      "classes": [
+        {
+          "name": "ErrorCollector",
+          "startLine": 45,
+          "endLine": 55,
+          "methods": [
+            "__init__",
+            "emit"
+          ],
+          "properties": []
+        },
+        {
+          "name": "Metrics",
+          "startLine": 58,
+          "endLine": 98,
+          "methods": [
+            "begin_turn",
+            "on_emotion",
+            "on_first_audio",
+            "on_audio_done",
+            "finalize",
+            "on_barge_in"
+          ],
+          "properties": [
+            "turns",
+            "barge_ins",
+            "end_reason",
+            "_cur",
+            "_t_final",
+            "_t_emotion"
+          ]
+        },
+        {
+          "name": "FakeWebSocket",
+          "startLine": 100,
+          "endLine": 151,
+          "methods": [
+            "__init__",
+            "feed_mic",
+            "disconnect",
+            "receive",
+            "send_bytes",
+            "send_json",
+            "close"
+          ],
+          "properties": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "ErrorCollector",
+          "line": 45,
+          "isDefault": false
+        },
+        {
+          "name": "Metrics",
+          "line": 57,
+          "isDefault": false
+        },
+        {
+          "name": "FakeWebSocket",
+          "line": 100,
+          "isDefault": false
+        },
+        {
+          "name": "_state_watcher",
+          "line": 153,
+          "isDefault": false
+        },
+        {
+          "name": "_find_input_device",
+          "line": 162,
+          "isDefault": false
+        },
+        {
+          "name": "_print_summary",
+          "line": 168,
+          "isDefault": false
+        },
+        {
+          "name": "main",
+          "line": 207,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "__init__",
+          "callee": "super().__init__",
+          "lineNumber": 49
+        },
+        {
+          "caller": "__init__",
+          "callee": "super",
+          "lineNumber": 49
+        },
+        {
+          "caller": "emit",
+          "callee": "self.records.append",
+          "lineNumber": 55
+        },
+        {
+          "caller": "emit",
+          "callee": "record.getMessage",
+          "lineNumber": 55
+        },
+        {
+          "caller": "begin_turn",
+          "callee": "time.perf_counter",
+          "lineNumber": 67
+        },
+        {
+          "caller": "on_emotion",
+          "callee": "time.perf_counter",
+          "lineNumber": 74
+        },
+        {
+          "caller": "on_first_audio",
+          "callee": "time.perf_counter",
+          "lineNumber": 82
+        },
+        {
+          "caller": "finalize",
+          "callee": "flags.get",
+          "lineNumber": 91
+        },
+        {
+          "caller": "finalize",
+          "callee": "flags.get",
+          "lineNumber": 92
+        },
+        {
+          "caller": "finalize",
+          "callee": "flags.get",
+          "lineNumber": 93
+        },
+        {
+          "caller": "finalize",
+          "callee": "self.turns.append",
+          "lineNumber": 94
+        },
+        {
+          "caller": "__init__",
+          "callee": "asyncio.Queue",
+          "lineNumber": 104
+        },
+        {
+          "caller": "__init__",
+          "callee": "sd.OutputStream",
+          "lineNumber": 105
+        },
+        {
+          "caller": "__init__",
+          "callee": "self._player.start",
+          "lineNumber": 106
+        },
+        {
+          "caller": "feed_mic",
+          "callee": "self._loop.call_soon_threadsafe",
+          "lineNumber": 111
+        },
+        {
+          "caller": "disconnect",
+          "callee": "self._loop.call_soon_threadsafe",
+          "lineNumber": 114
+        },
+        {
+          "caller": "receive",
+          "callee": "self._inbound.get",
+          "lineNumber": 119
+        },
+        {
+          "caller": "send_bytes",
+          "callee": "self._metrics.on_first_audio",
+          "lineNumber": 124
+        },
+        {
+          "caller": "send_bytes",
+          "callee": "len",
+          "lineNumber": 125
+        },
+        {
+          "caller": "send_bytes",
+          "callee": "np.frombuffer",
+          "lineNumber": 126
+        },
+        {
+          "caller": "send_bytes",
+          "callee": "asyncio.to_thread",
+          "lineNumber": 127
+        },
+        {
+          "caller": "send_json",
+          "callee": "payload.get",
+          "lineNumber": 130
+        },
+        {
+          "caller": "send_json",
+          "callee": "self._metrics.on_emotion",
+          "lineNumber": 134
+        },
+        {
+          "caller": "send_json",
+          "callee": "payload.get",
+          "lineNumber": 134
+        },
+        {
+          "caller": "send_json",
+          "callee": "logger.info",
+          "lineNumber": 135
+        },
+        {
+          "caller": "send_json",
+          "callee": "payload.get",
+          "lineNumber": 135
+        },
+        {
+          "caller": "send_json",
+          "callee": "self._metrics.on_audio_done",
+          "lineNumber": 137
+        },
+        {
+          "caller": "send_json",
+          "callee": "self._metrics.on_barge_in",
+          "lineNumber": 139
+        },
+        {
+          "caller": "send_json",
+          "callee": "logger.info",
+          "lineNumber": 140
+        },
+        {
+          "caller": "send_json",
+          "callee": "payload.get",
+          "lineNumber": 142
+        },
+        {
+          "caller": "send_json",
+          "callee": "logger.info",
+          "lineNumber": 143
+        },
+        {
+          "caller": "send_json",
+          "callee": "payload.get",
+          "lineNumber": 143
+        },
+        {
+          "caller": "send_json",
+          "callee": "payload.get",
+          "lineNumber": 145
+        },
+        {
+          "caller": "send_json",
+          "callee": "logger.info",
+          "lineNumber": 146
+        },
+        {
+          "caller": "send_json",
+          "callee": "payload.get",
+          "lineNumber": 146
+        },
+        {
+          "caller": "close",
+          "callee": "suppress",
+          "lineNumber": 149
+        },
+        {
+          "caller": "close",
+          "callee": "self._player.stop",
+          "lineNumber": 150
+        },
+        {
+          "caller": "close",
+          "callee": "self._player.close",
+          "lineNumber": 151
+        },
+        {
+          "caller": "_state_watcher",
+          "callee": "logger.info",
+          "lineNumber": 158
+        },
+        {
+          "caller": "_state_watcher",
+          "callee": "asyncio.sleep",
+          "lineNumber": 160
+        },
+        {
+          "caller": "_find_input_device",
+          "callee": "enumerate",
+          "lineNumber": 163
+        },
+        {
+          "caller": "_find_input_device",
+          "callee": "sd.query_devices",
+          "lineNumber": 163
+        },
+        {
+          "caller": "_find_input_device",
+          "callee": "hint.lower",
+          "lineNumber": 164
+        },
+        {
+          "caller": "_find_input_device",
+          "callee": "dev[\"name\"].lower",
+          "lineNumber": 164
+        },
+        {
+          "caller": "_print_summary",
+          "callee": "t.get",
+          "lineNumber": 170
+        },
+        {
+          "caller": "_print_summary",
+          "callee": "t.get",
+          "lineNumber": 171
+        },
+        {
+          "caller": "_print_summary",
+          "callee": "print",
+          "lineNumber": 173
+        },
+        {
+          "caller": "_print_summary",
+          "callee": "print",
+          "lineNumber": 174
+        },
+        {
+          "caller": "_print_summary",
+          "callee": "len",
+          "lineNumber": 174
+        },
+        {
+          "caller": "_print_summary",
+          "callee": "print",
+          "lineNumber": 175
+        },
+        {
+          "caller": "_print_summary",
+          "callee": "print",
+          "lineNumber": 176
+        },
+        {
+          "caller": "_print_summary",
+          "callee": "print",
+          "lineNumber": 178
+        },
+        {
+          "caller": "_print_summary",
+          "callee": "mean",
+          "lineNumber": 178
+        },
+        {
+          "caller": "_print_summary",
+          "callee": "min",
+          "lineNumber": 178
+        },
+        {
+          "caller": "_print_summary",
+          "callee": "max",
+          "lineNumber": 178
+        },
+        {
+          "caller": "_print_summary",
+          "callee": "print",
+          "lineNumber": 180
+        },
+        {
+          "caller": "_print_summary",
+          "callee": "mean",
+          "lineNumber": 180
+        },
+        {
+          "caller": "_print_summary",
+          "callee": "min",
+          "lineNumber": 180
+        },
+        {
+          "caller": "_print_summary",
+          "callee": "max",
+          "lineNumber": 180
+        },
+        {
+          "caller": "_print_summary",
+          "callee": "print",
+          "lineNumber": 181
+        },
+        {
+          "caller": "_print_summary",
+          "callee": "len",
+          "lineNumber": 181
+        },
+        {
+          "caller": "_print_summary",
+          "callee": "print",
+          "lineNumber": 183
+        },
+        {
+          "caller": "_print_summary",
+          "callee": "print",
+          "lineNumber": 185
+        },
+        {
+          "caller": "_print_summary",
+          "callee": "enumerate",
+          "lineNumber": 186
+        },
+        {
+          "caller": "_print_summary",
+          "callee": "k.upper",
+          "lineNumber": 187
+        },
+        {
+          "caller": "_print_summary",
+          "callee": "t.get",
+          "lineNumber": 187
+        },
+        {
+          "caller": "_print_summary",
+          "callee": "\",\".join",
+          "lineNumber": 188
+        },
+        {
+          "caller": "_print_summary",
+          "callee": "t.get",
+          "lineNumber": 190
+        },
+        {
+          "caller": "_print_summary",
+          "callee": "t.get",
+          "lineNumber": 190
+        },
+        {
+          "caller": "_print_summary",
+          "callee": "print",
+          "lineNumber": 192
+        },
+        {
+          "caller": "_print_summary",
+          "callee": "print",
+          "lineNumber": 193
+        },
+        {
+          "caller": "_print_summary",
+          "callee": "t.get",
+          "lineNumber": 193
+        },
+        {
+          "caller": "_print_summary",
+          "callee": "t.get",
+          "lineNumber": 193
+        },
+        {
+          "caller": "_print_summary",
+          "callee": "len",
+          "lineNumber": 195
+        },
+        {
+          "caller": "_print_summary",
+          "callee": "len",
+          "lineNumber": 195
+        },
+        {
+          "caller": "_print_summary",
+          "callee": "print",
+          "lineNumber": 196
+        },
+        {
+          "caller": "_print_summary",
+          "callee": "len",
+          "lineNumber": 198
+        },
+        {
+          "caller": "_print_summary",
+          "callee": "print",
+          "lineNumber": 199
+        },
+        {
+          "caller": "_print_summary",
+          "callee": "print",
+          "lineNumber": 201
+        },
+        {
+          "caller": "_print_summary",
+          "callee": "print",
+          "lineNumber": 203
+        },
+        {
+          "caller": "_print_summary",
+          "callee": "print",
+          "lineNumber": 204
+        },
+        {
+          "caller": "main",
+          "callee": "get_settings",
+          "lineNumber": 208
+        },
+        {
+          "caller": "main",
+          "callee": "asyncio.get_running_loop",
+          "lineNumber": 209
+        },
+        {
+          "caller": "main",
+          "callee": "Metrics",
+          "lineNumber": 210
+        },
+        {
+          "caller": "main",
+          "callee": "_find_input_device",
+          "lineNumber": 213
+        },
+        {
+          "caller": "main",
+          "callee": "logger.info",
+          "lineNumber": 216
+        },
+        {
+          "caller": "main",
+          "callee": "sd.query_devices",
+          "lineNumber": 216
+        },
+        {
+          "caller": "main",
+          "callee": "logger.warning",
+          "lineNumber": 218
+        },
+        {
+          "caller": "main",
+          "callee": "ErrorCollector",
+          "lineNumber": 220
+        },
+        {
+          "caller": "main",
+          "callee": "logging.getLogger().addHandler",
+          "lineNumber": 221
+        },
+        {
+          "caller": "main",
+          "callee": "logging.getLogger",
+          "lineNumber": 221
+        },
+        {
+          "caller": "main",
+          "callee": "FakeWebSocket",
+          "lineNumber": 223
+        },
+        {
+          "caller": "main",
+          "callee": "VoicePipeline",
+          "lineNumber": 224
+        },
+        {
+          "caller": "main",
+          "callee": "SpringInternalClient",
+          "lineNumber": 225
+        },
+        {
+          "caller": "_logged_handle",
+          "callee": "logger.info",
+          "lineNumber": 231
+        },
+        {
+          "caller": "_logged_handle",
+          "callee": "event.text.strip",
+          "lineNumber": 234
+        },
+        {
+          "caller": "_logged_handle",
+          "callee": "metrics.begin_turn",
+          "lineNumber": 238
+        },
+        {
+          "caller": "_logged_handle",
+          "callee": "event.text.strip",
+          "lineNumber": 238
+        },
+        {
+          "caller": "_logged_handle",
+          "callee": "_orig_handle",
+          "lineNumber": 239
+        },
+        {
+          "caller": "_logged_finalize",
+          "callee": "metrics.finalize",
+          "lineNumber": 246
+        },
+        {
+          "caller": "_logged_finalize",
+          "callee": "\"\".join(ai_parts).strip",
+          "lineNumber": 246
+        },
+        {
+          "caller": "_logged_finalize",
+          "callee": "\"\".join",
+          "lineNumber": 246
+        },
+        {
+          "caller": "_logged_finalize",
+          "callee": "_orig_finalize",
+          "lineNumber": 247
+        },
+        {
+          "caller": "on_mic",
+          "callee": "logger.debug",
+          "lineNumber": 255
+        },
+        {
+          "caller": "on_mic",
+          "callee": "bytes",
+          "lineNumber": 256
+        },
+        {
+          "caller": "on_mic",
+          "callee": "np.frombuffer",
+          "lineNumber": 257
+        },
+        {
+          "caller": "on_mic",
+          "callee": "max",
+          "lineNumber": 259
+        },
+        {
+          "caller": "on_mic",
+          "callee": "int",
+          "lineNumber": 259
+        },
+        {
+          "caller": "on_mic",
+          "callee": "np.abs(samples).max",
+          "lineNumber": 259
+        },
+        {
+          "caller": "on_mic",
+          "callee": "np.abs",
+          "lineNumber": 259
+        },
+        {
+          "caller": "on_mic",
+          "callee": "len",
+          "lineNumber": 261
+        },
+        {
+          "caller": "on_mic",
+          "callee": "ws.feed_mic",
+          "lineNumber": 262
+        },
+        {
+          "caller": "_meter",
+          "callee": "asyncio.sleep",
+          "lineNumber": 266
+        },
+        {
+          "caller": "_meter",
+          "callee": "logger.info",
+          "lineNumber": 267
+        },
+        {
+          "caller": "_meter",
+          "callee": "pipeline._audio_queue.qsize",
+          "lineNumber": 267
+        },
+        {
+          "caller": "main",
+          "callee": "sd.RawInputStream",
+          "lineNumber": 270
+        },
+        {
+          "caller": "wait_enter",
+          "callee": "suppress",
+          "lineNumber": 275
+        },
+        {
+          "caller": "wait_enter",
+          "callee": "input",
+          "lineNumber": 276
+        },
+        {
+          "caller": "wait_enter",
+          "callee": "ws.disconnect",
+          "lineNumber": 277
+        },
+        {
+          "caller": "main",
+          "callee": "threading.Thread(target=wait_enter, daemon=True).start",
+          "lineNumber": 279
+        },
+        {
+          "caller": "main",
+          "callee": "threading.Thread",
+          "lineNumber": 279
+        },
+        {
+          "caller": "main",
+          "callee": "asyncio.create_task",
+          "lineNumber": 280
+        },
+        {
+          "caller": "main",
+          "callee": "_state_watcher",
+          "lineNumber": 280
+        },
+        {
+          "caller": "main",
+          "callee": "asyncio.create_task",
+          "lineNumber": 281
+        },
+        {
+          "caller": "main",
+          "callee": "_meter",
+          "lineNumber": 281
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 284
+        },
+        {
+          "caller": "main",
+          "callee": "pipeline.run",
+          "lineNumber": 287
+        },
+        {
+          "caller": "main",
+          "callee": "task.cancel",
+          "lineNumber": 290
+        },
+        {
+          "caller": "main",
+          "callee": "suppress",
+          "lineNumber": 291
+        },
+        {
+          "caller": "main",
+          "callee": "logging.getLogger().removeHandler",
+          "lineNumber": 293
+        },
+        {
+          "caller": "main",
+          "callee": "logging.getLogger",
+          "lineNumber": 293
+        },
+        {
+          "caller": "main",
+          "callee": "_print_summary",
+          "lineNumber": 294
+        }
+      ],
+      "metrics": {
+        "importCount": 4,
+        "exportCount": 7,
+        "functionCount": 4,
+        "classCount": 3
+      }
+    },
+    {
+      "path": "tests/pipeline/manual_pipeline_feedback_check.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 174,
+      "nonEmptyLines": 146,
+      "functions": [
+        {
+          "name": "_print_verdict",
+          "startLine": 92,
+          "endLine": 125,
+          "params": [
+            "ws"
+          ]
+        },
+        {
+          "name": "main",
+          "startLine": 128,
+          "endLine": 165,
+          "params": []
+        }
+      ],
+      "classes": [
+        {
+          "name": "FakeWebSocket",
+          "startLine": 42,
+          "endLine": 89,
+          "methods": [
+            "__init__",
+            "feed_mic",
+            "feed_end",
+            "disconnect",
+            "receive",
+            "send_bytes",
+            "send_json",
+            "close"
+          ],
+          "properties": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "FakeWebSocket",
+          "line": 42,
+          "isDefault": false
+        },
+        {
+          "name": "_print_verdict",
+          "line": 92,
+          "isDefault": false
+        },
+        {
+          "name": "main",
+          "line": 128,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "__init__",
+          "callee": "asyncio.Queue",
+          "lineNumber": 45
+        },
+        {
+          "caller": "__init__",
+          "callee": "sd.OutputStream",
+          "lineNumber": 46
+        },
+        {
+          "caller": "__init__",
+          "callee": "self._player.start",
+          "lineNumber": 47
+        },
+        {
+          "caller": "feed_mic",
+          "callee": "self._loop.call_soon_threadsafe",
+          "lineNumber": 53
+        },
+        {
+          "caller": "feed_end",
+          "callee": "self._loop.call_soon_threadsafe",
+          "lineNumber": 57
+        },
+        {
+          "caller": "feed_end",
+          "callee": "json.dumps",
+          "lineNumber": 58
+        },
+        {
+          "caller": "disconnect",
+          "callee": "self._loop.call_soon_threadsafe",
+          "lineNumber": 63
+        },
+        {
+          "caller": "receive",
+          "callee": "self._inbound.get",
+          "lineNumber": 68
+        },
+        {
+          "caller": "send_bytes",
+          "callee": "np.frombuffer",
+          "lineNumber": 71
+        },
+        {
+          "caller": "send_bytes",
+          "callee": "asyncio.to_thread",
+          "lineNumber": 72
+        },
+        {
+          "caller": "send_json",
+          "callee": "payload.get",
+          "lineNumber": 75
+        },
+        {
+          "caller": "send_json",
+          "callee": "logger.info",
+          "lineNumber": 77
+        },
+        {
+          "caller": "send_json",
+          "callee": "payload.get",
+          "lineNumber": 77
+        },
+        {
+          "caller": "send_json",
+          "callee": "payload.get",
+          "lineNumber": 79
+        },
+        {
+          "caller": "send_json",
+          "callee": "payload.get",
+          "lineNumber": 80
+        },
+        {
+          "caller": "send_json",
+          "callee": "logger.info",
+          "lineNumber": 81
+        },
+        {
+          "caller": "send_json",
+          "callee": "payload.get",
+          "lineNumber": 81
+        },
+        {
+          "caller": "send_json",
+          "callee": "payload.get",
+          "lineNumber": 83
+        },
+        {
+          "caller": "send_json",
+          "callee": "logger.info",
+          "lineNumber": 84
+        },
+        {
+          "caller": "send_json",
+          "callee": "payload.get",
+          "lineNumber": 84
+        },
+        {
+          "caller": "close",
+          "callee": "suppress",
+          "lineNumber": 87
+        },
+        {
+          "caller": "close",
+          "callee": "self._player.stop",
+          "lineNumber": 88
+        },
+        {
+          "caller": "close",
+          "callee": "self._player.close",
+          "lineNumber": 89
+        },
+        {
+          "caller": "_print_verdict",
+          "callee": "print",
+          "lineNumber": 94
+        },
+        {
+          "caller": "_print_verdict",
+          "callee": "print",
+          "lineNumber": 95
+        },
+        {
+          "caller": "_print_verdict",
+          "callee": "print",
+          "lineNumber": 97
+        },
+        {
+          "caller": "_print_verdict",
+          "callee": "print",
+          "lineNumber": 99
+        },
+        {
+          "caller": "_print_verdict",
+          "callee": "json.dumps",
+          "lineNumber": 99
+        },
+        {
+          "caller": "_print_verdict",
+          "callee": "isinstance",
+          "lineNumber": 105
+        },
+        {
+          "caller": "_print_verdict",
+          "callee": "all",
+          "lineNumber": 106
+        },
+        {
+          "caller": "_print_verdict",
+          "callee": "isinstance",
+          "lineNumber": 107
+        },
+        {
+          "caller": "_print_verdict",
+          "callee": "isinstance",
+          "lineNumber": 108
+        },
+        {
+          "caller": "_print_verdict",
+          "callee": "isinstance",
+          "lineNumber": 109
+        },
+        {
+          "caller": "_print_verdict",
+          "callee": "print",
+          "lineNumber": 111
+        },
+        {
+          "caller": "_print_verdict",
+          "callee": "print",
+          "lineNumber": 114
+        },
+        {
+          "caller": "_print_verdict",
+          "callee": "print",
+          "lineNumber": 116
+        },
+        {
+          "caller": "_print_verdict",
+          "callee": "isinstance",
+          "lineNumber": 117
+        },
+        {
+          "caller": "_print_verdict",
+          "callee": "print",
+          "lineNumber": 118
+        },
+        {
+          "caller": "_print_verdict",
+          "callee": "print",
+          "lineNumber": 122
+        },
+        {
+          "caller": "_print_verdict",
+          "callee": "print",
+          "lineNumber": 124
+        },
+        {
+          "caller": "_print_verdict",
+          "callee": "print",
+          "lineNumber": 125
+        },
+        {
+          "caller": "main",
+          "callee": "get_settings",
+          "lineNumber": 129
+        },
+        {
+          "caller": "main",
+          "callee": "asyncio.get_running_loop",
+          "lineNumber": 130
+        },
+        {
+          "caller": "main",
+          "callee": "FakeWebSocket",
+          "lineNumber": 131
+        },
+        {
+          "caller": "main",
+          "callee": "VoicePipeline",
+          "lineNumber": 133
+        },
+        {
+          "caller": "main",
+          "callee": "SpringInternalClient",
+          "lineNumber": 138
+        },
+        {
+          "caller": "on_mic",
+          "callee": "logger.debug",
+          "lineNumber": 143
+        },
+        {
+          "caller": "on_mic",
+          "callee": "bytes",
+          "lineNumber": 144
+        },
+        {
+          "caller": "on_mic",
+          "callee": "len",
+          "lineNumber": 146
+        },
+        {
+          "caller": "on_mic",
+          "callee": "ws.feed_mic",
+          "lineNumber": 147
+        },
+        {
+          "caller": "main",
+          "callee": "sd.RawInputStream",
+          "lineNumber": 149
+        },
+        {
+          "caller": "wait_enter",
+          "callee": "suppress",
+          "lineNumber": 154
+        },
+        {
+          "caller": "wait_enter",
+          "callee": "input",
+          "lineNumber": 155
+        },
+        {
+          "caller": "wait_enter",
+          "callee": "ws.feed_end",
+          "lineNumber": 156
+        },
+        {
+          "caller": "main",
+          "callee": "threading.Thread(target=wait_enter, daemon=True).start",
+          "lineNumber": 158
+        },
+        {
+          "caller": "main",
+          "callee": "threading.Thread",
+          "lineNumber": 158
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 160
+        },
+        {
+          "caller": "main",
+          "callee": "pipeline.run",
+          "lineNumber": 163
+        },
+        {
+          "caller": "main",
+          "callee": "_print_verdict",
+          "lineNumber": 165
+        }
+      ],
+      "metrics": {
+        "importCount": 3,
+        "exportCount": 3,
+        "functionCount": 2,
+        "classCount": 1
+      }
+    },
+    {
+      "path": "tests/pipeline/test_good_segments.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 56,
+      "nonEmptyLines": 39,
+      "functions": [
+        {
+          "name": "_pipeline_with_turns",
+          "startLine": 7,
+          "endLine": 11,
+          "params": [
+            "turns"
+          ]
+        },
+        {
+          "name": "test_intersect_clips_to_turns",
+          "startLine": 16,
+          "endLine": 18,
+          "params": []
+        },
+        {
+          "name": "test_intersect_no_overlap",
+          "startLine": 21,
+          "endLine": 22,
+          "params": []
+        },
+        {
+          "name": "test_pick_excludes_ai_turns",
+          "startLine": 27,
+          "endLine": 34,
+          "params": []
+        },
+        {
+          "name": "test_pick_top3_longest_chronological",
+          "startLine": 37,
+          "endLine": 45,
+          "params": []
+        },
+        {
+          "name": "test_pick_drops_short_fragments",
+          "startLine": 48,
+          "endLine": 51,
+          "params": []
+        },
+        {
+          "name": "test_pick_empty_when_no_overlap",
+          "startLine": 54,
+          "endLine": 56,
+          "params": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "_pipeline_with_turns",
+          "line": 7,
+          "isDefault": false
+        },
+        {
+          "name": "test_intersect_clips_to_turns",
+          "line": 16,
+          "isDefault": false
+        },
+        {
+          "name": "test_intersect_no_overlap",
+          "line": 21,
+          "isDefault": false
+        },
+        {
+          "name": "test_pick_excludes_ai_turns",
+          "line": 27,
+          "isDefault": false
+        },
+        {
+          "name": "test_pick_top3_longest_chronological",
+          "line": 37,
+          "isDefault": false
+        },
+        {
+          "name": "test_pick_drops_short_fragments",
+          "line": 48,
+          "isDefault": false
+        },
+        {
+          "name": "test_pick_empty_when_no_overlap",
+          "line": 54,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "_pipeline_with_turns",
+          "callee": "VoicePipeline.__new__",
+          "lineNumber": 9
+        },
+        {
+          "caller": "test_intersect_clips_to_turns",
+          "callee": "VoicePipeline._intersect",
+          "lineNumber": 17
+        },
+        {
+          "caller": "test_intersect_no_overlap",
+          "callee": "VoicePipeline._intersect",
+          "lineNumber": 22
+        },
+        {
+          "caller": "test_pick_excludes_ai_turns",
+          "callee": "_pipeline_with_turns",
+          "lineNumber": 29
+        },
+        {
+          "caller": "test_pick_excludes_ai_turns",
+          "callee": "p._pick_good_segments",
+          "lineNumber": 30
+        },
+        {
+          "caller": "test_pick_top3_longest_chronological",
+          "callee": "_pipeline_with_turns",
+          "lineNumber": 38
+        },
+        {
+          "caller": "test_pick_top3_longest_chronological",
+          "callee": "p._pick_good_segments",
+          "lineNumber": 41
+        },
+        {
+          "caller": "test_pick_drops_short_fragments",
+          "callee": "_pipeline_with_turns",
+          "lineNumber": 50
+        },
+        {
+          "caller": "test_pick_drops_short_fragments",
+          "callee": "p._pick_good_segments",
+          "lineNumber": 51
+        },
+        {
+          "caller": "test_pick_empty_when_no_overlap",
+          "callee": "_pipeline_with_turns",
+          "lineNumber": 55
+        },
+        {
+          "caller": "test_pick_empty_when_no_overlap",
+          "callee": "p._pick_good_segments",
+          "lineNumber": 56
+        }
+      ],
+      "metrics": {
+        "importCount": 1,
+        "exportCount": 7,
+        "functionCount": 7,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "tests/stt/latency_check.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 161,
+      "nonEmptyLines": 130,
+      "functions": [
+        {
+          "name": "feed_microphone",
+          "startLine": 26,
+          "endLine": 48,
+          "params": [
+            "audio_queue",
+            "stop_event"
+          ]
+        },
+        {
+          "name": "_summary",
+          "startLine": 51,
+          "endLine": 74,
+          "params": [
+            "label",
+            "samples"
+          ]
+        },
+        {
+          "name": "consume_events",
+          "startLine": 77,
+          "endLine": 117,
+          "params": [
+            "client",
+            "audio_queue"
+          ]
+        },
+        {
+          "name": "main",
+          "startLine": 120,
+          "endLine": 154,
+          "params": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "feed_microphone",
+          "line": 26,
+          "isDefault": false
+        },
+        {
+          "name": "_summary",
+          "line": 51,
+          "isDefault": false
+        },
+        {
+          "name": "consume_events",
+          "line": 77,
+          "isDefault": false
+        },
+        {
+          "name": "main",
+          "line": 120,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "feed_microphone",
+          "callee": "asyncio.get_running_loop",
+          "lineNumber": 30
+        },
+        {
+          "caller": "callback",
+          "callee": "logger.warning",
+          "lineNumber": 34
+        },
+        {
+          "caller": "callback",
+          "callee": "loop.call_soon_threadsafe",
+          "lineNumber": 35
+        },
+        {
+          "caller": "callback",
+          "callee": "bytes",
+          "lineNumber": 35
+        },
+        {
+          "caller": "feed_microphone",
+          "callee": "sd.InputStream",
+          "lineNumber": 37
+        },
+        {
+          "caller": "feed_microphone",
+          "callee": "logger.info",
+          "lineNumber": 45
+        },
+        {
+          "caller": "feed_microphone",
+          "callee": "stop_event.wait",
+          "lineNumber": 46
+        },
+        {
+          "caller": "feed_microphone",
+          "callee": "audio_queue.put_nowait",
+          "lineNumber": 48
+        },
+        {
+          "caller": "_summary",
+          "callee": "logger.info",
+          "lineNumber": 54
+        },
+        {
+          "caller": "_summary",
+          "callee": "len",
+          "lineNumber": 58
+        },
+        {
+          "caller": "_summary",
+          "callee": "logger.info",
+          "lineNumber": 60
+        },
+        {
+          "caller": "_summary",
+          "callee": "logger.info",
+          "lineNumber": 61
+        },
+        {
+          "caller": "_summary",
+          "callee": "logger.info",
+          "lineNumber": 62
+        },
+        {
+          "caller": "_summary",
+          "callee": "logger.info",
+          "lineNumber": 64
+        },
+        {
+          "caller": "_summary",
+          "callee": "sorted",
+          "lineNumber": 67
+        },
+        {
+          "caller": "_summary",
+          "callee": "max",
+          "lineNumber": 68
+        },
+        {
+          "caller": "_summary",
+          "callee": "int",
+          "lineNumber": 68
+        },
+        {
+          "caller": "_summary",
+          "callee": "len",
+          "lineNumber": 68
+        },
+        {
+          "caller": "_summary",
+          "callee": "logger.info",
+          "lineNumber": 69
+        },
+        {
+          "caller": "_summary",
+          "callee": "len",
+          "lineNumber": 69
+        },
+        {
+          "caller": "_summary",
+          "callee": "logger.info",
+          "lineNumber": 70
+        },
+        {
+          "caller": "_summary",
+          "callee": "statistics.mean",
+          "lineNumber": 70
+        },
+        {
+          "caller": "_summary",
+          "callee": "logger.info",
+          "lineNumber": 71
+        },
+        {
+          "caller": "_summary",
+          "callee": "statistics.median",
+          "lineNumber": 71
+        },
+        {
+          "caller": "_summary",
+          "callee": "logger.info",
+          "lineNumber": 72
+        },
+        {
+          "caller": "_summary",
+          "callee": "min",
+          "lineNumber": 72
+        },
+        {
+          "caller": "_summary",
+          "callee": "logger.info",
+          "lineNumber": 73
+        },
+        {
+          "caller": "_summary",
+          "callee": "max",
+          "lineNumber": 73
+        },
+        {
+          "caller": "_summary",
+          "callee": "logger.info",
+          "lineNumber": 74
+        },
+        {
+          "caller": "consume_events",
+          "callee": "client.stream",
+          "lineNumber": 86
+        },
+        {
+          "caller": "consume_events",
+          "callee": "time.monotonic",
+          "lineNumber": 87
+        },
+        {
+          "caller": "consume_events",
+          "callee": "logger.info",
+          "lineNumber": 92
+        },
+        {
+          "caller": "consume_events",
+          "callee": "begin_to_interim.append",
+          "lineNumber": 96
+        },
+        {
+          "caller": "consume_events",
+          "callee": "logger.info",
+          "lineNumber": 98
+        },
+        {
+          "caller": "consume_events",
+          "callee": "logger.info",
+          "lineNumber": 102
+        },
+        {
+          "caller": "consume_events",
+          "callee": "end_to_final.append",
+          "lineNumber": 107
+        },
+        {
+          "caller": "consume_events",
+          "callee": "logger.info",
+          "lineNumber": 108
+        },
+        {
+          "caller": "consume_events",
+          "callee": "logger.info",
+          "lineNumber": 114
+        },
+        {
+          "caller": "consume_events",
+          "callee": "_summary",
+          "lineNumber": 116
+        },
+        {
+          "caller": "consume_events",
+          "callee": "_summary",
+          "lineNumber": 117
+        },
+        {
+          "caller": "main",
+          "callee": "logger.error",
+          "lineNumber": 123
+        },
+        {
+          "caller": "main",
+          "callee": "sys.exit",
+          "lineNumber": 124
+        },
+        {
+          "caller": "main",
+          "callee": "GoogleSTTClient",
+          "lineNumber": 126
+        },
+        {
+          "caller": "main",
+          "callee": "os.environ.get",
+          "lineNumber": 128
+        },
+        {
+          "caller": "main",
+          "callee": "os.environ.get",
+          "lineNumber": 129
+        },
+        {
+          "caller": "main",
+          "callee": "os.environ.get",
+          "lineNumber": 130
+        },
+        {
+          "caller": "main",
+          "callee": "logger.info",
+          "lineNumber": 134
+        },
+        {
+          "caller": "main",
+          "callee": "logger.info",
+          "lineNumber": 135
+        },
+        {
+          "caller": "main",
+          "callee": "logger.info",
+          "lineNumber": 136
+        },
+        {
+          "caller": "main",
+          "callee": "logger.info",
+          "lineNumber": 137
+        },
+        {
+          "caller": "main",
+          "callee": "logger.info",
+          "lineNumber": 138
+        },
+        {
+          "caller": "main",
+          "callee": "logger.info",
+          "lineNumber": 139
+        },
+        {
+          "caller": "main",
+          "callee": "logger.info",
+          "lineNumber": 140
+        },
+        {
+          "caller": "main",
+          "callee": "asyncio.Queue",
+          "lineNumber": 142
+        },
+        {
+          "caller": "main",
+          "callee": "asyncio.Event",
+          "lineNumber": 143
+        },
+        {
+          "caller": "main",
+          "callee": "asyncio.create_task",
+          "lineNumber": 145
+        },
+        {
+          "caller": "main",
+          "callee": "feed_microphone",
+          "lineNumber": 145
+        },
+        {
+          "caller": "main",
+          "callee": "asyncio.create_task",
+          "lineNumber": 146
+        },
+        {
+          "caller": "main",
+          "callee": "consume_events",
+          "lineNumber": 146
+        },
+        {
+          "caller": "main",
+          "callee": "stop_event.set",
+          "lineNumber": 153
+        },
+        {
+          "caller": "main",
+          "callee": "feeder.cancel",
+          "lineNumber": 154
+        }
+      ],
+      "metrics": {
+        "importCount": 2,
+        "exportCount": 4,
+        "functionCount": 4,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "tests/stt/manual_stt_check.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 106,
+      "nonEmptyLines": 82,
+      "functions": [
+        {
+          "name": "feed_microphone",
+          "startLine": 22,
+          "endLine": 47,
+          "params": [
+            "audio_queue",
+            "stop_event"
+          ]
+        },
+        {
+          "name": "consume_events",
+          "startLine": 50,
+          "endLine": 73,
+          "params": [
+            "client",
+            "audio_queue"
+          ]
+        },
+        {
+          "name": "main",
+          "startLine": 76,
+          "endLine": 99,
+          "params": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "feed_microphone",
+          "line": 22,
+          "isDefault": false
+        },
+        {
+          "name": "consume_events",
+          "line": 50,
+          "isDefault": false
+        },
+        {
+          "name": "main",
+          "line": 76,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "feed_microphone",
+          "callee": "asyncio.get_running_loop",
+          "lineNumber": 27
+        },
+        {
+          "caller": "callback",
+          "callee": "logger.warning",
+          "lineNumber": 31
+        },
+        {
+          "caller": "callback",
+          "callee": "bytes",
+          "lineNumber": 32
+        },
+        {
+          "caller": "callback",
+          "callee": "loop.call_soon_threadsafe",
+          "lineNumber": 33
+        },
+        {
+          "caller": "feed_microphone",
+          "callee": "sd.InputStream",
+          "lineNumber": 35
+        },
+        {
+          "caller": "feed_microphone",
+          "callee": "logger.info",
+          "lineNumber": 43
+        },
+        {
+          "caller": "feed_microphone",
+          "callee": "stop_event.wait",
+          "lineNumber": 44
+        },
+        {
+          "caller": "feed_microphone",
+          "callee": "audio_queue.put_nowait",
+          "lineNumber": 46
+        },
+        {
+          "caller": "feed_microphone",
+          "callee": "logger.info",
+          "lineNumber": 47
+        },
+        {
+          "caller": "consume_events",
+          "callee": "client.stream",
+          "lineNumber": 54
+        },
+        {
+          "caller": "consume_events",
+          "callee": "time.monotonic",
+          "lineNumber": 55
+        },
+        {
+          "caller": "consume_events",
+          "callee": "logger.info",
+          "lineNumber": 59
+        },
+        {
+          "caller": "consume_events",
+          "callee": "logger.info",
+          "lineNumber": 62
+        },
+        {
+          "caller": "consume_events",
+          "callee": "logger.info",
+          "lineNumber": 69
+        },
+        {
+          "caller": "consume_events",
+          "callee": "logger.info",
+          "lineNumber": 70
+        },
+        {
+          "caller": "consume_events",
+          "callee": "logger.info",
+          "lineNumber": 73
+        },
+        {
+          "caller": "main",
+          "callee": "get_settings",
+          "lineNumber": 77
+        },
+        {
+          "caller": "main",
+          "callee": "GoogleSTTClient",
+          "lineNumber": 79
+        },
+        {
+          "caller": "main",
+          "callee": "asyncio.Queue",
+          "lineNumber": 87
+        },
+        {
+          "caller": "main",
+          "callee": "asyncio.Event",
+          "lineNumber": 88
+        },
+        {
+          "caller": "main",
+          "callee": "asyncio.create_task",
+          "lineNumber": 90
+        },
+        {
+          "caller": "main",
+          "callee": "feed_microphone",
+          "lineNumber": 90
+        },
+        {
+          "caller": "main",
+          "callee": "asyncio.create_task",
+          "lineNumber": 91
+        },
+        {
+          "caller": "main",
+          "callee": "consume_events",
+          "lineNumber": 91
+        },
+        {
+          "caller": "main",
+          "callee": "stop_event.set",
+          "lineNumber": 98
+        },
+        {
+          "caller": "main",
+          "callee": "feeder.cancel",
+          "lineNumber": 99
+        }
+      ],
+      "metrics": {
+        "importCount": 2,
+        "exportCount": 3,
+        "functionCount": 3,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "tests/stt/stream_check.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 32,
+      "nonEmptyLines": 25,
+      "functions": [
+        {
+          "name": "main",
+          "startLine": 10,
+          "endLine": 30,
+          "params": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "main",
+          "line": 10,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "main",
+          "callee": "GoogleSTTClient",
+          "lineNumber": 11
+        },
+        {
+          "caller": "main",
+          "callee": "os.environ.get",
+          "lineNumber": 12
+        },
+        {
+          "caller": "main",
+          "callee": "asyncio.Queue",
+          "lineNumber": 17
+        },
+        {
+          "caller": "main",
+          "callee": "range",
+          "lineNumber": 20
+        },
+        {
+          "caller": "main",
+          "callee": "q.put_nowait",
+          "lineNumber": 21
+        },
+        {
+          "caller": "main",
+          "callee": "q.put_nowait",
+          "lineNumber": 22
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 24
+        },
+        {
+          "caller": "main",
+          "callee": "client.stream",
+          "lineNumber": 26
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 27
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 28
+        },
+        {
+          "caller": "main",
+          "callee": "logging.exception",
+          "lineNumber": 30
+        }
+      ],
+      "metrics": {
+        "importCount": 1,
+        "exportCount": 1,
+        "functionCount": 1,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "tests/unit/test_pipeline_send_json.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 75,
+      "nonEmptyLines": 56,
+      "functions": [
+        {
+          "name": "_make_pipeline",
+          "startLine": 9,
+          "endLine": 14,
+          "params": [
+            "ws"
+          ]
+        },
+        {
+          "name": "test_send_json_disconnect_is_quiet",
+          "startLine": 26,
+          "endLine": 36,
+          "params": [
+            "caplog"
+          ]
+        },
+        {
+          "name": "test_send_json_runtime_error_is_quiet",
+          "startLine": 40,
+          "endLine": 49,
+          "params": [
+            "caplog"
+          ]
+        },
+        {
+          "name": "test_send_json_unexpected_keeps_traceback",
+          "startLine": 53,
+          "endLine": 63,
+          "params": [
+            "caplog"
+          ]
+        },
+        {
+          "name": "test_send_json_noop_when_already_dead",
+          "startLine": 67,
+          "endLine": 75,
+          "params": [
+            "caplog"
+          ]
+        }
+      ],
+      "classes": [
+        {
+          "name": "_RaisingWS",
+          "startLine": 17,
+          "endLine": 22,
+          "methods": [
+            "__init__",
+            "send_json"
+          ],
+          "properties": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "_make_pipeline",
+          "line": 9,
+          "isDefault": false
+        },
+        {
+          "name": "_RaisingWS",
+          "line": 17,
+          "isDefault": false
+        },
+        {
+          "name": "test_send_json_disconnect_is_quiet",
+          "line": 25,
+          "isDefault": false
+        },
+        {
+          "name": "test_send_json_runtime_error_is_quiet",
+          "line": 39,
+          "isDefault": false
+        },
+        {
+          "name": "test_send_json_unexpected_keeps_traceback",
+          "line": 52,
+          "isDefault": false
+        },
+        {
+          "name": "test_send_json_noop_when_already_dead",
+          "line": 66,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "_make_pipeline",
+          "callee": "VoicePipeline.__new__",
+          "lineNumber": 10
+        },
+        {
+          "caller": "test_send_json_disconnect_is_quiet",
+          "callee": "_make_pipeline",
+          "lineNumber": 28
+        },
+        {
+          "caller": "test_send_json_disconnect_is_quiet",
+          "callee": "_RaisingWS",
+          "lineNumber": 28
+        },
+        {
+          "caller": "test_send_json_disconnect_is_quiet",
+          "callee": "WebSocketDisconnect",
+          "lineNumber": 28
+        },
+        {
+          "caller": "test_send_json_disconnect_is_quiet",
+          "callee": "caplog.at_level",
+          "lineNumber": 29
+        },
+        {
+          "caller": "test_send_json_disconnect_is_quiet",
+          "callee": "p._send_json",
+          "lineNumber": 30
+        },
+        {
+          "caller": "test_send_json_disconnect_is_quiet",
+          "callee": "len",
+          "lineNumber": 34
+        },
+        {
+          "caller": "test_send_json_disconnect_is_quiet",
+          "callee": "recs[0].getMessage",
+          "lineNumber": 36
+        },
+        {
+          "caller": "test_send_json_runtime_error_is_quiet",
+          "callee": "_make_pipeline",
+          "lineNumber": 42
+        },
+        {
+          "caller": "test_send_json_runtime_error_is_quiet",
+          "callee": "_RaisingWS",
+          "lineNumber": 42
+        },
+        {
+          "caller": "test_send_json_runtime_error_is_quiet",
+          "callee": "RuntimeError",
+          "lineNumber": 42
+        },
+        {
+          "caller": "test_send_json_runtime_error_is_quiet",
+          "callee": "caplog.at_level",
+          "lineNumber": 43
+        },
+        {
+          "caller": "test_send_json_runtime_error_is_quiet",
+          "callee": "p._send_json",
+          "lineNumber": 44
+        },
+        {
+          "caller": "test_send_json_runtime_error_is_quiet",
+          "callee": "len",
+          "lineNumber": 48
+        },
+        {
+          "caller": "test_send_json_unexpected_keeps_traceback",
+          "callee": "_make_pipeline",
+          "lineNumber": 55
+        },
+        {
+          "caller": "test_send_json_unexpected_keeps_traceback",
+          "callee": "_RaisingWS",
+          "lineNumber": 55
+        },
+        {
+          "caller": "test_send_json_unexpected_keeps_traceback",
+          "callee": "ValueError",
+          "lineNumber": 55
+        },
+        {
+          "caller": "test_send_json_unexpected_keeps_traceback",
+          "callee": "caplog.at_level",
+          "lineNumber": 56
+        },
+        {
+          "caller": "test_send_json_unexpected_keeps_traceback",
+          "callee": "p._send_json",
+          "lineNumber": 57
+        },
+        {
+          "caller": "test_send_json_unexpected_keeps_traceback",
+          "callee": "len",
+          "lineNumber": 61
+        },
+        {
+          "caller": "test_send_json_noop_when_already_dead",
+          "callee": "_make_pipeline",
+          "lineNumber": 69
+        },
+        {
+          "caller": "test_send_json_noop_when_already_dead",
+          "callee": "_RaisingWS",
+          "lineNumber": 69
+        },
+        {
+          "caller": "test_send_json_noop_when_already_dead",
+          "callee": "ValueError",
+          "lineNumber": 69
+        },
+        {
+          "caller": "test_send_json_noop_when_already_dead",
+          "callee": "caplog.at_level",
+          "lineNumber": 71
+        },
+        {
+          "caller": "test_send_json_noop_when_already_dead",
+          "callee": "p._send_json",
+          "lineNumber": 72
+        }
+      ],
+      "metrics": {
+        "importCount": 1,
+        "exportCount": 6,
+        "functionCount": 5,
+        "classCount": 1
+      }
+    },
+    {
+      "path": "tests/unit/test_stt_idle_timeout.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 119,
+      "nonEmptyLines": 84,
+      "functions": [
+        {
+          "name": "_make_stt_client",
+          "startLine": 19,
+          "endLine": 27,
+          "params": []
+        },
+        {
+          "name": "_drain",
+          "startLine": 51,
+          "endLine": 54,
+          "params": [
+            "client"
+          ]
+        },
+        {
+          "name": "test_idle_timeout_converted_to_stt_idle_timeout",
+          "startLine": 59,
+          "endLine": 66,
+          "params": [
+            "caplog"
+          ]
+        },
+        {
+          "name": "test_other_out_of_range_is_reraised",
+          "startLine": 69,
+          "endLine": 73,
+          "params": []
+        },
+        {
+          "name": "test_unavailable_is_reraised",
+          "startLine": 76,
+          "endLine": 80,
+          "params": []
+        },
+        {
+          "name": "_make_pipeline",
+          "startLine": 85,
+          "endLine": 97,
+          "params": []
+        },
+        {
+          "name": "test_consumer_idle_timeout_closes_no_audio",
+          "startLine": 100,
+          "endLine": 108,
+          "params": []
+        },
+        {
+          "name": "test_consumer_api_error_closes_error",
+          "startLine": 111,
+          "endLine": 119,
+          "params": []
+        }
+      ],
+      "classes": [
+        {
+          "name": "_RaisingResponses",
+          "startLine": 30,
+          "endLine": 40,
+          "methods": [
+            "__init__",
+            "__aiter__",
+            "__anext__"
+          ],
+          "properties": []
+        },
+        {
+          "name": "_FakeSpeechClient",
+          "startLine": 43,
+          "endLine": 48,
+          "methods": [
+            "__init__",
+            "streaming_recognize"
+          ],
+          "properties": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "_make_stt_client",
+          "line": 19,
+          "isDefault": false
+        },
+        {
+          "name": "_RaisingResponses",
+          "line": 30,
+          "isDefault": false
+        },
+        {
+          "name": "_FakeSpeechClient",
+          "line": 43,
+          "isDefault": false
+        },
+        {
+          "name": "_drain",
+          "line": 51,
+          "isDefault": false
+        },
+        {
+          "name": "test_idle_timeout_converted_to_stt_idle_timeout",
+          "line": 59,
+          "isDefault": false
+        },
+        {
+          "name": "test_other_out_of_range_is_reraised",
+          "line": 69,
+          "isDefault": false
+        },
+        {
+          "name": "test_unavailable_is_reraised",
+          "line": 76,
+          "isDefault": false
+        },
+        {
+          "name": "_make_pipeline",
+          "line": 85,
+          "isDefault": false
+        },
+        {
+          "name": "test_consumer_idle_timeout_closes_no_audio",
+          "line": 100,
+          "isDefault": false
+        },
+        {
+          "name": "test_consumer_api_error_closes_error",
+          "line": 111,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "_make_stt_client",
+          "callee": "patch",
+          "lineNumber": 21
+        },
+        {
+          "caller": "_make_stt_client",
+          "callee": "GoogleSTTClient",
+          "lineNumber": 22
+        },
+        {
+          "caller": "streaming_recognize",
+          "callee": "_RaisingResponses",
+          "lineNumber": 48
+        },
+        {
+          "caller": "_drain",
+          "callee": "asyncio.Queue",
+          "lineNumber": 52
+        },
+        {
+          "caller": "_drain",
+          "callee": "client.stream",
+          "lineNumber": 53
+        },
+        {
+          "caller": "test_idle_timeout_converted_to_stt_idle_timeout",
+          "callee": "_make_stt_client",
+          "lineNumber": 60
+        },
+        {
+          "caller": "test_idle_timeout_converted_to_stt_idle_timeout",
+          "callee": "_FakeSpeechClient",
+          "lineNumber": 61
+        },
+        {
+          "caller": "test_idle_timeout_converted_to_stt_idle_timeout",
+          "callee": "OutOfRange",
+          "lineNumber": 61
+        },
+        {
+          "caller": "test_idle_timeout_converted_to_stt_idle_timeout",
+          "callee": "caplog.at_level",
+          "lineNumber": 62
+        },
+        {
+          "caller": "test_idle_timeout_converted_to_stt_idle_timeout",
+          "callee": "pytest.raises",
+          "lineNumber": 62
+        },
+        {
+          "caller": "test_idle_timeout_converted_to_stt_idle_timeout",
+          "callee": "_drain",
+          "lineNumber": 63
+        },
+        {
+          "caller": "test_idle_timeout_converted_to_stt_idle_timeout",
+          "callee": "all",
+          "lineNumber": 65
+        },
+        {
+          "caller": "test_other_out_of_range_is_reraised",
+          "callee": "_make_stt_client",
+          "lineNumber": 70
+        },
+        {
+          "caller": "test_other_out_of_range_is_reraised",
+          "callee": "_FakeSpeechClient",
+          "lineNumber": 71
+        },
+        {
+          "caller": "test_other_out_of_range_is_reraised",
+          "callee": "OutOfRange",
+          "lineNumber": 71
+        },
+        {
+          "caller": "test_other_out_of_range_is_reraised",
+          "callee": "pytest.raises",
+          "lineNumber": 72
+        },
+        {
+          "caller": "test_other_out_of_range_is_reraised",
+          "callee": "_drain",
+          "lineNumber": 73
+        },
+        {
+          "caller": "test_unavailable_is_reraised",
+          "callee": "_make_stt_client",
+          "lineNumber": 77
+        },
+        {
+          "caller": "test_unavailable_is_reraised",
+          "callee": "_FakeSpeechClient",
+          "lineNumber": 78
+        },
+        {
+          "caller": "test_unavailable_is_reraised",
+          "callee": "ServiceUnavailable",
+          "lineNumber": 78
+        },
+        {
+          "caller": "test_unavailable_is_reraised",
+          "callee": "pytest.raises",
+          "lineNumber": 79
+        },
+        {
+          "caller": "test_unavailable_is_reraised",
+          "callee": "_drain",
+          "lineNumber": 80
+        },
+        {
+          "caller": "_make_pipeline",
+          "callee": "VoicePipeline.__new__",
+          "lineNumber": 86
+        },
+        {
+          "caller": "_make_pipeline",
+          "callee": "asyncio.Event",
+          "lineNumber": 88
+        },
+        {
+          "caller": "_make_pipeline",
+          "callee": "asyncio.Queue",
+          "lineNumber": 89
+        },
+        {
+          "caller": "fake_close",
+          "callee": "closed.append",
+          "lineNumber": 93
+        },
+        {
+          "caller": "fake_close",
+          "callee": "p._closing.set",
+          "lineNumber": 94
+        },
+        {
+          "caller": "test_consumer_idle_timeout_closes_no_audio",
+          "callee": "_make_pipeline",
+          "lineNumber": 101
+        },
+        {
+          "caller": "raise_idle",
+          "callee": "STTIdleTimeoutError",
+          "lineNumber": 104
+        },
+        {
+          "caller": "test_consumer_idle_timeout_closes_no_audio",
+          "callee": "p._stt_consumer",
+          "lineNumber": 107
+        },
+        {
+          "caller": "test_consumer_api_error_closes_error",
+          "callee": "_make_pipeline",
+          "lineNumber": 112
+        },
+        {
+          "caller": "raise_api",
+          "callee": "ServiceUnavailable",
+          "lineNumber": 115
+        },
+        {
+          "caller": "test_consumer_api_error_closes_error",
+          "callee": "p._stt_consumer",
+          "lineNumber": 118
+        }
+      ],
+      "metrics": {
+        "importCount": 3,
+        "exportCount": 10,
+        "functionCount": 8,
+        "classCount": 2
+      }
+    }
+  ]
+}

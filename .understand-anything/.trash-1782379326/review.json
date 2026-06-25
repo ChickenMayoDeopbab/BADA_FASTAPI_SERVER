@@ -1,0 +1,55 @@
+{
+  "issues": [],
+  "warnings": [
+    "Node 'service:.dockerignore' has no edges (orphan)",
+    "Node 'document:README.md' has no edges (orphan)",
+    "Node 'file:.understand-anything/.understandignore' has no edges (orphan)",
+    "Node 'config:.understand-anything/config.json' has no edges (orphan)",
+    "Node 'file:app/__init__.py' has no edges (orphan)",
+    "Node 'file:app/api/__init__.py' has no edges (orphan)",
+    "Node 'file:app/api/v1/feedback.py' has no edges (orphan)",
+    "Node 'file:app/db/__init__.py' has no edges (orphan)",
+    "Node 'file:app/deps/__init__.py' has no edges (orphan)",
+    "Node 'file:app/schemas/__init__.py' has no edges (orphan)",
+    "Node 'file:app/services/__init__.py' has no edges (orphan)",
+    "Node 'file:app/workers/__init__.py' has no edges (orphan)",
+    "Node 'file:tests/__init__.py' has no edges (orphan)",
+    "Node 'file:tests/conftest.py' has no edges (orphan)",
+    "Node 'file:tests/integration/__init__.py' has no edges (orphan)",
+    "Node 'file:tests/llm/__init__.py' has no edges (orphan)",
+    "Node 'file:tests/output/__init__.py' has no edges (orphan)",
+    "Node 'file:tests/perf/__init__.py' has no edges (orphan)",
+    "Node 'file:tests/pipeline/__init__.py' has no edges (orphan)",
+    "Node 'file:tests/stt/__init__.py' has no edges (orphan)",
+    "Node 'file:tests/tremor/__init__.py' has no edges (orphan)",
+    "Node 'file:tests/tts/__init__.py' has no edges (orphan)",
+    "Node 'file:tests/unit/__init__.py' has no edges (orphan)"
+  ],
+  "stats": {
+    "totalNodes": 212,
+    "totalEdges": 356,
+    "totalLayers": 8,
+    "tourSteps": 14,
+    "nodeTypes": {
+      "file": 76,
+      "class": 34,
+      "function": 82,
+      "config": 3,
+      "service": 9,
+      "pipeline": 6,
+      "document": 2
+    },
+    "edgeTypes": {
+      "contains": 114,
+      "exports": 53,
+      "calls": 43,
+      "imports": 114,
+      "tested_by": 11,
+      "related": 2,
+      "deploys": 6,
+      "depends_on": 8,
+      "configures": 1,
+      "triggers": 4
+    }
+  }
+}

@@ -1,0 +1,456 @@
+{
+  "nodes": [
+    {
+      "id": "file:app/schemas/llm.py",
+      "type": "file",
+      "name": "llm.py",
+      "filePath": "app/schemas/llm.py",
+      "summary": "LLM 파이프라인에서 사용하는 핵심 데이터 모델을 정의한다. AI 감정(AiEmotion), 스트리밍 이벤트(LLMEvent), 시나리오 턴(ScenarioTurn), 턴 컨텍스트(TurnContext) 등의 schema를 제공한다.",
+      "tags": ["data-model", "schema-definition", "type-definition", "llm"],
+      "complexity": "simple",
+      "languageNotes": "Enum과 dataclass 스타일 모델로 LLM 도메인 타입을 표현한다."
+    },
+    {
+      "id": "class:app/schemas/llm.py:AiEmotion",
+      "type": "class",
+      "name": "AiEmotion",
+      "filePath": "app/schemas/llm.py",
+      "lineRange": [16, 23],
+      "summary": "AI 응답에 부여되는 감정 종류를 나타내는 enum이다.",
+      "tags": ["enum", "data-model", "emotion"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:app/schemas/llm.py:LLMEventType",
+      "type": "class",
+      "name": "LLMEventType",
+      "filePath": "app/schemas/llm.py",
+      "lineRange": [25, 34],
+      "summary": "LLM 스트리밍 중 발생하는 이벤트의 유형을 정의하는 enum이다.",
+      "tags": ["enum", "data-model", "streaming"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:app/schemas/llm.py:LLMEvent",
+      "type": "class",
+      "name": "LLMEvent",
+      "filePath": "app/schemas/llm.py",
+      "lineRange": [37, 42],
+      "summary": "LLM 스트림에서 방출되는 단일 이벤트로, 타입과 텍스트, 감정 정보를 담는다.",
+      "tags": ["data-model", "streaming", "event"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:app/schemas/llm.py:ScenarioTurn",
+      "type": "class",
+      "name": "ScenarioTurn",
+      "filePath": "app/schemas/llm.py",
+      "lineRange": [45, 50],
+      "summary": "시나리오 스크립트의 한 단계(턴)를 표현하며 AI 목표와 힌트를 포함한다.",
+      "tags": ["data-model", "scenario", "schema-definition"],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:app/schemas/llm.py:TurnContext",
+      "type": "class",
+      "name": "TurnContext",
+      "filePath": "app/schemas/llm.py",
+      "lineRange": [53, 62],
+      "summary": "한 번의 LLM 턴을 생성하기 위해 필요한 personality, 시나리오, 대화 history, 사용자 발화 등 전체 컨텍스트를 담는 모델이다.",
+      "tags": ["data-model", "context", "schema-definition", "llm"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:app/services/llm.py",
+      "type": "file",
+      "name": "llm.py",
+      "filePath": "app/services/llm.py",
+      "summary": "Google Gemini 기반 LLM 클라이언트로, 응답을 스트리밍하면서 감정 태그와 제어 태그를 파싱해 LLMEvent로 방출한다. 부분 태그 버퍼링과 안전성(blocked) 처리 로직을 포함한다.",
+      "tags": ["service", "llm", "streaming", "api-handler", "parsing"],
+      "complexity": "complex",
+      "languageNotes": "async generator(stream)를 사용한 토큰 스트리밍과 태그 파싱 상태 머신이 핵심이다."
+    },
+    {
+      "id": "function:app/services/llm.py:_find_first_tag",
+      "type": "function",
+      "name": "_find_first_tag",
+      "filePath": "app/services/llm.py",
+      "lineRange": [23, 32],
+      "summary": "버퍼에서 가장 먼저 등장하는 제어 태그의 위치를 찾는 헬퍼 함수다.",
+      "tags": ["utility", "parsing", "llm"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:app/services/llm.py:_trailing_partial_len",
+      "type": "function",
+      "name": "_trailing_partial_len",
+      "filePath": "app/services/llm.py",
+      "lineRange": [35, 43],
+      "summary": "버퍼 끝에 걸쳐 있는 미완성 태그의 길이를 계산해, 다음 청크와 이어붙일 부분을 식별한다.",
+      "tags": ["utility", "parsing", "streaming"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:app/services/llm.py:_drain_pending",
+      "type": "function",
+      "name": "_drain_pending",
+      "filePath": "app/services/llm.py",
+      "lineRange": [46, 67],
+      "summary": "누적 버퍼에서 방출 가능한 텍스트와 제어 태그를 분리해 내보내고, 미완성 꼬리 부분은 보류한다.",
+      "tags": ["utility", "parsing", "streaming", "llm"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:app/services/llm.py:LLMClient",
+      "type": "class",
+      "name": "LLMClient",
+      "filePath": "app/services/llm.py",
+      "lineRange": [89, 224],
+      "summary": "Gemini 클라이언트를 래핑해 시스템 프롬프트 구성, 생성 설정, 감정 헤드 파싱, 스트리밍, 차단 판정을 담당하는 LLM 서비스 클래스다.",
+      "tags": ["service", "llm", "api-handler", "streaming"],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:app/services/llm_prompt.py",
+      "type": "file",
+      "name": "llm_prompt.py",
+      "filePath": "app/services/llm_prompt.py",
+      "summary": "TurnContext로부터 LLM에 전달할 시스템 prompt와 contents(대화 메시지)를 구성하는 prompt 빌더 모듈이다.",
+      "tags": ["service", "llm", "prompt", "factory"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:app/services/llm_prompt.py:_format_script",
+      "type": "function",
+      "name": "_format_script",
+      "filePath": "app/services/llm_prompt.py",
+      "lineRange": [70, 75],
+      "summary": "시나리오 스크립트 턴 목록을 현재 단계 표시와 함께 사람이 읽을 수 있는 텍스트로 포맷한다.",
+      "tags": ["utility", "prompt", "formatting"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:app/services/llm_prompt.py:build_system_prompt",
+      "type": "function",
+      "name": "build_system_prompt",
+      "filePath": "app/services/llm_prompt.py",
+      "lineRange": [77, 93],
+      "summary": "TurnContext의 personality와 시나리오 정보를 바탕으로 LLM 시스템 prompt 문자열을 생성한다.",
+      "tags": ["factory", "prompt", "llm"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:app/services/llm_prompt.py:build_contents",
+      "type": "function",
+      "name": "build_contents",
+      "filePath": "app/services/llm_prompt.py",
+      "lineRange": [95, 105],
+      "summary": "대화 history와 사용자 발화로부터 Gemini API에 전달할 contents 메시지 목록을 구성한다.",
+      "tags": ["factory", "prompt", "llm"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:app/services/session.py",
+      "type": "file",
+      "name": "session.py",
+      "filePath": "app/services/session.py",
+      "summary": "Redis에 저장된 세션 데이터를 로드·인증하고, 세션 정보로부터 LLM 턴에 필요한 TurnContext를 구성하는 세션 서비스 모듈이다.",
+      "tags": ["service", "session", "authentication", "data-model"],
+      "complexity": "moderate",
+      "languageNotes": "WebSocket 인증과 Redis 세션 로드를 async 함수로 처리한다."
+    },
+    {
+      "id": "function:app/services/session.py:load_session",
+      "type": "function",
+      "name": "load_session",
+      "filePath": "app/services/session.py",
+      "lineRange": [15, 31],
+      "summary": "Redis에서 session_id에 해당하는 세션 데이터를 가져와 JSON으로 파싱한다.",
+      "tags": ["service", "session", "serialization"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:app/services/session.py:is_session_owner",
+      "type": "function",
+      "name": "is_session_owner",
+      "filePath": "app/services/session.py",
+      "lineRange": [33, 49],
+      "summary": "세션에 저장된 소유자 ID와 요청 user_id를 비교해 세션 소유 여부를 판정한다. 문자열·정수 타입 차이를 안전하게 처리한다.",
+      "tags": ["validation", "authentication", "session"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:app/services/session.py:authenticate_session",
+      "type": "function",
+      "name": "authenticate_session",
+      "filePath": "app/services/session.py",
+      "lineRange": [51, 82],
+      "summary": "WebSocket 연결에 대해 세션을 로드하고 소유권을 검증하며, 실패 시 연결을 닫고 예외를 발생시킨다.",
+      "tags": ["authentication", "session", "validation", "websocket"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:app/services/session.py:_parse_script",
+      "type": "function",
+      "name": "_parse_script",
+      "filePath": "app/services/session.py",
+      "lineRange": [85, 103],
+      "summary": "원시 스크립트 데이터를 ScenarioTurn 목록으로 변환하며, 잘못된 항목은 건너뛰고 step 기준으로 정렬한다.",
+      "tags": ["parsing", "validation", "scenario"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:app/services/session.py:build_turn_context",
+      "type": "function",
+      "name": "build_turn_context",
+      "filePath": "app/services/session.py",
+      "lineRange": [106, 132],
+      "summary": "세션 데이터와 현재 단계·대화 history·사용자 발화를 결합해 LLM 턴에 사용할 TurnContext를 생성한다.",
+      "tags": ["factory", "session", "context", "llm"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:app/services/tts.py",
+      "type": "file",
+      "name": "tts.py",
+      "filePath": "app/services/tts.py",
+      "summary": "ElevenLabs WebSocket 기반 TTS 클라이언트로, 텍스트 청크를 스트리밍 전송하고 감정별 voice 설정을 적용해 오디오 청크를 비동기로 수신·방출한다.",
+      "tags": ["service", "tts", "streaming", "websocket"],
+      "complexity": "moderate",
+      "languageNotes": "asyncio task로 송신과 수신을 동시 처리하는 양방향 WebSocket 스트리밍 패턴이다."
+    },
+    {
+      "id": "class:app/services/tts.py:TTSSession",
+      "type": "class",
+      "name": "TTSSession",
+      "filePath": "app/services/tts.py",
+      "lineRange": [26, 82],
+      "summary": "단일 ElevenLabs WebSocket 세션을 관리하며, 감정 기반 voice 설정 전송, 텍스트 청크 송신, 오디오 청크 수신 스트리밍, 세션 종료를 담당한다.",
+      "tags": ["service", "tts", "streaming", "websocket"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:app/services/tts.py:ElevenLabsTTSClient",
+      "type": "class",
+      "name": "ElevenLabsTTSClient",
+      "filePath": "app/services/tts.py",
+      "lineRange": [85, 136],
+      "summary": "ElevenLabs TTS 연결 URI를 구성하고 WebSocket을 열어 TTSSession을 생성하는 상위 클라이언트로, 텍스트를 오디오 스트림으로 변환한다.",
+      "tags": ["service", "tts", "factory", "websocket"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:tests/llm/manual_llm_check.py",
+      "type": "file",
+      "name": "manual_llm_check.py",
+      "filePath": "tests/llm/manual_llm_check.py",
+      "summary": "LLMClient를 대화형으로 실행해 한 턴씩 스트리밍 응답을 확인하는 수동 검증 스크립트다.",
+      "tags": ["test", "manual-test", "llm", "script"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/llm/manual_llm_check.py:run_turn",
+      "type": "function",
+      "name": "run_turn",
+      "filePath": "tests/llm/manual_llm_check.py",
+      "lineRange": [28, 49],
+      "summary": "주어진 TurnContext로 LLMClient 스트림을 실행하고 토큰별 지연 시간과 출력을 콘솔에 표시한다.",
+      "tags": ["test", "manual-test", "llm"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/llm/manual_llm_check.py:main",
+      "type": "function",
+      "name": "main",
+      "filePath": "tests/llm/manual_llm_check.py",
+      "lineRange": [52, 87],
+      "summary": "사용자 입력을 받아 대화 history를 누적하며 반복적으로 LLM 턴을 실행하는 대화형 진입점이다.",
+      "tags": ["test", "manual-test", "entry-point"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:tests/llm/raw_dump.py",
+      "type": "file",
+      "name": "raw_dump.py",
+      "filePath": "tests/llm/raw_dump.py",
+      "summary": "Gemini 스트림의 원시 응답을 파싱 없이 그대로 덤프해 LLM 출력 형식을 확인하는 디버깅 스크립트다.",
+      "tags": ["test", "manual-test", "llm", "debugging"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/llm/raw_dump.py:main",
+      "type": "function",
+      "name": "main",
+      "filePath": "tests/llm/raw_dump.py",
+      "lineRange": [23, 63],
+      "summary": "프롬프트와 생성 설정으로 Gemini 스트림을 직접 호출하고 각 청크의 원시 속성을 출력한다.",
+      "tags": ["test", "manual-test", "entry-point", "debugging"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:tests/tts/manual_tts_check.py",
+      "type": "file",
+      "name": "manual_tts_check.py",
+      "filePath": "tests/tts/manual_tts_check.py",
+      "summary": "ElevenLabsTTSClient로 텍스트를 합성해 PCM 오디오를 스피커로 재생하며 지연 시간을 측정하는 수동 검증 스크립트다.",
+      "tags": ["test", "manual-test", "tts", "script"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/tts/manual_tts_check.py:synth_and_play",
+      "type": "function",
+      "name": "synth_and_play",
+      "filePath": "tests/tts/manual_tts_check.py",
+      "lineRange": [31, 54],
+      "summary": "TTS 클라이언트로 텍스트를 스트리밍 합성한 뒤 PCM 청크를 모아 sounddevice로 재생하고 합성 지연을 로깅한다.",
+      "tags": ["test", "manual-test", "tts", "audio"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/tts/manual_tts_check.py:main",
+      "type": "function",
+      "name": "main",
+      "filePath": "tests/tts/manual_tts_check.py",
+      "lineRange": [57, 72],
+      "summary": "설정을 로드해 TTS 클라이언트를 만들고 예시 문장들을 합성·재생하는 진입점이다.",
+      "tags": ["test", "manual-test", "entry-point", "tts"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:tests/tts/stream_check.py",
+      "type": "file",
+      "name": "stream_check.py",
+      "filePath": "tests/tts/stream_check.py",
+      "summary": "ElevenLabsTTSClient의 스트리밍 출력을 수집해 WAV 파일로 저장하고 첫 청크 지연을 측정하는 수동 검증 스크립트다.",
+      "tags": ["test", "manual-test", "tts", "script"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/tts/stream_check.py:write_wav",
+      "type": "function",
+      "name": "write_wav",
+      "filePath": "tests/tts/stream_check.py",
+      "lineRange": [27, 33],
+      "summary": "PCM 바이트 데이터를 지정 경로에 16비트 모노 WAV 파일로 기록한다.",
+      "tags": ["utility", "audio", "serialization"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:tests/tts/stream_check.py:main",
+      "type": "function",
+      "name": "main",
+      "filePath": "tests/tts/stream_check.py",
+      "lineRange": [36, 83],
+      "summary": "TTS 스트림을 실행해 오디오 청크를 수집하고 지연 통계를 로깅한 뒤 결과를 WAV로 저장하는 진입점이다.",
+      "tags": ["test", "manual-test", "entry-point", "tts"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:tests/unit/test_llm_parsing.py",
+      "type": "file",
+      "name": "test_llm_parsing.py",
+      "filePath": "tests/unit/test_llm_parsing.py",
+      "summary": "LLM 스트림 태그 파싱 헬퍼(_find_first_tag, _trailing_partial_len, _drain_pending)와 LLMClient의 감정 헤드·부분 헤드 판정 로직을 검증하는 단위 테스트다.",
+      "tags": ["test", "unit-test", "llm", "parsing"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:tests/unit/test_session.py",
+      "type": "file",
+      "name": "test_session.py",
+      "filePath": "tests/unit/test_session.py",
+      "summary": "세션 소유권 판정, 스크립트 파싱, TurnContext 구성 등 session 서비스의 순수 로직을 검증하는 단위 테스트다.",
+      "tags": ["test", "unit-test", "session", "validation"],
+      "complexity": "moderate"
+    }
+  ],
+  "edges": [
+    {"source": "file:app/schemas/llm.py", "target": "class:app/schemas/llm.py:AiEmotion", "type": "contains", "direction": "forward", "weight": 1.0},
+    {"source": "file:app/schemas/llm.py", "target": "class:app/schemas/llm.py:LLMEventType", "type": "contains", "direction": "forward", "weight": 1.0},
+    {"source": "file:app/schemas/llm.py", "target": "class:app/schemas/llm.py:LLMEvent", "type": "contains", "direction": "forward", "weight": 1.0},
+    {"source": "file:app/schemas/llm.py", "target": "class:app/schemas/llm.py:ScenarioTurn", "type": "contains", "direction": "forward", "weight": 1.0},
+    {"source": "file:app/schemas/llm.py", "target": "class:app/schemas/llm.py:TurnContext", "type": "contains", "direction": "forward", "weight": 1.0},
+    {"source": "file:app/schemas/llm.py", "target": "class:app/schemas/llm.py:AiEmotion", "type": "exports", "direction": "forward", "weight": 0.8},
+    {"source": "file:app/schemas/llm.py", "target": "class:app/schemas/llm.py:LLMEventType", "type": "exports", "direction": "forward", "weight": 0.8},
+    {"source": "file:app/schemas/llm.py", "target": "class:app/schemas/llm.py:LLMEvent", "type": "exports", "direction": "forward", "weight": 0.8},
+    {"source": "file:app/schemas/llm.py", "target": "class:app/schemas/llm.py:ScenarioTurn", "type": "exports", "direction": "forward", "weight": 0.8},
+    {"source": "file:app/schemas/llm.py", "target": "class:app/schemas/llm.py:TurnContext", "type": "exports", "direction": "forward", "weight": 0.8},
+    {"source": "file:app/schemas/llm.py", "target": "file:app/core/enums.py", "type": "imports", "direction": "forward", "weight": 0.7},
+
+    {"source": "file:app/services/llm.py", "target": "function:app/services/llm.py:_find_first_tag", "type": "contains", "direction": "forward", "weight": 1.0},
+    {"source": "file:app/services/llm.py", "target": "function:app/services/llm.py:_trailing_partial_len", "type": "contains", "direction": "forward", "weight": 1.0},
+    {"source": "file:app/services/llm.py", "target": "function:app/services/llm.py:_drain_pending", "type": "contains", "direction": "forward", "weight": 1.0},
+    {"source": "file:app/services/llm.py", "target": "class:app/services/llm.py:LLMClient", "type": "contains", "direction": "forward", "weight": 1.0},
+    {"source": "file:app/services/llm.py", "target": "class:app/services/llm.py:LLMClient", "type": "exports", "direction": "forward", "weight": 0.8},
+    {"source": "file:app/services/llm.py", "target": "file:app/core/config.py", "type": "imports", "direction": "forward", "weight": 0.7},
+    {"source": "file:app/services/llm.py", "target": "file:app/schemas/llm.py", "type": "imports", "direction": "forward", "weight": 0.7},
+    {"source": "file:app/services/llm.py", "target": "file:app/services/llm_prompt.py", "type": "imports", "direction": "forward", "weight": 0.7},
+    {"source": "function:app/services/llm.py:_drain_pending", "target": "function:app/services/llm.py:_find_first_tag", "type": "calls", "direction": "forward", "weight": 0.8},
+    {"source": "function:app/services/llm.py:_drain_pending", "target": "function:app/services/llm.py:_trailing_partial_len", "type": "calls", "direction": "forward", "weight": 0.8},
+    {"source": "class:app/services/llm.py:LLMClient", "target": "function:app/services/llm_prompt.py:build_system_prompt", "type": "calls", "direction": "forward", "weight": 0.8},
+    {"source": "class:app/services/llm.py:LLMClient", "target": "function:app/services/llm_prompt.py:build_contents", "type": "calls", "direction": "forward", "weight": 0.8},
+
+    {"source": "file:app/services/llm_prompt.py", "target": "function:app/services/llm_prompt.py:_format_script", "type": "contains", "direction": "forward", "weight": 1.0},
+    {"source": "file:app/services/llm_prompt.py", "target": "function:app/services/llm_prompt.py:build_system_prompt", "type": "contains", "direction": "forward", "weight": 1.0},
+    {"source": "file:app/services/llm_prompt.py", "target": "function:app/services/llm_prompt.py:build_contents", "type": "contains", "direction": "forward", "weight": 1.0},
+    {"source": "file:app/services/llm_prompt.py", "target": "function:app/services/llm_prompt.py:build_system_prompt", "type": "exports", "direction": "forward", "weight": 0.8},
+    {"source": "file:app/services/llm_prompt.py", "target": "function:app/services/llm_prompt.py:build_contents", "type": "exports", "direction": "forward", "weight": 0.8},
+    {"source": "file:app/services/llm_prompt.py", "target": "file:app/schemas/llm.py", "type": "imports", "direction": "forward", "weight": 0.7},
+    {"source": "function:app/services/llm_prompt.py:build_system_prompt", "target": "function:app/services/llm_prompt.py:_format_script", "type": "calls", "direction": "forward", "weight": 0.8},
+
+    {"source": "file:app/services/session.py", "target": "function:app/services/session.py:load_session", "type": "contains", "direction": "forward", "weight": 1.0},
+    {"source": "file:app/services/session.py", "target": "function:app/services/session.py:is_session_owner", "type": "contains", "direction": "forward", "weight": 1.0},
+    {"source": "file:app/services/session.py", "target": "function:app/services/session.py:authenticate_session", "type": "contains", "direction": "forward", "weight": 1.0},
+    {"source": "file:app/services/session.py", "target": "function:app/services/session.py:_parse_script", "type": "contains", "direction": "forward", "weight": 1.0},
+    {"source": "file:app/services/session.py", "target": "function:app/services/session.py:build_turn_context", "type": "contains", "direction": "forward", "weight": 1.0},
+    {"source": "file:app/services/session.py", "target": "function:app/services/session.py:load_session", "type": "exports", "direction": "forward", "weight": 0.8},
+    {"source": "file:app/services/session.py", "target": "function:app/services/session.py:is_session_owner", "type": "exports", "direction": "forward", "weight": 0.8},
+    {"source": "file:app/services/session.py", "target": "function:app/services/session.py:authenticate_session", "type": "exports", "direction": "forward", "weight": 0.8},
+    {"source": "file:app/services/session.py", "target": "function:app/services/session.py:build_turn_context", "type": "exports", "direction": "forward", "weight": 0.8},
+    {"source": "file:app/services/session.py", "target": "file:app/schemas/llm.py", "type": "imports", "direction": "forward", "weight": 0.7},
+    {"source": "function:app/services/session.py:authenticate_session", "target": "function:app/services/session.py:load_session", "type": "calls", "direction": "forward", "weight": 0.8},
+    {"source": "function:app/services/session.py:authenticate_session", "target": "function:app/services/session.py:is_session_owner", "type": "calls", "direction": "forward", "weight": 0.8},
+    {"source": "function:app/services/session.py:build_turn_context", "target": "function:app/services/session.py:_parse_script", "type": "calls", "direction": "forward", "weight": 0.8},
+
+    {"source": "file:app/services/tts.py", "target": "class:app/services/tts.py:TTSSession", "type": "contains", "direction": "forward", "weight": 1.0},
+    {"source": "file:app/services/tts.py", "target": "class:app/services/tts.py:ElevenLabsTTSClient", "type": "contains", "direction": "forward", "weight": 1.0},
+    {"source": "file:app/services/tts.py", "target": "class:app/services/tts.py:TTSSession", "type": "exports", "direction": "forward", "weight": 0.8},
+    {"source": "file:app/services/tts.py", "target": "class:app/services/tts.py:ElevenLabsTTSClient", "type": "exports", "direction": "forward", "weight": 0.8},
+    {"source": "file:app/services/tts.py", "target": "file:app/core/config.py", "type": "imports", "direction": "forward", "weight": 0.7},
+    {"source": "file:app/services/tts.py", "target": "file:app/schemas/llm.py", "type": "imports", "direction": "forward", "weight": 0.7},
+    {"source": "class:app/services/tts.py:ElevenLabsTTSClient", "target": "class:app/services/tts.py:TTSSession", "type": "calls", "direction": "forward", "weight": 0.8},
+
+    {"source": "file:tests/llm/manual_llm_check.py", "target": "function:tests/llm/manual_llm_check.py:run_turn", "type": "contains", "direction": "forward", "weight": 1.0},
+    {"source": "file:tests/llm/manual_llm_check.py", "target": "function:tests/llm/manual_llm_check.py:main", "type": "contains", "direction": "forward", "weight": 1.0},
+    {"source": "file:tests/llm/manual_llm_check.py", "target": "file:app/schemas/llm.py", "type": "imports", "direction": "forward", "weight": 0.7},
+    {"source": "file:tests/llm/manual_llm_check.py", "target": "file:app/services/llm.py", "type": "imports", "direction": "forward", "weight": 0.7},
+    {"source": "file:app/services/llm.py", "target": "file:tests/llm/manual_llm_check.py", "type": "tested_by", "direction": "forward", "weight": 0.5},
+
+    {"source": "file:tests/llm/raw_dump.py", "target": "function:tests/llm/raw_dump.py:main", "type": "contains", "direction": "forward", "weight": 1.0},
+    {"source": "file:tests/llm/raw_dump.py", "target": "file:app/schemas/llm.py", "type": "imports", "direction": "forward", "weight": 0.7},
+    {"source": "file:tests/llm/raw_dump.py", "target": "file:app/services/llm_prompt.py", "type": "imports", "direction": "forward", "weight": 0.7},
+    {"source": "file:tests/llm/raw_dump.py", "target": "file:app/services/llm.py", "type": "imports", "direction": "forward", "weight": 0.7},
+    {"source": "file:app/services/llm.py", "target": "file:tests/llm/raw_dump.py", "type": "tested_by", "direction": "forward", "weight": 0.5},
+
+    {"source": "file:tests/tts/manual_tts_check.py", "target": "function:tests/tts/manual_tts_check.py:synth_and_play", "type": "contains", "direction": "forward", "weight": 1.0},
+    {"source": "file:tests/tts/manual_tts_check.py", "target": "function:tests/tts/manual_tts_check.py:main", "type": "contains", "direction": "forward", "weight": 1.0},
+    {"source": "file:tests/tts/manual_tts_check.py", "target": "file:app/core/config.py", "type": "imports", "direction": "forward", "weight": 0.7},
+    {"source": "file:tests/tts/manual_tts_check.py", "target": "file:app/schemas/llm.py", "type": "imports", "direction": "forward", "weight": 0.7},
+    {"source": "file:tests/tts/manual_tts_check.py", "target": "file:app/services/tts.py", "type": "imports", "direction": "forward", "weight": 0.7},
+    {"source": "file:app/services/tts.py", "target": "file:tests/tts/manual_tts_check.py", "type": "tested_by", "direction": "forward", "weight": 0.5},
+
+    {"source": "file:tests/tts/stream_check.py", "target": "function:tests/tts/stream_check.py:write_wav", "type": "contains", "direction": "forward", "weight": 1.0},
+    {"source": "file:tests/tts/stream_check.py", "target": "function:tests/tts/stream_check.py:main", "type": "contains", "direction": "forward", "weight": 1.0},
+    {"source": "file:tests/tts/stream_check.py", "target": "file:app/core/config.py", "type": "imports", "direction": "forward", "weight": 0.7},
+    {"source": "file:tests/tts/stream_check.py", "target": "file:app/services/tts.py", "type": "imports", "direction": "forward", "weight": 0.7},
+    {"source": "file:app/services/tts.py", "target": "file:tests/tts/stream_check.py", "type": "tested_by", "direction": "forward", "weight": 0.5},
+
+    {"source": "file:tests/unit/test_llm_parsing.py", "target": "file:app/schemas/llm.py", "type": "imports", "direction": "forward", "weight": 0.7},
+    {"source": "file:tests/unit/test_llm_parsing.py", "target": "file:app/services/llm.py", "type": "imports", "direction": "forward", "weight": 0.7},
+    {"source": "file:app/services/llm.py", "target": "file:tests/unit/test_llm_parsing.py", "type": "tested_by", "direction": "forward", "weight": 0.5},
+
+    {"source": "file:tests/unit/test_session.py", "target": "file:app/schemas/llm.py", "type": "imports", "direction": "forward", "weight": 0.7},
+    {"source": "file:tests/unit/test_session.py", "target": "file:app/services/session.py", "type": "imports", "direction": "forward", "weight": 0.7},
+    {"source": "file:app/services/session.py", "target": "file:tests/unit/test_session.py", "type": "tested_by", "direction": "forward", "weight": 0.5}
+  ]
+}

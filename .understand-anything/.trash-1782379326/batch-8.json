@@ -1,0 +1,100 @@
+{
+  "nodes": [
+    {
+      "id": "pipeline:.github/workflows/ci.yml",
+      "type": "pipeline",
+      "name": "ci.yml",
+      "filePath": ".github/workflows/ci.yml",
+      "summary": "main 브랜치 push 및 모든 pull_request에서 실행되는 CI workflow로, Python 3.12 환경에서 ruff lint와 pytest 단위·통합 테스트를 수행한다.",
+      "tags": ["ci-cd", "infrastructure", "testing", "lint", "python"],
+      "complexity": "simple",
+      "languageNotes": "단일 lint-and-test job으로 구성된 GitHub Actions workflow. actions/setup-python의 pip 캐시로 의존성 설치를 가속한다."
+    },
+    {
+      "id": "step:.github/workflows/ci.yml:lint-and-test",
+      "type": "pipeline",
+      "name": "lint-and-test",
+      "summary": "checkout, Python 3.12 설치, 의존성 설치 후 ruff check와 pytest(unit·integration)를 순차 실행하는 CI job.",
+      "tags": ["ci-cd", "testing", "lint", "job"],
+      "complexity": "simple"
+    },
+    {
+      "id": "pipeline:.github/workflows/deploy.yml",
+      "type": "pipeline",
+      "name": "deploy.yml",
+      "filePath": ".github/workflows/deploy.yml",
+      "summary": "main 브랜치 push 시 test → build-push → deploy 순으로 실행되는 CD workflow로, 테스트 통과 후 GHCR에 Docker 이미지를 빌드·푸시하고 SSH로 EC2에 docker compose 재배포 및 헬스체크를 수행한다.",
+      "tags": ["ci-cd", "deployment", "containerization", "ghcr", "docker"],
+      "complexity": "complex",
+      "languageNotes": "concurrency 그룹(deploy-main, cancel-in-progress:false)으로 배포 직렬화를 보장한다. needs로 job 의존성을 체이닝하고 build-push job의 outputs.image를 deploy job에 전달한다."
+    },
+    {
+      "id": "step:.github/workflows/deploy.yml:test",
+      "type": "pipeline",
+      "name": "test",
+      "summary": "배포 전 게이트 역할을 하는 job으로, ruff lint와 pytest 단위·통합 테스트를 실행해 통과해야만 후속 build-push가 진행된다.",
+      "tags": ["ci-cd", "testing", "lint", "job"],
+      "complexity": "simple"
+    },
+    {
+      "id": "step:.github/workflows/deploy.yml:build-push",
+      "type": "pipeline",
+      "name": "build-push",
+      "summary": "test job 통과 후 GHCR에 로그인하고 이미지 ref(commit SHA·latest 태그)를 계산한 뒤 buildx로 Docker 이미지를 빌드해 푸시하며, gha 캐시를 활용하고 image ref를 output으로 노출한다.",
+      "tags": ["ci-cd", "containerization", "docker", "ghcr", "job"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "step:.github/workflows/deploy.yml:deploy",
+      "type": "pipeline",
+      "name": "deploy",
+      "summary": "build-push job 완료 후 docker-compose 파일을 EC2로 scp 전송하고 SSH로 접속해 GHCR pull·docker compose up을 수행하며, internal health 엔드포인트를 최대 15회 폴링해 배포 성공 여부를 판정한다.",
+      "tags": ["ci-cd", "deployment", "docker", "ssh", "job"],
+      "complexity": "moderate"
+    }
+  ],
+  "edges": [
+    {
+      "source": "pipeline:.github/workflows/ci.yml",
+      "target": "step:.github/workflows/ci.yml:lint-and-test",
+      "type": "triggers",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "pipeline:.github/workflows/deploy.yml",
+      "target": "step:.github/workflows/deploy.yml:test",
+      "type": "triggers",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "pipeline:.github/workflows/deploy.yml",
+      "target": "step:.github/workflows/deploy.yml:build-push",
+      "type": "triggers",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "pipeline:.github/workflows/deploy.yml",
+      "target": "step:.github/workflows/deploy.yml:deploy",
+      "type": "triggers",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "step:.github/workflows/deploy.yml:build-push",
+      "target": "step:.github/workflows/deploy.yml:test",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "step:.github/workflows/deploy.yml:deploy",
+      "target": "step:.github/workflows/deploy.yml:build-push",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    }
+  ]
+}

@@ -1,0 +1,958 @@
+{
+  "scriptCompleted": true,
+  "filesAnalyzed": 3,
+  "filesSkipped": [],
+  "results": [
+    {
+      "path": "tests/perf/_stats.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 49,
+      "nonEmptyLines": 41,
+      "functions": [
+        {
+          "name": "percentile",
+          "startLine": 4,
+          "endLine": 14,
+          "params": [
+            "samples",
+            "p"
+          ]
+        },
+        {
+          "name": "summarize",
+          "startLine": 17,
+          "endLine": 30,
+          "params": [
+            "samples"
+          ]
+        },
+        {
+          "name": "print_table",
+          "startLine": 36,
+          "endLine": 49,
+          "params": [
+            "rows",
+            "unit"
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "name": "percentile",
+          "line": 4,
+          "isDefault": false
+        },
+        {
+          "name": "summarize",
+          "line": 17,
+          "isDefault": false
+        },
+        {
+          "name": "print_table",
+          "line": 36,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "percentile",
+          "callee": "sorted",
+          "lineNumber": 8
+        },
+        {
+          "caller": "percentile",
+          "callee": "len",
+          "lineNumber": 9
+        },
+        {
+          "caller": "percentile",
+          "callee": "len",
+          "lineNumber": 11
+        },
+        {
+          "caller": "percentile",
+          "callee": "int",
+          "lineNumber": 12
+        },
+        {
+          "caller": "percentile",
+          "callee": "min",
+          "lineNumber": 13
+        },
+        {
+          "caller": "percentile",
+          "callee": "len",
+          "lineNumber": 13
+        },
+        {
+          "caller": "summarize",
+          "callee": "len",
+          "lineNumber": 23
+        },
+        {
+          "caller": "summarize",
+          "callee": "round",
+          "lineNumber": 24
+        },
+        {
+          "caller": "summarize",
+          "callee": "min",
+          "lineNumber": 24
+        },
+        {
+          "caller": "summarize",
+          "callee": "round",
+          "lineNumber": 25
+        },
+        {
+          "caller": "summarize",
+          "callee": "percentile",
+          "lineNumber": 25
+        },
+        {
+          "caller": "summarize",
+          "callee": "round",
+          "lineNumber": 26
+        },
+        {
+          "caller": "summarize",
+          "callee": "percentile",
+          "lineNumber": 26
+        },
+        {
+          "caller": "summarize",
+          "callee": "round",
+          "lineNumber": 27
+        },
+        {
+          "caller": "summarize",
+          "callee": "percentile",
+          "lineNumber": 27
+        },
+        {
+          "caller": "summarize",
+          "callee": "round",
+          "lineNumber": 28
+        },
+        {
+          "caller": "summarize",
+          "callee": "max",
+          "lineNumber": 28
+        },
+        {
+          "caller": "summarize",
+          "callee": "round",
+          "lineNumber": 29
+        },
+        {
+          "caller": "summarize",
+          "callee": "statistics.fmean",
+          "lineNumber": 29
+        },
+        {
+          "caller": "print_table",
+          "callee": "max",
+          "lineNumber": 38
+        },
+        {
+          "caller": "print_table",
+          "callee": "len",
+          "lineNumber": 38
+        },
+        {
+          "caller": "print_table",
+          "callee": "max",
+          "lineNumber": 39
+        },
+        {
+          "caller": "print_table",
+          "callee": "len",
+          "lineNumber": 39
+        },
+        {
+          "caller": "print_table",
+          "callee": "\"  \".join",
+          "lineNumber": 40
+        },
+        {
+          "caller": "print_table",
+          "callee": "print",
+          "lineNumber": 41
+        },
+        {
+          "caller": "print_table",
+          "callee": "print",
+          "lineNumber": 42
+        },
+        {
+          "caller": "print_table",
+          "callee": "len",
+          "lineNumber": 42
+        },
+        {
+          "caller": "print_table",
+          "callee": "print",
+          "lineNumber": 45
+        },
+        {
+          "caller": "print_table",
+          "callee": "\"  \".join",
+          "lineNumber": 47
+        },
+        {
+          "caller": "print_table",
+          "callee": "print",
+          "lineNumber": 48
+        },
+        {
+          "caller": "print_table",
+          "callee": "print",
+          "lineNumber": 49
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 3,
+        "functionCount": 3,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "tests/perf/rest_bench.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 99,
+      "nonEmptyLines": 82,
+      "functions": [
+        {
+          "name": "_load_spec",
+          "startLine": 16,
+          "endLine": 22,
+          "params": [
+            "path"
+          ]
+        },
+        {
+          "name": "_measure",
+          "startLine": 25,
+          "endLine": 49,
+          "params": [
+            "client",
+            "ep",
+            "count",
+            "base_headers"
+          ]
+        },
+        {
+          "name": "main",
+          "startLine": 52,
+          "endLine": 95,
+          "params": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "_load_spec",
+          "line": 16,
+          "isDefault": false
+        },
+        {
+          "name": "_measure",
+          "line": 25,
+          "isDefault": false
+        },
+        {
+          "name": "main",
+          "line": 52,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "_load_spec",
+          "callee": "json.loads",
+          "lineNumber": 19
+        },
+        {
+          "caller": "_load_spec",
+          "callee": "Path(path).read_text",
+          "lineNumber": 19
+        },
+        {
+          "caller": "_load_spec",
+          "callee": "Path",
+          "lineNumber": 19
+        },
+        {
+          "caller": "_load_spec",
+          "callee": "isinstance",
+          "lineNumber": 20
+        },
+        {
+          "caller": "_load_spec",
+          "callee": "SystemExit",
+          "lineNumber": 21
+        },
+        {
+          "caller": "_measure",
+          "callee": "ep.get(\"method\", \"GET\").upper",
+          "lineNumber": 29
+        },
+        {
+          "caller": "_measure",
+          "callee": "ep.get",
+          "lineNumber": 29
+        },
+        {
+          "caller": "_measure",
+          "callee": "ep.get",
+          "lineNumber": 31
+        },
+        {
+          "caller": "_measure",
+          "callee": "ep.get",
+          "lineNumber": 32
+        },
+        {
+          "caller": "_measure",
+          "callee": "range",
+          "lineNumber": 36
+        },
+        {
+          "caller": "_measure",
+          "callee": "time.perf_counter",
+          "lineNumber": 37
+        },
+        {
+          "caller": "_measure",
+          "callee": "client.request",
+          "lineNumber": 39
+        },
+        {
+          "caller": "_measure",
+          "callee": "print",
+          "lineNumber": 42
+        },
+        {
+          "caller": "_measure",
+          "callee": "durations.append",
+          "lineNumber": 44
+        },
+        {
+          "caller": "_measure",
+          "callee": "time.perf_counter",
+          "lineNumber": 44
+        },
+        {
+          "caller": "_measure",
+          "callee": "statuses.append",
+          "lineNumber": 45
+        },
+        {
+          "caller": "_measure",
+          "callee": "len",
+          "lineNumber": 48
+        },
+        {
+          "caller": "main",
+          "callee": "argparse.ArgumentParser",
+          "lineNumber": 53
+        },
+        {
+          "caller": "main",
+          "callee": "parser.add_argument",
+          "lineNumber": 58
+        },
+        {
+          "caller": "main",
+          "callee": "parser.add_argument",
+          "lineNumber": 59
+        },
+        {
+          "caller": "main",
+          "callee": "parser.add_argument",
+          "lineNumber": 60
+        },
+        {
+          "caller": "main",
+          "callee": "parser.add_argument",
+          "lineNumber": 61
+        },
+        {
+          "caller": "main",
+          "callee": "parser.add_argument",
+          "lineNumber": 62
+        },
+        {
+          "caller": "main",
+          "callee": "parser.add_argument",
+          "lineNumber": 63
+        },
+        {
+          "caller": "main",
+          "callee": "parser.parse_args",
+          "lineNumber": 64
+        },
+        {
+          "caller": "main",
+          "callee": "_load_spec",
+          "lineNumber": 66
+        },
+        {
+          "caller": "main",
+          "callee": "httpx.Client",
+          "lineNumber": 71
+        },
+        {
+          "caller": "main",
+          "callee": "ep.get",
+          "lineNumber": 73
+        },
+        {
+          "caller": "main",
+          "callee": "_measure",
+          "lineNumber": 74
+        },
+        {
+          "caller": "main",
+          "callee": "summarize",
+          "lineNumber": 75
+        },
+        {
+          "caller": "main",
+          "callee": "rows.append",
+          "lineNumber": 76
+        },
+        {
+          "caller": "main",
+          "callee": "sum",
+          "lineNumber": 77
+        },
+        {
+          "caller": "main",
+          "callee": "round",
+          "lineNumber": 80
+        },
+        {
+          "caller": "main",
+          "callee": "len",
+          "lineNumber": 81
+        },
+        {
+          "caller": "main",
+          "callee": "sorted",
+          "lineNumber": 83
+        },
+        {
+          "caller": "main",
+          "callee": "set",
+          "lineNumber": 83
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 87
+        },
+        {
+          "caller": "main",
+          "callee": "json.dumps",
+          "lineNumber": 87
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 90
+        },
+        {
+          "caller": "main",
+          "callee": "print_table",
+          "lineNumber": 91
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 92
+        },
+        {
+          "caller": "main",
+          "callee": "raw.items",
+          "lineNumber": 93
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 95
+        }
+      ],
+      "metrics": {
+        "importCount": 1,
+        "exportCount": 3,
+        "functionCount": 3,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "tests/perf/ws_bench.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 155,
+      "nonEmptyLines": 128,
+      "functions": [
+        {
+          "name": "_load_audio",
+          "startLine": 17,
+          "endLine": 28,
+          "params": [
+            "path"
+          ]
+        },
+        {
+          "name": "_build_uri",
+          "startLine": 31,
+          "endLine": 33,
+          "params": [
+            "args"
+          ]
+        },
+        {
+          "name": "_session_id_of",
+          "startLine": 36,
+          "endLine": 39,
+          "params": [
+            "args"
+          ]
+        },
+        {
+          "name": "_run_turn",
+          "startLine": 42,
+          "endLine": 85,
+          "params": [
+            "ws",
+            "audio",
+            "chunk_bytes",
+            "chunk_s",
+            "timeout"
+          ]
+        },
+        {
+          "name": "_run",
+          "startLine": 88,
+          "endLine": 122,
+          "params": [
+            "args"
+          ]
+        },
+        {
+          "name": "_fmt",
+          "startLine": 125,
+          "endLine": 126,
+          "params": [
+            "v"
+          ]
+        },
+        {
+          "name": "main",
+          "startLine": 129,
+          "endLine": 151,
+          "params": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "_load_audio",
+          "line": 17,
+          "isDefault": false
+        },
+        {
+          "name": "_build_uri",
+          "line": 31,
+          "isDefault": false
+        },
+        {
+          "name": "_session_id_of",
+          "line": 36,
+          "isDefault": false
+        },
+        {
+          "name": "_run_turn",
+          "line": 42,
+          "isDefault": false
+        },
+        {
+          "name": "_run",
+          "line": 88,
+          "isDefault": false
+        },
+        {
+          "name": "_fmt",
+          "line": 125,
+          "isDefault": false
+        },
+        {
+          "name": "main",
+          "line": 129,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "_load_audio",
+          "callee": "Path",
+          "lineNumber": 19
+        },
+        {
+          "caller": "_load_audio",
+          "callee": "p.suffix.lower",
+          "lineNumber": 20
+        },
+        {
+          "caller": "_load_audio",
+          "callee": "wave.open",
+          "lineNumber": 21
+        },
+        {
+          "caller": "_load_audio",
+          "callee": "str",
+          "lineNumber": 21
+        },
+        {
+          "caller": "_load_audio",
+          "callee": "wf.getframerate",
+          "lineNumber": 22
+        },
+        {
+          "caller": "_load_audio",
+          "callee": "wf.getnchannels",
+          "lineNumber": 22
+        },
+        {
+          "caller": "_load_audio",
+          "callee": "wf.getsampwidth",
+          "lineNumber": 22
+        },
+        {
+          "caller": "_load_audio",
+          "callee": "SystemExit",
+          "lineNumber": 23
+        },
+        {
+          "caller": "_load_audio",
+          "callee": "wf.getframerate",
+          "lineNumber": 24
+        },
+        {
+          "caller": "_load_audio",
+          "callee": "wf.getnchannels",
+          "lineNumber": 24
+        },
+        {
+          "caller": "_load_audio",
+          "callee": "wf.getsampwidth",
+          "lineNumber": 25
+        },
+        {
+          "caller": "_load_audio",
+          "callee": "wf.readframes",
+          "lineNumber": 27
+        },
+        {
+          "caller": "_load_audio",
+          "callee": "wf.getnframes",
+          "lineNumber": 27
+        },
+        {
+          "caller": "_load_audio",
+          "callee": "p.read_bytes",
+          "lineNumber": 28
+        },
+        {
+          "caller": "_build_uri",
+          "callee": "args.base_url.rstrip",
+          "lineNumber": 32
+        },
+        {
+          "caller": "_build_uri",
+          "callee": "urlencode",
+          "lineNumber": 33
+        },
+        {
+          "caller": "_session_id_of",
+          "callee": "args.url.rstrip(\"/\").split",
+          "lineNumber": 39
+        },
+        {
+          "caller": "_session_id_of",
+          "callee": "args.url.rstrip",
+          "lineNumber": 39
+        },
+        {
+          "caller": "_run_turn",
+          "callee": "range",
+          "lineNumber": 44
+        },
+        {
+          "caller": "_run_turn",
+          "callee": "len",
+          "lineNumber": 44
+        },
+        {
+          "caller": "_run_turn",
+          "callee": "ws.send",
+          "lineNumber": 45
+        },
+        {
+          "caller": "_run_turn",
+          "callee": "asyncio.sleep",
+          "lineNumber": 46
+        },
+        {
+          "caller": "_run_turn",
+          "callee": "time.perf_counter",
+          "lineNumber": 47
+        },
+        {
+          "caller": "_run_turn",
+          "callee": "time.perf_counter",
+          "lineNumber": 54
+        },
+        {
+          "caller": "_run_turn",
+          "callee": "asyncio.wait_for",
+          "lineNumber": 59
+        },
+        {
+          "caller": "_run_turn",
+          "callee": "ws.recv",
+          "lineNumber": 59
+        },
+        {
+          "caller": "_run_turn",
+          "callee": "isinstance",
+          "lineNumber": 67
+        },
+        {
+          "caller": "_run_turn",
+          "callee": "time.perf_counter",
+          "lineNumber": 69
+        },
+        {
+          "caller": "_run_turn",
+          "callee": "json.loads",
+          "lineNumber": 71
+        },
+        {
+          "caller": "_run_turn",
+          "callee": "frame.get",
+          "lineNumber": 72
+        },
+        {
+          "caller": "_run_turn",
+          "callee": "time.perf_counter",
+          "lineNumber": 74
+        },
+        {
+          "caller": "_run_turn",
+          "callee": "time.perf_counter",
+          "lineNumber": 77
+        },
+        {
+          "caller": "_run",
+          "callee": "_load_audio",
+          "lineNumber": 89
+        },
+        {
+          "caller": "_run",
+          "callee": "int",
+          "lineNumber": 91
+        },
+        {
+          "caller": "_run",
+          "callee": "int",
+          "lineNumber": 92
+        },
+        {
+          "caller": "_run",
+          "callee": "_build_uri",
+          "lineNumber": 94
+        },
+        {
+          "caller": "_run",
+          "callee": "_session_id_of",
+          "lineNumber": 95
+        },
+        {
+          "caller": "_run",
+          "callee": "len",
+          "lineNumber": 97
+        },
+        {
+          "caller": "_run",
+          "callee": "print",
+          "lineNumber": 98
+        },
+        {
+          "caller": "_run",
+          "callee": "websockets.connect",
+          "lineNumber": 101
+        },
+        {
+          "caller": "_run",
+          "callee": "range",
+          "lineNumber": 102
+        },
+        {
+          "caller": "_run",
+          "callee": "_run_turn",
+          "lineNumber": 103
+        },
+        {
+          "caller": "_run",
+          "callee": "results.append",
+          "lineNumber": 104
+        },
+        {
+          "caller": "_run",
+          "callee": "print",
+          "lineNumber": 105
+        },
+        {
+          "caller": "_run",
+          "callee": "_fmt",
+          "lineNumber": 106
+        },
+        {
+          "caller": "_run",
+          "callee": "_fmt",
+          "lineNumber": 107
+        },
+        {
+          "caller": "_run",
+          "callee": "print",
+          "lineNumber": 110
+        },
+        {
+          "caller": "_run",
+          "callee": "summarize",
+          "lineNumber": 114
+        },
+        {
+          "caller": "_run",
+          "callee": "summarize",
+          "lineNumber": 115
+        },
+        {
+          "caller": "_run",
+          "callee": "print",
+          "lineNumber": 117
+        },
+        {
+          "caller": "_run",
+          "callee": "print",
+          "lineNumber": 119
+        },
+        {
+          "caller": "_run",
+          "callee": "json.dumps",
+          "lineNumber": 119
+        },
+        {
+          "caller": "_run",
+          "callee": "print_table",
+          "lineNumber": 121
+        },
+        {
+          "caller": "_run",
+          "callee": "print",
+          "lineNumber": 122
+        },
+        {
+          "caller": "main",
+          "callee": "argparse.ArgumentParser",
+          "lineNumber": 130
+        },
+        {
+          "caller": "main",
+          "callee": "parser.add_argument",
+          "lineNumber": 135
+        },
+        {
+          "caller": "main",
+          "callee": "parser.add_argument",
+          "lineNumber": 136
+        },
+        {
+          "caller": "main",
+          "callee": "parser.add_argument",
+          "lineNumber": 137
+        },
+        {
+          "caller": "main",
+          "callee": "parser.add_argument",
+          "lineNumber": 138
+        },
+        {
+          "caller": "main",
+          "callee": "parser.add_argument",
+          "lineNumber": 139
+        },
+        {
+          "caller": "main",
+          "callee": "parser.add_argument",
+          "lineNumber": 140
+        },
+        {
+          "caller": "main",
+          "callee": "parser.add_argument",
+          "lineNumber": 141
+        },
+        {
+          "caller": "main",
+          "callee": "parser.add_argument",
+          "lineNumber": 142
+        },
+        {
+          "caller": "main",
+          "callee": "parser.add_argument",
+          "lineNumber": 143
+        },
+        {
+          "caller": "main",
+          "callee": "parser.add_argument",
+          "lineNumber": 144
+        },
+        {
+          "caller": "main",
+          "callee": "parser.add_argument",
+          "lineNumber": 145
+        },
+        {
+          "caller": "main",
+          "callee": "parser.parse_args",
+          "lineNumber": 146
+        },
+        {
+          "caller": "main",
+          "callee": "parser.error",
+          "lineNumber": 149
+        },
+        {
+          "caller": "main",
+          "callee": "asyncio.run",
+          "lineNumber": 151
+        },
+        {
+          "caller": "main",
+          "callee": "_run",
+          "lineNumber": 151
+        }
+      ],
+      "metrics": {
+        "importCount": 1,
+        "exportCount": 7,
+        "functionCount": 7,
+        "classCount": 0
+      }
+    }
+  ]
+}

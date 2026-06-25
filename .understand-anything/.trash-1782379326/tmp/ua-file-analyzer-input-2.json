@@ -1,0 +1,21 @@
+{
+  "projectRoot": "/Users/junha0729/Dev/projects/narsha/2026/bada-ai-server",
+  "batchFiles": [
+    {"path": "app/api/v1/__init__.py", "language": "python", "sizeLines": 0, "fileCategory": "code"},
+    {"path": "app/api/v1/internal.py", "language": "python", "sizeLines": 66, "fileCategory": "code"},
+    {"path": "app/api/v1/scenario.py", "language": "python", "sizeLines": 61, "fileCategory": "code"},
+    {"path": "app/core/__init__.py", "language": "python", "sizeLines": 0, "fileCategory": "code"},
+    {"path": "app/core/enums.py", "language": "python", "sizeLines": 36, "fileCategory": "code"},
+    {"path": "app/core/preset_scenarios.py", "language": "python", "sizeLines": 212, "fileCategory": "code"},
+    {"path": "app/core/prompt_matrix.py", "language": "python", "sizeLines": 71, "fileCategory": "code"},
+    {"path": "app/core/security.py", "language": "python", "sizeLines": 42, "fileCategory": "code"},
+    {"path": "app/db/base.py", "language": "python", "sizeLines": 28, "fileCategory": "code"},
+    {"path": "app/db/models.py", "language": "python", "sizeLines": 33, "fileCategory": "code"},
+    {"path": "app/deps/auth.py", "language": "python", "sizeLines": 18, "fileCategory": "code"},
+    {"path": "app/deps/db.py", "language": "python", "sizeLines": 10, "fileCategory": "code"},
+    {"path": "app/schemas/scenario.py", "language": "python", "sizeLines": 60, "fileCategory": "code"},
+    {"path": "app/services/scenario_service.py", "language": "python", "sizeLines": 180, "fileCategory": "code"},
+    {"path": "tests/unit/test_internal_context.py", "language": "python", "sizeLines": 101, "fileCategory": "code"}
+  ],
+  "batchImportData": {"app/api/v1/__init__.py":[],"app/api/v1/internal.py":["app/core/preset_scenarios.py","app/core/security.py","app/db/models.py","app/deps/db.py","app/schemas/scenario.py"],"app/api/v1/scenario.py":["app/core/enums.py","app/deps/auth.py","app/deps/db.py","app/schemas/scenario.py","app/services/scenario_service.py"],"app/core/__init__.py":[],"app/core/enums.py":[],"app/core/preset_scenarios.py":["app/core/enums.py","app/schemas/scenario.py"],"app/core/prompt_matrix.py":["app/core/enums.py"],"app/core/security.py":["app/core/config.py"],"app/db/base.py":["app/core/config.py"],"app/db/models.py":["app/db/base.py"],"app/deps/auth.py":["app/core/security.py"],"app/deps/db.py":["app/db/base.py"],"app/schemas/scenario.py":["app/core/enums.py"],"app/services/scenario_service.py":["app/core/config.py","app/core/enums.py","app/core/preset_scenarios.py","app/core/prompt_matrix.py","app/db/models.py","app/schemas/scenario.py"],"tests/unit/test_internal_context.py":["app/api/v1/__init__.py","app/api/v1/internal.py","app/core/__init__.py","app/core/security.py","app/deps/db.py"]}
+}

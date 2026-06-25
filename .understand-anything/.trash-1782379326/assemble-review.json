@@ -1,0 +1,17 @@
+{
+  "fixedSectionOk": true,
+  "nodesRecovered": 1,
+  "edgesRestored": 1,
+  "crossBatchEdgesAdded": 0,
+  "typesRemapped": 0,
+  "complexityRemapped": 0,
+  "notes": [
+    "Fixed section sane: 4 tested_by drops + 9 production nodes tagged 'tested' are expected path-convention outcomes, not data-quality red flags. No node-ID-correction or complexity-skew issues reported.",
+    "Recovered missing function node 'function:app/deps/redis.py:close_redis' — batch 4 emitted init_redis and get_redis but omitted close_redis (and the private helper _mask_url). close_redis genuinely exists (app/deps/redis.py:24-27) and is significant: it is invoked by app/main.py:lifespan during shutdown. Restored the dropped 'lifespan -> close_redis' calls edge (weight 0.7) and added the file->close_redis contains edge (weight 1.0).",
+    "Cross-batch import coverage is complete: all 86 importMap entries verified. Every project-internal import between two existing file nodes already has a matching 'imports' edge (0 missing). The 10 importMap source entries lacking a file: node are config/CI/docs artifacts (Dockerfile, docker-compose*.yml, CI workflows, README, etc.) with empty import lists; they are represented as service/pipeline nodes, so no edges are owed.",
+    "Pipeline orchestrator verified: file:app/services/pipeline.py has all 11 expected 'imports' edges (config, enums, metrics, frames/llm schemas, llm, session, spring_client, stt, tremor, tts) — full fan-out intact at file level.",
+    "Observation (not fixed, no importMap backing for call edges): VoicePipeline class node has only 2 outbound 'calls' edges (GoogleSTTClient, SpringInternalClient). Call-level fan-out to llm/tts/session/tremor/config is sparse vs the file-level import fan-out — an LLM call-extraction limitation, not a dangling-node problem. Did not fabricate speculative calls edges per instructions.",
+    "Inventory check: all 75 Python source files from scan-result have a file: node (76 file nodes total). No file-level nodes missing. The private helper _mask_url in redis.py was also omitted by batch 4 but is internal/insignificant (URL masking utility, not referenced cross-file) — intentionally not recovered.",
+    "Post-fix graph: 212 nodes, 356 edges, valid JSON, 0 dangling edges."
+  ]
+}

@@ -1,0 +1,195 @@
+{
+  "nodes": [
+    {
+      "id": "file:app/api/v1/websocket.py",
+      "type": "file",
+      "name": "websocket.py",
+      "filePath": "app/api/v1/websocket.py",
+      "summary": "실시간 음성 통화용 WebSocket endpoint를 정의한다. JWT 인증과 세션 검증을 거친 뒤 STT/LLM/TTS VoicePipeline을 가동하고 연결 해제/에러를 처리한다.",
+      "tags": ["api-handler", "websocket", "entry-point", "voice-pipeline", "authentication"],
+      "complexity": "moderate",
+      "languageNotes": "FastAPI APIRouter의 @router.websocket 데코레이터와 async/await 기반 비동기 핸들러를 사용한다."
+    },
+    {
+      "id": "function:app/api/v1/websocket.py:voice_stream",
+      "type": "function",
+      "name": "voice_stream",
+      "filePath": "app/api/v1/websocket.py",
+      "lineRange": [19, 66],
+      "summary": "/voice/{session_id} WebSocket 핸들러. 연결 수락 후 authenticate_ws와 authenticate_session으로 검증하고 VoicePipeline을 실행하며 끊김/내부 에러를 로깅·종료한다.",
+      "tags": ["websocket", "api-handler", "authentication", "event-handler"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:app/core/logging.py",
+      "type": "file",
+      "name": "logging.py",
+      "filePath": "app/core/logging.py",
+      "summary": "애플리케이션 로깅 설정을 담당한다. 설정값을 읽어 dictConfig로 로깅 포맷·핸들러·레벨을 구성하는 setup_logging 함수를 제공한다.",
+      "tags": ["logging", "configuration", "utility", "bootstrap"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:app/core/logging.py:setup_logging",
+      "type": "function",
+      "name": "setup_logging",
+      "filePath": "app/core/logging.py",
+      "lineRange": [7, 72],
+      "summary": "get_settings로 설정을 읽어 logging.config.dictConfig를 통해 전체 로깅 구성(포맷터, 핸들러, 로거 레벨)을 초기화한다.",
+      "tags": ["logging", "configuration", "bootstrap"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:app/core/metrics.py",
+      "type": "file",
+      "name": "metrics.py",
+      "filePath": "app/core/metrics.py",
+      "summary": "지연시간 측정을 위한 metrics 유틸리티. monotonic 기반 now_ms, 구간 측정용 Stopwatch 클래스, 구조화 로그를 남기는 log_metric을 제공한다.",
+      "tags": ["metrics", "utility", "monitoring", "timing"],
+      "complexity": "moderate",
+      "languageNotes": "time.monotonic 기반의 밀리초 타이밍과 contextlib.suppress로 로깅 예외를 삼키는 패턴을 사용한다."
+    },
+    {
+      "id": "class:app/core/metrics.py:Stopwatch",
+      "type": "class",
+      "name": "Stopwatch",
+      "filePath": "app/core/metrics.py",
+      "lineRange": [20, 54],
+      "summary": "여러 시점을 mark로 기록하고 at/since/between/elapsed_ms로 구간 지연시간(ms)을 계산하는 스톱워치. 파이프라인 단계별 latency 측정에 사용된다.",
+      "tags": ["metrics", "timing", "utility"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:app/core/metrics.py:log_metric",
+      "type": "function",
+      "name": "log_metric",
+      "filePath": "app/core/metrics.py",
+      "lineRange": [57, 63],
+      "summary": "metric 이름과 필드들을 받아 구조화된 형태로 전용 metric 로거에 기록한다. 로깅 중 발생하는 예외는 suppress로 무시한다.",
+      "tags": ["metrics", "logging", "monitoring"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:app/deps/redis.py",
+      "type": "file",
+      "name": "redis.py",
+      "filePath": "app/deps/redis.py",
+      "summary": "Redis 연결 의존성을 관리한다. 비동기 클라이언트 초기화(init_redis)·종료(close_redis)와 FastAPI 의존성 주입용 get_redis, 로그용 URL 마스킹을 제공한다.",
+      "tags": ["redis", "dependency-injection", "infrastructure", "utility"],
+      "complexity": "simple",
+      "languageNotes": "redis.asyncio 비동기 클라이언트와 FastAPI 의존성 주입(get_redis) 패턴을 사용한다."
+    },
+    {
+      "id": "function:app/deps/redis.py:init_redis",
+      "type": "function",
+      "name": "init_redis",
+      "filePath": "app/deps/redis.py",
+      "lineRange": [8, 22],
+      "summary": "주어진 URL로 비동기 Redis 클라이언트를 생성하고 ping으로 연결을 검증한 뒤 마스킹된 URL과 함께 연결 로그를 남긴다.",
+      "tags": ["redis", "infrastructure", "factory"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:app/deps/redis.py:get_redis",
+      "type": "function",
+      "name": "get_redis",
+      "filePath": "app/deps/redis.py",
+      "lineRange": [39, 44],
+      "summary": "app.state에 저장된 Redis 클라이언트를 꺼내 반환하는 FastAPI 의존성 함수. 초기화되지 않았으면 RuntimeError를 발생시킨다.",
+      "tags": ["redis", "dependency-injection", "utility"],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:app/main.py",
+      "type": "file",
+      "name": "main.py",
+      "filePath": "app/main.py",
+      "summary": "FastAPI 애플리케이션 진입점. lifespan으로 로깅·Redis·DB를 초기화/종료하고 create_app에서 미들웨어, 요청 metrics, 라우터(websocket/scenario/internal)를 구성한다.",
+      "tags": ["entry-point", "bootstrap", "middleware", "configuration", "fastapi"],
+      "complexity": "moderate",
+      "languageNotes": "@asynccontextmanager lifespan과 미들웨어 데코레이터로 애플리케이션 수명주기와 요청 지연시간 metrics를 구성한다."
+    },
+    {
+      "id": "function:app/main.py:lifespan",
+      "type": "function",
+      "name": "lifespan",
+      "filePath": "app/main.py",
+      "lineRange": [17, 30],
+      "summary": "애플리케이션 수명주기 컨텍스트. 시작 시 setup_logging, init_redis, init_db로 리소스를 초기화하고 종료 시 close_redis로 정리한다.",
+      "tags": ["bootstrap", "lifecycle", "entry-point"],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:app/main.py:create_app",
+      "type": "function",
+      "name": "create_app",
+      "filePath": "app/main.py",
+      "lineRange": [33, 77],
+      "summary": "FastAPI 인스턴스를 생성하고 요청 metrics 미들웨어, CORS 등 미들웨어, websocket/scenario/internal 라우터를 등록해 앱을 조립하는 팩토리.",
+      "tags": ["factory", "bootstrap", "middleware", "fastapi"],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:tests/unit/test_metrics.py",
+      "type": "file",
+      "name": "test_metrics.py",
+      "filePath": "tests/unit/test_metrics.py",
+      "summary": "metrics 모듈과 파이프라인 _TurnTimings의 단위 테스트. now_ms 단조성, Stopwatch 구간 측정, log_metric 동작·예외 처리, 턴 타이밍 metric 산출을 검증한다.",
+      "tags": ["test", "metrics", "unit-test", "timing"],
+      "complexity": "moderate",
+      "languageNotes": "pytest의 caplog, monkeypatch fixture를 사용해 로깅과 의존성을 검증한다."
+    }
+  ],
+  "edges": [
+    {"source": "file:app/api/v1/websocket.py", "target": "file:app/core/config.py", "type": "imports", "direction": "forward", "weight": 0.7},
+    {"source": "file:app/api/v1/websocket.py", "target": "file:app/core/security.py", "type": "imports", "direction": "forward", "weight": 0.7},
+    {"source": "file:app/api/v1/websocket.py", "target": "file:app/deps/redis.py", "type": "imports", "direction": "forward", "weight": 0.7},
+    {"source": "file:app/api/v1/websocket.py", "target": "file:app/services/pipeline.py", "type": "imports", "direction": "forward", "weight": 0.7},
+    {"source": "file:app/api/v1/websocket.py", "target": "file:app/services/session.py", "type": "imports", "direction": "forward", "weight": 0.7},
+    {"source": "file:app/api/v1/websocket.py", "target": "file:app/services/spring_client.py", "type": "imports", "direction": "forward", "weight": 0.7},
+    {"source": "file:app/api/v1/websocket.py", "target": "function:app/api/v1/websocket.py:voice_stream", "type": "contains", "direction": "forward", "weight": 1.0},
+    {"source": "file:app/api/v1/websocket.py", "target": "function:app/api/v1/websocket.py:voice_stream", "type": "exports", "direction": "forward", "weight": 0.8},
+    {"source": "function:app/api/v1/websocket.py:voice_stream", "target": "function:app/core/security.py:authenticate_ws", "type": "calls", "direction": "forward", "weight": 0.8},
+    {"source": "function:app/api/v1/websocket.py:voice_stream", "target": "function:app/services/session.py:authenticate_session", "type": "calls", "direction": "forward", "weight": 0.8},
+    {"source": "function:app/api/v1/websocket.py:voice_stream", "target": "function:app/core/config.py:get_settings", "type": "calls", "direction": "forward", "weight": 0.8},
+    {"source": "function:app/api/v1/websocket.py:voice_stream", "target": "class:app/services/pipeline.py:VoicePipeline", "type": "calls", "direction": "forward", "weight": 0.8},
+    {"source": "function:app/api/v1/websocket.py:voice_stream", "target": "class:app/services/spring_client.py:SpringInternalClient", "type": "calls", "direction": "forward", "weight": 0.8},
+    {"source": "function:app/api/v1/websocket.py:voice_stream", "target": "function:app/deps/redis.py:get_redis", "type": "calls", "direction": "forward", "weight": 0.8},
+
+    {"source": "file:app/core/logging.py", "target": "file:app/core/config.py", "type": "imports", "direction": "forward", "weight": 0.7},
+    {"source": "file:app/core/logging.py", "target": "function:app/core/logging.py:setup_logging", "type": "contains", "direction": "forward", "weight": 1.0},
+    {"source": "file:app/core/logging.py", "target": "function:app/core/logging.py:setup_logging", "type": "exports", "direction": "forward", "weight": 0.8},
+    {"source": "function:app/core/logging.py:setup_logging", "target": "function:app/core/config.py:get_settings", "type": "calls", "direction": "forward", "weight": 0.8},
+
+    {"source": "file:app/core/metrics.py", "target": "file:app/core/logging.py", "type": "imports", "direction": "forward", "weight": 0.7},
+    {"source": "file:app/core/metrics.py", "target": "class:app/core/metrics.py:Stopwatch", "type": "contains", "direction": "forward", "weight": 1.0},
+    {"source": "file:app/core/metrics.py", "target": "class:app/core/metrics.py:Stopwatch", "type": "exports", "direction": "forward", "weight": 0.8},
+    {"source": "file:app/core/metrics.py", "target": "function:app/core/metrics.py:log_metric", "type": "contains", "direction": "forward", "weight": 1.0},
+    {"source": "file:app/core/metrics.py", "target": "function:app/core/metrics.py:log_metric", "type": "exports", "direction": "forward", "weight": 0.8},
+
+    {"source": "file:app/main.py", "target": "file:app/api/v1/__init__.py", "type": "imports", "direction": "forward", "weight": 0.7},
+    {"source": "file:app/main.py", "target": "file:app/api/v1/internal.py", "type": "imports", "direction": "forward", "weight": 0.7},
+    {"source": "file:app/main.py", "target": "file:app/api/v1/scenario.py", "type": "imports", "direction": "forward", "weight": 0.7},
+    {"source": "file:app/main.py", "target": "file:app/api/v1/websocket.py", "type": "imports", "direction": "forward", "weight": 0.7},
+    {"source": "file:app/main.py", "target": "file:app/core/config.py", "type": "imports", "direction": "forward", "weight": 0.7},
+    {"source": "file:app/main.py", "target": "file:app/core/logging.py", "type": "imports", "direction": "forward", "weight": 0.7},
+    {"source": "file:app/main.py", "target": "file:app/core/metrics.py", "type": "imports", "direction": "forward", "weight": 0.7},
+    {"source": "file:app/main.py", "target": "file:app/db/base.py", "type": "imports", "direction": "forward", "weight": 0.7},
+    {"source": "file:app/main.py", "target": "file:app/deps/redis.py", "type": "imports", "direction": "forward", "weight": 0.7},
+    {"source": "file:app/main.py", "target": "function:app/main.py:lifespan", "type": "contains", "direction": "forward", "weight": 1.0},
+    {"source": "file:app/main.py", "target": "function:app/main.py:lifespan", "type": "exports", "direction": "forward", "weight": 0.8},
+    {"source": "file:app/main.py", "target": "function:app/main.py:create_app", "type": "contains", "direction": "forward", "weight": 1.0},
+    {"source": "file:app/main.py", "target": "function:app/main.py:create_app", "type": "exports", "direction": "forward", "weight": 0.8},
+    {"source": "function:app/main.py:lifespan", "target": "function:app/core/logging.py:setup_logging", "type": "calls", "direction": "forward", "weight": 0.8},
+    {"source": "function:app/main.py:lifespan", "target": "function:app/core/config.py:get_settings", "type": "calls", "direction": "forward", "weight": 0.8},
+    {"source": "function:app/main.py:lifespan", "target": "function:app/deps/redis.py:init_redis", "type": "calls", "direction": "forward", "weight": 0.8},
+    {"source": "function:app/main.py:lifespan", "target": "function:app/db/base.py:init_db", "type": "calls", "direction": "forward", "weight": 0.8},
+    {"source": "function:app/main.py:lifespan", "target": "function:app/deps/redis.py:close_redis", "type": "calls", "direction": "forward", "weight": 0.8},
+    {"source": "function:app/main.py:create_app", "target": "function:app/core/config.py:get_settings", "type": "calls", "direction": "forward", "weight": 0.8},
+    {"source": "function:app/main.py:create_app", "target": "function:app/core/metrics.py:log_metric", "type": "calls", "direction": "forward", "weight": 0.8},
+
+    {"source": "file:tests/unit/test_metrics.py", "target": "file:app/core/metrics.py", "type": "imports", "direction": "forward", "weight": 0.7},
+    {"source": "file:tests/unit/test_metrics.py", "target": "file:app/services/pipeline.py", "type": "imports", "direction": "forward", "weight": 0.7},
+    {"source": "file:app/core/metrics.py", "target": "file:tests/unit/test_metrics.py", "type": "tested_by", "direction": "forward", "weight": 0.5}
+  ]
+}

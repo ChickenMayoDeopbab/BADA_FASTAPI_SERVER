@@ -1,0 +1,22 @@
+{
+  "projectRoot": "/Users/junha0729/Dev/projects/narsha/2026/bada-ai-server",
+  "batchFiles": [
+    {"path": "app/core/config.py", "language": "python", "sizeLines": 64, "fileCategory": "code"},
+    {"path": "app/schemas/frames.py", "language": "python", "sizeLines": 44, "fileCategory": "code"},
+    {"path": "app/services/pipeline.py", "language": "python", "sizeLines": 563, "fileCategory": "code"},
+    {"path": "app/services/spring_client.py", "language": "python", "sizeLines": 50, "fileCategory": "code"},
+    {"path": "app/services/stt.py", "language": "python", "sizeLines": 175, "fileCategory": "code"},
+    {"path": "tests/integration/test_spring_client.py", "language": "python", "sizeLines": 114, "fileCategory": "code"},
+    {"path": "tests/pipeline/manual_pipeline_check.py", "language": "python", "sizeLines": 107, "fileCategory": "code"},
+    {"path": "tests/pipeline/manual_pipeline_check2.py", "language": "python", "sizeLines": 186, "fileCategory": "code"},
+    {"path": "tests/pipeline/manual_pipeline_check3.py", "language": "python", "sizeLines": 303, "fileCategory": "code"},
+    {"path": "tests/pipeline/manual_pipeline_feedback_check.py", "language": "python", "sizeLines": 174, "fileCategory": "code"},
+    {"path": "tests/pipeline/test_good_segments.py", "language": "python", "sizeLines": 56, "fileCategory": "code"},
+    {"path": "tests/stt/latency_check.py", "language": "python", "sizeLines": 161, "fileCategory": "code"},
+    {"path": "tests/stt/manual_stt_check.py", "language": "python", "sizeLines": 106, "fileCategory": "code"},
+    {"path": "tests/stt/stream_check.py", "language": "python", "sizeLines": 32, "fileCategory": "code"},
+    {"path": "tests/unit/test_pipeline_send_json.py", "language": "python", "sizeLines": 75, "fileCategory": "code"},
+    {"path": "tests/unit/test_stt_idle_timeout.py", "language": "python", "sizeLines": 119, "fileCategory": "code"}
+  ],
+  "batchImportData": {"app/core/config.py":[],"app/schemas/frames.py":["app/schemas/llm.py"],"app/services/pipeline.py":["app/core/config.py","app/core/enums.py","app/core/metrics.py","app/schemas/frames.py","app/schemas/llm.py","app/services/llm.py","app/services/session.py","app/services/spring_client.py","app/services/stt.py","app/services/tremor.py","app/services/tts.py"],"app/services/spring_client.py":["app/core/config.py","app/schemas/frames.py"],"app/services/stt.py":[],"tests/integration/test_spring_client.py":["app/schemas/frames.py","app/services/spring_client.py"],"tests/pipeline/manual_pipeline_check.py":["app/core/config.py","app/services/pipeline.py","app/services/spring_client.py"],"tests/pipeline/manual_pipeline_check2.py":["app/core/config.py","app/services/pipeline.py","app/services/spring_client.py"],"tests/pipeline/manual_pipeline_check3.py":["app/core/config.py","app/services/pipeline.py","app/services/spring_client.py","app/services/stt.py"],"tests/pipeline/manual_pipeline_feedback_check.py":["app/core/config.py","app/services/pipeline.py","app/services/spring_client.py"],"tests/pipeline/test_good_segments.py":["app/services/pipeline.py"],"tests/stt/latency_check.py":["app/core/config.py","app/services/stt.py"],"tests/stt/manual_stt_check.py":["app/core/config.py","app/services/stt.py"],"tests/stt/stream_check.py":["app/services/stt.py"],"tests/unit/test_pipeline_send_json.py":["app/services/pipeline.py"],"tests/unit/test_stt_idle_timeout.py":["app/schemas/frames.py","app/services/pipeline.py","app/services/stt.py"]}
+}

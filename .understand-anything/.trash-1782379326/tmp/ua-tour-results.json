@@ -1,0 +1,984 @@
+{
+  "scriptCompleted": true,
+  "entryPointCandidates": [
+    {
+      "id": "file:app/main.py",
+      "score": 6,
+      "name": "main.py",
+      "summary": "FastAPI 애플리케이션 진입점. lifespan으로 로깅·Redis·DB를 초기화/종료하고 create_app에서 미들웨어, 요청 metrics, 라우터(websocket/scenario/internal)를 구성한다."
+    },
+    {
+      "id": "document:README.md",
+      "score": 5,
+      "name": "README.md",
+      "summary": "프로젝트 루트 README로 'FASTAPI_SERVER'라는 제목 한 줄만 담고 있는 최소한의 문서이다. 현재는 실질적인 설명 없이 프로젝트 진입점 표식 역할만 한다."
+    },
+    {
+      "id": "file:tests/pipeline/manual_pipeline_check3.py",
+      "score": 2,
+      "name": "manual_pipeline_check3.py",
+      "summary": "턴별 지연 메트릭 집계(Metrics)와 에러 수집기를 갖춘 가장 정교한 VoicePipeline 수동 검수 스크립트로, 종료 시 통계 요약을 출력한다."
+    },
+    {
+      "id": "file:.understand-anything/.understandignore",
+      "score": 2,
+      "name": ".understandignore",
+      "summary": "Understand-Anything 지식 그래프 분석에서 제외할 파일/디렉터리 패턴을 정의하는 ignore 설정 파일이다."
+    },
+    {
+      "id": "file:app/__init__.py",
+      "score": 2,
+      "name": "__init__.py",
+      "summary": "app 패키지를 표시하는 빈 package marker 파일이다 (함수/클래스 없음)."
+    }
+  ],
+  "fanInRanking": [
+    {
+      "id": "file:app/core/config.py",
+      "fanIn": 18,
+      "name": "config.py"
+    },
+    {
+      "id": "file:app/schemas/llm.py",
+      "fanIn": 11,
+      "name": "llm.py"
+    },
+    {
+      "id": "file:app/services/pipeline.py",
+      "fanIn": 9,
+      "name": "pipeline.py"
+    },
+    {
+      "id": "file:app/services/spring_client.py",
+      "fanIn": 7,
+      "name": "spring_client.py"
+    },
+    {
+      "id": "file:app/core/enums.py",
+      "fanIn": 7,
+      "name": "enums.py"
+    },
+    {
+      "id": "file:app/services/stt.py",
+      "fanIn": 6,
+      "name": "stt.py"
+    },
+    {
+      "id": "file:app/schemas/frames.py",
+      "fanIn": 4,
+      "name": "frames.py"
+    },
+    {
+      "id": "file:app/core/security.py",
+      "fanIn": 4,
+      "name": "security.py"
+    },
+    {
+      "id": "file:app/schemas/scenario.py",
+      "fanIn": 4,
+      "name": "scenario.py"
+    },
+    {
+      "id": "file:app/services/llm.py",
+      "fanIn": 4,
+      "name": "llm.py"
+    },
+    {
+      "id": "file:app/db/base.py",
+      "fanIn": 3,
+      "name": "base.py"
+    },
+    {
+      "id": "file:app/deps/db.py",
+      "fanIn": 3,
+      "name": "db.py"
+    },
+    {
+      "id": "file:app/services/session.py",
+      "fanIn": 3,
+      "name": "session.py"
+    },
+    {
+      "id": "file:app/services/tts.py",
+      "fanIn": 3,
+      "name": "tts.py"
+    },
+    {
+      "id": "file:app/core/metrics.py",
+      "fanIn": 3,
+      "name": "metrics.py"
+    },
+    {
+      "id": "file:tests/unit/test_stt_idle_timeout.py",
+      "fanIn": 2,
+      "name": "test_stt_idle_timeout.py"
+    },
+    {
+      "id": "file:app/api/v1/__init__.py",
+      "fanIn": 2,
+      "name": "__init__.py"
+    },
+    {
+      "id": "file:app/api/v1/internal.py",
+      "fanIn": 2,
+      "name": "internal.py"
+    },
+    {
+      "id": "file:app/core/preset_scenarios.py",
+      "fanIn": 2,
+      "name": "preset_scenarios.py"
+    },
+    {
+      "id": "file:app/db/models.py",
+      "fanIn": 2,
+      "name": "models.py"
+    }
+  ],
+  "fanOutRanking": [
+    {
+      "id": "file:app/services/pipeline.py",
+      "fanOut": 14,
+      "name": "pipeline.py"
+    },
+    {
+      "id": "file:app/main.py",
+      "fanOut": 9,
+      "name": "main.py"
+    },
+    {
+      "id": "file:app/api/v1/internal.py",
+      "fanOut": 6,
+      "name": "internal.py"
+    },
+    {
+      "id": "file:app/services/scenario_service.py",
+      "fanOut": 6,
+      "name": "scenario_service.py"
+    },
+    {
+      "id": "file:app/api/v1/websocket.py",
+      "fanOut": 6,
+      "name": "websocket.py"
+    },
+    {
+      "id": "file:app/api/v1/scenario.py",
+      "fanOut": 5,
+      "name": "scenario.py"
+    },
+    {
+      "id": "file:tests/unit/test_internal_context.py",
+      "fanOut": 5,
+      "name": "test_internal_context.py"
+    },
+    {
+      "id": "file:tests/pipeline/manual_pipeline_check3.py",
+      "fanOut": 4,
+      "name": "manual_pipeline_check3.py"
+    },
+    {
+      "id": "file:app/services/llm.py",
+      "fanOut": 4,
+      "name": "llm.py"
+    },
+    {
+      "id": "service:docker-compose.yml",
+      "fanOut": 4,
+      "name": "docker-compose.yml"
+    },
+    {
+      "id": "service:docker-compose.yml:app",
+      "fanOut": 4,
+      "name": "app"
+    },
+    {
+      "id": "file:app/services/spring_client.py",
+      "fanOut": 3,
+      "name": "spring_client.py"
+    },
+    {
+      "id": "file:tests/pipeline/manual_pipeline_check.py",
+      "fanOut": 3,
+      "name": "manual_pipeline_check.py"
+    },
+    {
+      "id": "file:tests/pipeline/manual_pipeline_check2.py",
+      "fanOut": 3,
+      "name": "manual_pipeline_check2.py"
+    },
+    {
+      "id": "file:tests/pipeline/manual_pipeline_feedback_check.py",
+      "fanOut": 3,
+      "name": "manual_pipeline_feedback_check.py"
+    },
+    {
+      "id": "file:tests/unit/test_stt_idle_timeout.py",
+      "fanOut": 3,
+      "name": "test_stt_idle_timeout.py"
+    },
+    {
+      "id": "file:tests/llm/raw_dump.py",
+      "fanOut": 3,
+      "name": "raw_dump.py"
+    },
+    {
+      "id": "file:tests/tts/manual_tts_check.py",
+      "fanOut": 3,
+      "name": "manual_tts_check.py"
+    },
+    {
+      "id": "pipeline:.github/workflows/deploy.yml",
+      "fanOut": 3,
+      "name": "deploy.yml"
+    },
+    {
+      "id": "file:tests/integration/test_spring_client.py",
+      "fanOut": 2,
+      "name": "test_spring_client.py"
+    }
+  ],
+  "bfsTraversal": {
+    "startNode": "file:app/main.py",
+    "order": [
+      "file:app/main.py",
+      "file:app/api/v1/__init__.py",
+      "file:app/api/v1/internal.py",
+      "file:app/api/v1/scenario.py",
+      "file:app/api/v1/websocket.py",
+      "file:app/core/config.py",
+      "file:app/core/logging.py",
+      "file:app/core/metrics.py",
+      "file:app/db/base.py",
+      "file:app/deps/redis.py",
+      "file:app/core/preset_scenarios.py",
+      "file:app/core/security.py",
+      "file:app/db/models.py",
+      "file:app/deps/db.py",
+      "file:app/schemas/scenario.py",
+      "file:app/core/enums.py",
+      "file:app/deps/auth.py",
+      "file:app/services/scenario_service.py",
+      "file:app/services/pipeline.py",
+      "file:app/services/session.py",
+      "file:app/services/spring_client.py",
+      "file:app/core/prompt_matrix.py",
+      "file:app/schemas/frames.py",
+      "file:app/schemas/llm.py",
+      "file:app/services/llm.py",
+      "file:app/services/stt.py",
+      "file:app/services/tremor.py",
+      "file:app/services/tts.py",
+      "file:app/services/llm_prompt.py"
+    ],
+    "depthMap": {
+      "file:app/main.py": 0,
+      "file:app/api/v1/__init__.py": 1,
+      "file:app/api/v1/internal.py": 1,
+      "file:app/api/v1/scenario.py": 1,
+      "file:app/api/v1/websocket.py": 1,
+      "file:app/core/config.py": 1,
+      "file:app/core/logging.py": 1,
+      "file:app/core/metrics.py": 1,
+      "file:app/db/base.py": 1,
+      "file:app/deps/redis.py": 1,
+      "file:app/core/preset_scenarios.py": 2,
+      "file:app/core/security.py": 2,
+      "file:app/db/models.py": 2,
+      "file:app/deps/db.py": 2,
+      "file:app/schemas/scenario.py": 2,
+      "file:app/core/enums.py": 2,
+      "file:app/deps/auth.py": 2,
+      "file:app/services/scenario_service.py": 2,
+      "file:app/services/pipeline.py": 2,
+      "file:app/services/session.py": 2,
+      "file:app/services/spring_client.py": 2,
+      "file:app/core/prompt_matrix.py": 3,
+      "file:app/schemas/frames.py": 3,
+      "file:app/schemas/llm.py": 3,
+      "file:app/services/llm.py": 3,
+      "file:app/services/stt.py": 3,
+      "file:app/services/tremor.py": 3,
+      "file:app/services/tts.py": 3,
+      "file:app/services/llm_prompt.py": 4
+    },
+    "byDepth": {
+      "0": [
+        "file:app/main.py"
+      ],
+      "1": [
+        "file:app/api/v1/__init__.py",
+        "file:app/api/v1/internal.py",
+        "file:app/api/v1/scenario.py",
+        "file:app/api/v1/websocket.py",
+        "file:app/core/config.py",
+        "file:app/core/logging.py",
+        "file:app/core/metrics.py",
+        "file:app/db/base.py",
+        "file:app/deps/redis.py"
+      ],
+      "2": [
+        "file:app/core/preset_scenarios.py",
+        "file:app/core/security.py",
+        "file:app/db/models.py",
+        "file:app/deps/db.py",
+        "file:app/schemas/scenario.py",
+        "file:app/core/enums.py",
+        "file:app/deps/auth.py",
+        "file:app/services/scenario_service.py",
+        "file:app/services/pipeline.py",
+        "file:app/services/session.py",
+        "file:app/services/spring_client.py"
+      ],
+      "3": [
+        "file:app/core/prompt_matrix.py",
+        "file:app/schemas/frames.py",
+        "file:app/schemas/llm.py",
+        "file:app/services/llm.py",
+        "file:app/services/stt.py",
+        "file:app/services/tremor.py",
+        "file:app/services/tts.py"
+      ],
+      "4": [
+        "file:app/services/llm_prompt.py"
+      ]
+    }
+  },
+  "nonCodeFiles": {
+    "documentation": [
+      {
+        "id": "document:README.md",
+        "name": "README.md",
+        "summary": "프로젝트 루트 README로 'FASTAPI_SERVER'라는 제목 한 줄만 담고 있는 최소한의 문서이다. 현재는 실질적인 설명 없이 프로젝트 진입점 표식 역할만 한다."
+      },
+      {
+        "id": "document:requirements.txt",
+        "name": "requirements.txt",
+        "summary": "런타임·인프라·AI 파이프라인·dev 도구의 정확한 버전을 핀 고정한 pip 의존성 명세 파일이다. pyproject.toml의 범위 지정 의존성을 재현 가능한 배포용으로 고정(예: fastapi==0.115.12, numpy==1.26.4)한다."
+      }
+    ],
+    "infrastructure": [
+      {
+        "id": "service:Dockerfile",
+        "name": "Dockerfile",
+        "summary": "python:3.12-slim-bookworm 기반의 멀티 스테이지 빌드로, builder 스테이지에서 venv에 의존성을 설치하고 runtime 스테이지에서 비루트 appuser로 uvicorn FastAPI 앱을 실행하는 최소 프로덕션 이미지를 생성한다."
+      },
+      {
+        "id": "service:Dockerfile:builder",
+        "name": "builder",
+        "summary": "빌드 의존성을 설치하고 /opt/venv 가상환경에 requirements.txt의 Python 패키지를 설치하는 빌드 전용 스테이지."
+      },
+      {
+        "id": "service:Dockerfile:runtime",
+        "name": "runtime",
+        "summary": "builder의 venv와 app 코드를 복사하고 비루트 appuser로 8000 포트에 uvicorn FastAPI 서버를 구동하는 최종 런타임 스테이지."
+      },
+      {
+        "id": "service:docker-compose.yml",
+        "name": "docker-compose.yml",
+        "summary": "로컬 개발용 compose 정의로, app(FastAPI), db(postgres:16), redis, rabbitmq 서비스를 healthcheck 기반 의존성과 함께 오케스트레이션하고 영속 volume 및 외부 bada-net 네트워크를 구성한다."
+      },
+      {
+        "id": "service:docker-compose.yml:app",
+        "name": "app",
+        "summary": "Dockerfile로 빌드되는 FastAPI 애플리케이션 서비스로, 8000 포트를 노출하고 DATABASE_URL·REDIS_URL·RABBITMQ_URL 환경변수로 db/redis/rabbitmq에 연결된다."
+      },
+      {
+        "id": "service:docker-compose.yml:db",
+        "name": "db",
+        "summary": "postgres:16-alpine 데이터베이스 서비스로 pgdata volume에 데이터를 영속화하고 pg_isready 기반 healthcheck를 제공한다."
+      },
+      {
+        "id": "service:docker-compose.yml:redis",
+        "name": "redis",
+        "summary": "redis:7-alpine 캐시/브로커 서비스로 appendonly 영속화를 사용하며 default와 외부 bada-net 네트워크에 모두 연결된다."
+      },
+      {
+        "id": "service:docker-compose.yml:rabbitmq",
+        "name": "rabbitmq",
+        "summary": "rabbitmq:3-management-alpine 메시지 브로커 서비스로 15672 관리 포트를 노출하고 Celery 작업 큐를 위한 AMQP 브로커 역할을 한다."
+      },
+      {
+        "id": "service:docker-compose.prod.yml",
+        "name": "docker-compose.prod.yml",
+        "summary": "프로덕션 오버레이 compose로, app의 build를 reset하고 GHCR IMAGE ref를 강제하며 GCP 자격증명 마운트·외부 Spring DB/앱 연결·local-only db 프로파일 등 운영 환경 설정을 덮어쓴다."
+      },
+      {
+        "id": "pipeline:.github/workflows/ci.yml",
+        "name": "ci.yml",
+        "summary": "main 브랜치 push 및 모든 pull_request에서 실행되는 CI workflow로, Python 3.12 환경에서 ruff lint와 pytest 단위·통합 테스트를 수행한다."
+      },
+      {
+        "id": "step:.github/workflows/ci.yml:lint-and-test",
+        "name": "lint-and-test",
+        "summary": "checkout, Python 3.12 설치, 의존성 설치 후 ruff check와 pytest(unit·integration)를 순차 실행하는 CI job."
+      },
+      {
+        "id": "pipeline:.github/workflows/deploy.yml",
+        "name": "deploy.yml",
+        "summary": "main 브랜치 push 시 test → build-push → deploy 순으로 실행되는 CD workflow로, 테스트 통과 후 GHCR에 Docker 이미지를 빌드·푸시하고 SSH로 EC2에 docker compose 재배포 및 헬스체크를 수행한다."
+      },
+      {
+        "id": "step:.github/workflows/deploy.yml:test",
+        "name": "test",
+        "summary": "배포 전 게이트 역할을 하는 job으로, ruff lint와 pytest 단위·통합 테스트를 실행해 통과해야만 후속 build-push가 진행된다."
+      },
+      {
+        "id": "step:.github/workflows/deploy.yml:build-push",
+        "name": "build-push",
+        "summary": "test job 통과 후 GHCR에 로그인하고 이미지 ref(commit SHA·latest 태그)를 계산한 뒤 buildx로 Docker 이미지를 빌드해 푸시하며, gha 캐시를 활용하고 image ref를 output으로 노출한다."
+      },
+      {
+        "id": "step:.github/workflows/deploy.yml:deploy",
+        "name": "deploy",
+        "summary": "build-push job 완료 후 docker-compose 파일을 EC2로 scp 전송하고 SSH로 접속해 GHCR pull·docker compose up을 수행하며, internal health 엔드포인트를 최대 15회 폴링해 배포 성공 여부를 판정한다."
+      }
+    ],
+    "data": [],
+    "config": [
+      {
+        "id": "service:.dockerignore",
+        "name": ".dockerignore",
+        "summary": "Docker 빌드 컨텍스트에서 제외할 파일 패턴을 정의하여 이미지 빌드 속도를 높이고 불필요한 파일이 컨테이너에 포함되지 않도록 한다."
+      },
+      {
+        "id": "config:pyproject.toml",
+        "name": "pyproject.toml",
+        "summary": "Python 3.12 기반 bada-ai-server의 프로젝트 메타데이터와 런타임/dev dependency를 정의하고, ruff lint·isort·pytest(asyncio_mode=auto) 설정을 포함하는 통합 빌드 설정 파일이다. FastAPI, Celery, SQLAlchemy, STT/LLM/TTS(Google·Anthropic·ElevenLabs), librosa 등 음성 파이프라인 의존성을 선언한다."
+      },
+      {
+        "id": "config:.understand-anything/config.json",
+        "name": "config.json",
+        "summary": "Understand-Anything 도구의 출력 언어(outputLanguage)를 지정하는 최소 설정 파일이다."
+      }
+    ]
+  },
+  "clusters": [],
+  "layers": {
+    "count": 8,
+    "list": [
+      {
+        "id": "layer:entry",
+        "name": "진입점 계층",
+        "description": "FastAPI 애플리케이션 부트스트랩과 앱 패키지 초기화를 담당하는 서버 진입점입니다."
+      },
+      {
+        "id": "layer:api",
+        "name": "API 계층",
+        "description": "WebSocket 음성 스트리밍, 내부 연동, 시나리오·피드백 라우터 등 v1 HTTP/WS 엔드포인트를 정의합니다."
+      },
+      {
+        "id": "layer:service",
+        "name": "서비스 계층",
+        "description": "STT·LLM·TTS 음성 파이프라인, 세션 관리, Spring 연동, tremor 분석, Celery 워커 등 핵심 비즈니스 로직을 담당합니다."
+      },
+      {
+        "id": "layer:schema",
+        "name": "스키마 계층",
+        "description": "프레임·LLM·시나리오·피드백 데이터 교환에 사용되는 Pydantic 스키마 모델을 정의합니다."
+      },
+      {
+        "id": "layer:data",
+        "name": "데이터 계층",
+        "description": "SQLAlchemy 베이스와 ORM 모델을 통해 asyncpg 기반 영속성 계층을 구성합니다."
+      },
+      {
+        "id": "layer:core",
+        "name": "코어 & 의존성 계층",
+        "description": "설정, enum, 보안, 로깅, 메트릭, 프롬프트 매트릭스와 auth·db·redis FastAPI dependency 등 공통 기반 요소를 제공합니다."
+      },
+      {
+        "id": "layer:test",
+        "name": "테스트 계층",
+        "description": "단위·통합·파이프라인·STT·TTS·LLM·tremor·성능 테스트와 수동 점검 스크립트, 픽스처를 포함합니다."
+      },
+      {
+        "id": "layer:infra",
+        "name": "인프라 & 설정 계층",
+        "description": "Dockerfile, docker-compose, GitHub Actions CI/CD 파이프라인, 프로젝트 설정·문서 등 빌드·배포·구성 자원을 포함합니다."
+      }
+    ]
+  },
+  "nodeSummaryIndex": {
+    "file:app/core/config.py": {
+      "name": "config.py",
+      "type": "file",
+      "summary": "Pydantic Settings 기반의 중앙 설정 모듈로, Redis/RabbitMQ, JWT, Google STT, Gemini/Anthropic LLM, ElevenLabs TTS, Spring Boot 내부 URL 등 모든 환경 변수를 정의하고 lru_cache로 단일 인스턴스를 제공한다."
+    },
+    "file:app/schemas/frames.py": {
+      "name": "frames.py",
+      "type": "file",
+      "summary": "WebSocket으로 클라이언트에 전송하는 제어 프레임(감정, 발화 종료, interrupt, 세션 종료, 에러)의 타입 enum과 생성 헬퍼를 정의한다."
+    },
+    "file:app/services/pipeline.py": {
+      "name": "pipeline.py",
+      "type": "file",
+      "summary": "실시간 음성 통화의 핵심 오케스트레이터로, WebSocket 오디오 수신부터 STT, LLM, TTS, tremor 분석, barge-in, 메트릭 수집, 세션 종료까지 전체 voice pipeline 흐름을 비동기로 제어한다."
+    },
+    "file:app/services/spring_client.py": {
+      "name": "spring_client.py",
+      "type": "file",
+      "summary": "세션 종료 시 Spring Boot 백엔드의 내부 엔드포인트에 결과를 통지하는 httpx 기반 내부 HTTP 클라이언트로, 내부 시크릿 헤더를 붙이고 실패는 조용히 흡수한다."
+    },
+    "file:app/services/stt.py": {
+      "name": "stt.py",
+      "type": "file",
+      "summary": "Google Cloud Speech 스트리밍 API를 감싼 STT 클라이언트로, 오디오 큐를 요청 스트림으로 변환하고 응답을 STTEvent로 파싱하며 idle timeout(OutOfRange)을 전용 예외로 변환한다."
+    },
+    "file:tests/integration/test_spring_client.py": {
+      "name": "test_spring_client.py",
+      "type": "file",
+      "summary": "로컬 HTTPServer 목 서버를 띄워 SpringInternalClient의 세션 종료 통지 요청 형식, trailing slash 정규화, 서버 오류·연결 불가 시 흡수 동작을 검증하는 통합 테스트."
+    },
+    "file:tests/pipeline/manual_pipeline_check.py": {
+      "name": "manual_pipeline_check.py",
+      "type": "file",
+      "summary": "실제 마이크 입력과 sounddevice 재생을 사용해 VoicePipeline을 수동으로 구동하는 검수 스크립트로, FakeWebSocket으로 오디오 입출력을 시뮬레이션한다."
+    },
+    "file:tests/pipeline/manual_pipeline_check2.py": {
+      "name": "manual_pipeline_check2.py",
+      "type": "file",
+      "summary": "manual_pipeline_check를 확장해 상태 watcher, 큐 길이 미터, 입력 레벨 측정 등 진단 로깅을 추가한 VoicePipeline 수동 검수 스크립트."
+    },
+    "file:tests/pipeline/manual_pipeline_check3.py": {
+      "name": "manual_pipeline_check3.py",
+      "type": "file",
+      "summary": "턴별 지연 메트릭 집계(Metrics)와 에러 수집기를 갖춘 가장 정교한 VoicePipeline 수동 검수 스크립트로, 종료 시 통계 요약을 출력한다."
+    },
+    "file:tests/pipeline/manual_pipeline_feedback_check.py": {
+      "name": "manual_pipeline_feedback_check.py",
+      "type": "file",
+      "summary": "세션 종료 프레임의 feedback 페이로드 구조와 타입을 검증하기 위해 마이크 입력으로 파이프라인을 돌리고 종료 후 verdict를 출력하는 수동 검수 스크립트."
+    },
+    "file:tests/pipeline/test_good_segments.py": {
+      "name": "test_good_segments.py",
+      "type": "file",
+      "summary": "VoicePipeline의 _intersect와 _pick_good_segments 로직을 검증하는 단위 테스트로, 사용자 턴 구간 교차·AI 턴 제외·길이순 상위 선별·짧은 조각 제거를 확인한다."
+    },
+    "file:tests/stt/latency_check.py": {
+      "name": "latency_check.py",
+      "type": "file",
+      "summary": "실제 마이크 오디오를 GoogleSTTClient에 흘려 begin→interim, end→final 지연을 측정하고 통계 요약을 출력하는 STT 지연 측정 스크립트."
+    },
+    "file:tests/stt/manual_stt_check.py": {
+      "name": "manual_stt_check.py",
+      "type": "file",
+      "summary": "실제 마이크 입력을 GoogleSTTClient에 보내 interim/final 인식 결과를 로그로 확인하는 STT 수동 검수 스크립트."
+    },
+    "file:tests/stt/stream_check.py": {
+      "name": "stream_check.py",
+      "type": "file",
+      "summary": "더미 PCM을 GoogleSTTClient 스트림에 넣어 인식 이벤트 출력 동작을 빠르게 확인하는 최소 스모크 스크립트."
+    },
+    "file:tests/unit/test_pipeline_send_json.py": {
+      "name": "test_pipeline_send_json.py",
+      "type": "file",
+      "summary": "VoicePipeline._send_json이 WebSocketDisconnect·RuntimeError는 조용히 처리하고 예기치 못한 예외는 traceback을 남기며 이미 종료된 경우 no-op인지 검증하는 단위 테스트."
+    },
+    "file:tests/unit/test_stt_idle_timeout.py": {
+      "name": "test_stt_idle_timeout.py",
+      "type": "file",
+      "summary": "STT idle timeout(OutOfRange) 변환과 다른 에러의 재발생, 그리고 파이프라인 소비자가 idle timeout 시 오디오 없이 종료하고 API 에러 시 에러 종료하는지 검증하는 단위 테스트."
+    },
+    "file:app/api/v1/__init__.py": {
+      "name": "__init__.py",
+      "type": "file",
+      "summary": "app/api/v1 패키지를 표시하는 빈 패키지 마커 파일이다."
+    },
+    "file:app/api/v1/internal.py": {
+      "name": "internal.py",
+      "type": "file",
+      "summary": "Spring 백엔드 등 내부 서비스 전용 라우터로, 헬스 체크와 시나리오 컨텍스트(대본 포함)를 camelCase로 반환하는 엔드포인트를 제공한다."
+    },
+    "file:app/api/v1/scenario.py": {
+      "name": "scenario.py",
+      "type": "file",
+      "summary": "시나리오 목록 조회 및 사용자 인증 기반 커스텀 시나리오 생성을 처리하는 공개 API 라우터."
+    },
+    "file:app/core/__init__.py": {
+      "name": "__init__.py",
+      "type": "file",
+      "summary": "app/core 패키지를 표시하는 빈 패키지 마커 파일이다."
+    },
+    "file:app/core/enums.py": {
+      "name": "enums.py",
+      "type": "file",
+      "summary": "세션 타입, AI 성격, 난이도, 시나리오 카테고리 등 도메인 전반에서 공유하는 문자열 기반 Enum을 정의한다."
+    },
+    "file:app/core/preset_scenarios.py": {
+      "name": "preset_scenarios.py",
+      "type": "file",
+      "summary": "사전 정의된 프리셋 통화 시나리오 데이터와 PRESET_MAP 조회 테이블을 담고, 시나리오를 ScenarioInfo 스키마로 변환하는 헬퍼를 제공한다."
+    },
+    "file:app/core/prompt_matrix.py": {
+      "name": "prompt_matrix.py",
+      "type": "file",
+      "summary": "AI 성격, 통화 대상, 통화 목적을 조합해 LLM 시스템 프롬프트를 동적으로 빌드하는 프롬프트 매트릭스 로직."
+    },
+    "file:app/core/security.py": {
+      "name": "security.py",
+      "type": "file",
+      "summary": "내부 시크릿 헤더 검증, JWT 액세스 토큰 디코딩, WebSocket 인증을 담당하는 보안 유틸리티 모음."
+    },
+    "file:app/db/base.py": {
+      "name": "base.py",
+      "type": "file",
+      "summary": "SQLAlchemy async 엔진, 세션 팩토리, declarative Base를 구성하고 스키마 초기화 함수를 제공하는 DB 기반 모듈."
+    },
+    "file:app/db/models.py": {
+      "name": "models.py",
+      "type": "file",
+      "summary": "시나리오와 피드백을 영속화하는 SQLAlchemy ORM 테이블 모델(ScenarioORM, FeedbackORM)을 정의한다."
+    },
+    "file:app/deps/auth.py": {
+      "name": "auth.py",
+      "type": "file",
+      "summary": "Bearer 토큰을 디코딩해 현재 사용자 ID를 추출하는 FastAPI 인증 의존성을 제공한다."
+    },
+    "file:app/deps/db.py": {
+      "name": "db.py",
+      "type": "file",
+      "summary": "요청 단위 async DB 세션을 yield하는 FastAPI 의존성 제너레이터."
+    },
+    "file:app/schemas/scenario.py": {
+      "name": "scenario.py",
+      "type": "file",
+      "summary": "시나리오 조회·생성 API의 요청/응답을 정의하는 Pydantic 스키마 모음(camelCase alias 포함)."
+    },
+    "file:app/services/scenario_service.py": {
+      "name": "scenario_service.py",
+      "type": "file",
+      "summary": "프리셋·커스텀 시나리오 목록 조회와 Anthropic LLM을 이용한 커스텀 시나리오 대본 생성 및 영속화를 담당하는 서비스 계층."
+    },
+    "file:tests/unit/test_internal_context.py": {
+      "name": "test_internal_context.py",
+      "type": "file",
+      "summary": "내부 시나리오 컨텍스트 엔드포인트와 내부 시크릿 검증 로직을 가짜 DB 세션과 httpx ASGI 클라이언트로 검증하는 단위 테스트."
+    },
+    "file:app/schemas/llm.py": {
+      "name": "llm.py",
+      "type": "file",
+      "summary": "LLM 파이프라인에서 사용하는 핵심 데이터 모델을 정의한다. AI 감정(AiEmotion), 스트리밍 이벤트(LLMEvent), 시나리오 턴(ScenarioTurn), 턴 컨텍스트(TurnContext) 등의 schema를 제공한다."
+    },
+    "file:app/services/llm.py": {
+      "name": "llm.py",
+      "type": "file",
+      "summary": "Google Gemini 기반 LLM 클라이언트로, 응답을 스트리밍하면서 감정 태그와 제어 태그를 파싱해 LLMEvent로 방출한다. 부분 태그 버퍼링과 안전성(blocked) 처리 로직을 포함한다."
+    },
+    "file:app/services/llm_prompt.py": {
+      "name": "llm_prompt.py",
+      "type": "file",
+      "summary": "TurnContext로부터 LLM에 전달할 시스템 prompt와 contents(대화 메시지)를 구성하는 prompt 빌더 모듈이다."
+    },
+    "file:app/services/session.py": {
+      "name": "session.py",
+      "type": "file",
+      "summary": "Redis에 저장된 세션 데이터를 로드·인증하고, 세션 정보로부터 LLM 턴에 필요한 TurnContext를 구성하는 세션 서비스 모듈이다."
+    },
+    "file:app/services/tts.py": {
+      "name": "tts.py",
+      "type": "file",
+      "summary": "ElevenLabs WebSocket 기반 TTS 클라이언트로, 텍스트 청크를 스트리밍 전송하고 감정별 voice 설정을 적용해 오디오 청크를 비동기로 수신·방출한다."
+    },
+    "file:tests/llm/manual_llm_check.py": {
+      "name": "manual_llm_check.py",
+      "type": "file",
+      "summary": "LLMClient를 대화형으로 실행해 한 턴씩 스트리밍 응답을 확인하는 수동 검증 스크립트다."
+    },
+    "file:tests/llm/raw_dump.py": {
+      "name": "raw_dump.py",
+      "type": "file",
+      "summary": "Gemini 스트림의 원시 응답을 파싱 없이 그대로 덤프해 LLM 출력 형식을 확인하는 디버깅 스크립트다."
+    },
+    "file:tests/tts/manual_tts_check.py": {
+      "name": "manual_tts_check.py",
+      "type": "file",
+      "summary": "ElevenLabsTTSClient로 텍스트를 합성해 PCM 오디오를 스피커로 재생하며 지연 시간을 측정하는 수동 검증 스크립트다."
+    },
+    "file:tests/tts/stream_check.py": {
+      "name": "stream_check.py",
+      "type": "file",
+      "summary": "ElevenLabsTTSClient의 스트리밍 출력을 수집해 WAV 파일로 저장하고 첫 청크 지연을 측정하는 수동 검증 스크립트다."
+    },
+    "file:tests/unit/test_llm_parsing.py": {
+      "name": "test_llm_parsing.py",
+      "type": "file",
+      "summary": "LLM 스트림 태그 파싱 헬퍼(_find_first_tag, _trailing_partial_len, _drain_pending)와 LLMClient의 감정 헤드·부분 헤드 판정 로직을 검증하는 단위 테스트다."
+    },
+    "file:tests/unit/test_session.py": {
+      "name": "test_session.py",
+      "type": "file",
+      "summary": "세션 소유권 판정, 스크립트 파싱, TurnContext 구성 등 session 서비스의 순수 로직을 검증하는 단위 테스트다."
+    },
+    "file:app/api/v1/websocket.py": {
+      "name": "websocket.py",
+      "type": "file",
+      "summary": "실시간 음성 통화용 WebSocket endpoint를 정의한다. JWT 인증과 세션 검증을 거친 뒤 STT/LLM/TTS VoicePipeline을 가동하고 연결 해제/에러를 처리한다."
+    },
+    "file:app/core/logging.py": {
+      "name": "logging.py",
+      "type": "file",
+      "summary": "애플리케이션 로깅 설정을 담당한다. 설정값을 읽어 dictConfig로 로깅 포맷·핸들러·레벨을 구성하는 setup_logging 함수를 제공한다."
+    },
+    "file:app/core/metrics.py": {
+      "name": "metrics.py",
+      "type": "file",
+      "summary": "지연시간 측정을 위한 metrics 유틸리티. monotonic 기반 now_ms, 구간 측정용 Stopwatch 클래스, 구조화 로그를 남기는 log_metric을 제공한다."
+    },
+    "file:app/deps/redis.py": {
+      "name": "redis.py",
+      "type": "file",
+      "summary": "Redis 연결 의존성을 관리한다. 비동기 클라이언트 초기화(init_redis)·종료(close_redis)와 FastAPI 의존성 주입용 get_redis, 로그용 URL 마스킹을 제공한다."
+    },
+    "file:app/main.py": {
+      "name": "main.py",
+      "type": "file",
+      "summary": "FastAPI 애플리케이션 진입점. lifespan으로 로깅·Redis·DB를 초기화/종료하고 create_app에서 미들웨어, 요청 metrics, 라우터(websocket/scenario/internal)를 구성한다."
+    },
+    "file:tests/unit/test_metrics.py": {
+      "name": "test_metrics.py",
+      "type": "file",
+      "summary": "metrics 모듈과 파이프라인 _TurnTimings의 단위 테스트. now_ms 단조성, Stopwatch 구간 측정, log_metric 동작·예외 처리, 턴 타이밍 metric 산출을 검증한다."
+    },
+    "file:app/services/tremor.py": {
+      "name": "tremor.py",
+      "type": "file",
+      "summary": "librosa/scipy 기반으로 음성에서 떨림(tremor)과 안정적 발화 구간을 분석하는 서비스 모듈로, F0(피치)를 cents 단위로 추출하고 4~12Hz 대역의 떨림 에피소드를 검출하며 떨림이 없는 'good candidate' 발화 구간을 산출한다."
+    },
+    "file:tests/tremor/manual_tremor_check.py": {
+      "name": "manual_tremor_check.py",
+      "type": "file",
+      "summary": "TremorAnalyzer를 합성 신호·마이크 입력·오디오 파일에 대해 수동으로 실행하고 결과를 출력하는 CLI 검증 스크립트로, 떨림이 포함된 PCM을 합성하는 헬퍼도 제공한다."
+    },
+    "file:tests/tremor/test_tremor.py": {
+      "name": "test_tremor.py",
+      "type": "file",
+      "summary": "TremorAnalyzer의 구간 차집합(_subtract)·발화 spans(_speaking_spans)·전체 analyze 로직을 검증하는 pytest 단위 테스트 모듈로, 합성 신호로 떨림 검출/제외 동작을 확인한다."
+    },
+    "file:tests/perf/_stats.py": {
+      "name": "_stats.py",
+      "type": "file",
+      "summary": "벤치마크 latency 샘플을 집계하는 통계 헬퍼 모듈로, percentile 계산·요약 통계·결과 표 출력 기능을 제공한다. REST/WebSocket 벤치마크 스크립트가 공통으로 사용한다."
+    },
+    "file:tests/perf/rest_bench.py": {
+      "name": "rest_bench.py",
+      "type": "file",
+      "summary": "OpenAPI 스펙에서 엔드포인트를 읽어 httpx로 REST API에 반복 요청하며 latency/throughput를 측정하는 벤치마크 CLI 스크립트."
+    },
+    "file:tests/perf/ws_bench.py": {
+      "name": "ws_bench.py",
+      "type": "file",
+      "summary": "오디오 파일을 청크 단위로 WebSocket에 스트리밍하며 실시간 음성 파이프라인의 첫 응답 latency와 턴 처리 시간을 측정하는 벤치마크 CLI 스크립트."
+    },
+    "service:.dockerignore": {
+      "name": ".dockerignore",
+      "type": "config",
+      "summary": "Docker 빌드 컨텍스트에서 제외할 파일 패턴을 정의하여 이미지 빌드 속도를 높이고 불필요한 파일이 컨테이너에 포함되지 않도록 한다."
+    },
+    "service:Dockerfile": {
+      "name": "Dockerfile",
+      "type": "service",
+      "summary": "python:3.12-slim-bookworm 기반의 멀티 스테이지 빌드로, builder 스테이지에서 venv에 의존성을 설치하고 runtime 스테이지에서 비루트 appuser로 uvicorn FastAPI 앱을 실행하는 최소 프로덕션 이미지를 생성한다."
+    },
+    "service:Dockerfile:builder": {
+      "name": "builder",
+      "type": "service",
+      "summary": "빌드 의존성을 설치하고 /opt/venv 가상환경에 requirements.txt의 Python 패키지를 설치하는 빌드 전용 스테이지."
+    },
+    "service:Dockerfile:runtime": {
+      "name": "runtime",
+      "type": "service",
+      "summary": "builder의 venv와 app 코드를 복사하고 비루트 appuser로 8000 포트에 uvicorn FastAPI 서버를 구동하는 최종 런타임 스테이지."
+    },
+    "service:docker-compose.yml": {
+      "name": "docker-compose.yml",
+      "type": "service",
+      "summary": "로컬 개발용 compose 정의로, app(FastAPI), db(postgres:16), redis, rabbitmq 서비스를 healthcheck 기반 의존성과 함께 오케스트레이션하고 영속 volume 및 외부 bada-net 네트워크를 구성한다."
+    },
+    "service:docker-compose.yml:app": {
+      "name": "app",
+      "type": "service",
+      "summary": "Dockerfile로 빌드되는 FastAPI 애플리케이션 서비스로, 8000 포트를 노출하고 DATABASE_URL·REDIS_URL·RABBITMQ_URL 환경변수로 db/redis/rabbitmq에 연결된다."
+    },
+    "service:docker-compose.yml:db": {
+      "name": "db",
+      "type": "service",
+      "summary": "postgres:16-alpine 데이터베이스 서비스로 pgdata volume에 데이터를 영속화하고 pg_isready 기반 healthcheck를 제공한다."
+    },
+    "service:docker-compose.yml:redis": {
+      "name": "redis",
+      "type": "service",
+      "summary": "redis:7-alpine 캐시/브로커 서비스로 appendonly 영속화를 사용하며 default와 외부 bada-net 네트워크에 모두 연결된다."
+    },
+    "service:docker-compose.yml:rabbitmq": {
+      "name": "rabbitmq",
+      "type": "service",
+      "summary": "rabbitmq:3-management-alpine 메시지 브로커 서비스로 15672 관리 포트를 노출하고 Celery 작업 큐를 위한 AMQP 브로커 역할을 한다."
+    },
+    "service:docker-compose.prod.yml": {
+      "name": "docker-compose.prod.yml",
+      "type": "service",
+      "summary": "프로덕션 오버레이 compose로, app의 build를 reset하고 GHCR IMAGE ref를 강제하며 GCP 자격증명 마운트·외부 Spring DB/앱 연결·local-only db 프로파일 등 운영 환경 설정을 덮어쓴다."
+    },
+    "pipeline:.github/workflows/ci.yml": {
+      "name": "ci.yml",
+      "type": "pipeline",
+      "summary": "main 브랜치 push 및 모든 pull_request에서 실행되는 CI workflow로, Python 3.12 환경에서 ruff lint와 pytest 단위·통합 테스트를 수행한다."
+    },
+    "step:.github/workflows/ci.yml:lint-and-test": {
+      "name": "lint-and-test",
+      "type": "pipeline",
+      "summary": "checkout, Python 3.12 설치, 의존성 설치 후 ruff check와 pytest(unit·integration)를 순차 실행하는 CI job."
+    },
+    "pipeline:.github/workflows/deploy.yml": {
+      "name": "deploy.yml",
+      "type": "pipeline",
+      "summary": "main 브랜치 push 시 test → build-push → deploy 순으로 실행되는 CD workflow로, 테스트 통과 후 GHCR에 Docker 이미지를 빌드·푸시하고 SSH로 EC2에 docker compose 재배포 및 헬스체크를 수행한다."
+    },
+    "step:.github/workflows/deploy.yml:test": {
+      "name": "test",
+      "type": "pipeline",
+      "summary": "배포 전 게이트 역할을 하는 job으로, ruff lint와 pytest 단위·통합 테스트를 실행해 통과해야만 후속 build-push가 진행된다."
+    },
+    "step:.github/workflows/deploy.yml:build-push": {
+      "name": "build-push",
+      "type": "pipeline",
+      "summary": "test job 통과 후 GHCR에 로그인하고 이미지 ref(commit SHA·latest 태그)를 계산한 뒤 buildx로 Docker 이미지를 빌드해 푸시하며, gha 캐시를 활용하고 image ref를 output으로 노출한다."
+    },
+    "step:.github/workflows/deploy.yml:deploy": {
+      "name": "deploy",
+      "type": "pipeline",
+      "summary": "build-push job 완료 후 docker-compose 파일을 EC2로 scp 전송하고 SSH로 접속해 GHCR pull·docker compose up을 수행하며, internal health 엔드포인트를 최대 15회 폴링해 배포 성공 여부를 판정한다."
+    },
+    "document:README.md": {
+      "name": "README.md",
+      "type": "document",
+      "summary": "프로젝트 루트 README로 'FASTAPI_SERVER'라는 제목 한 줄만 담고 있는 최소한의 문서이다. 현재는 실질적인 설명 없이 프로젝트 진입점 표식 역할만 한다."
+    },
+    "config:pyproject.toml": {
+      "name": "pyproject.toml",
+      "type": "config",
+      "summary": "Python 3.12 기반 bada-ai-server의 프로젝트 메타데이터와 런타임/dev dependency를 정의하고, ruff lint·isort·pytest(asyncio_mode=auto) 설정을 포함하는 통합 빌드 설정 파일이다. FastAPI, Celery, SQLAlchemy, STT/LLM/TTS(Google·Anthropic·ElevenLabs), librosa 등 음성 파이프라인 의존성을 선언한다."
+    },
+    "document:requirements.txt": {
+      "name": "requirements.txt",
+      "type": "document",
+      "summary": "런타임·인프라·AI 파이프라인·dev 도구의 정확한 버전을 핀 고정한 pip 의존성 명세 파일이다. pyproject.toml의 범위 지정 의존성을 재현 가능한 배포용으로 고정(예: fastapi==0.115.12, numpy==1.26.4)한다."
+    },
+    "file:.understand-anything/.understandignore": {
+      "name": ".understandignore",
+      "type": "file",
+      "summary": "Understand-Anything 지식 그래프 분석에서 제외할 파일/디렉터리 패턴을 정의하는 ignore 설정 파일이다."
+    },
+    "config:.understand-anything/config.json": {
+      "name": "config.json",
+      "type": "config",
+      "summary": "Understand-Anything 도구의 출력 언어(outputLanguage)를 지정하는 최소 설정 파일이다."
+    },
+    "file:app/__init__.py": {
+      "name": "__init__.py",
+      "type": "file",
+      "summary": "app 패키지를 표시하는 빈 package marker 파일이다 (함수/클래스 없음)."
+    },
+    "file:app/api/__init__.py": {
+      "name": "__init__.py",
+      "type": "file",
+      "summary": "app.api 패키지를 표시하는 빈 package marker 파일이다 (함수/클래스 없음)."
+    },
+    "file:app/api/v1/feedback.py": {
+      "name": "feedback.py",
+      "type": "file",
+      "summary": "피드백 조회용 FastAPI APIRouter를 prefix `/api/v1/feedback`로 선언하는 라우터 모듈로, 실제 엔드포인트는 아직 주석 처리된 스텁 상태이다."
+    },
+    "file:app/db/__init__.py": {
+      "name": "__init__.py",
+      "type": "file",
+      "summary": "app.db 패키지를 표시하는 빈 package marker 파일이다 (함수/클래스 없음)."
+    },
+    "file:app/deps/__init__.py": {
+      "name": "__init__.py",
+      "type": "file",
+      "summary": "app.deps 패키지를 표시하는 빈 package marker 파일이다 (함수/클래스 없음)."
+    },
+    "file:app/schemas/__init__.py": {
+      "name": "__init__.py",
+      "type": "file",
+      "summary": "app.schemas 패키지를 표시하는 빈 package marker 파일이다 (함수/클래스 없음)."
+    },
+    "file:app/schemas/feedback.py": {
+      "name": "feedback.py",
+      "type": "file",
+      "summary": "피드백 응답 스키마(FeedbackResponse)를 정의하는 모듈로, 떨림 횟수·침묵 구간·하이라이트 필드를 노출한다."
+    },
+    "file:app/services/__init__.py": {
+      "name": "__init__.py",
+      "type": "file",
+      "summary": "app.services 패키지를 표시하는 빈 package marker 파일이다 (함수/클래스 없음)."
+    },
+    "file:app/workers/__init__.py": {
+      "name": "__init__.py",
+      "type": "file",
+      "summary": "app.workers 패키지를 표시하는 빈 package marker 파일이다 (함수/클래스 없음)."
+    },
+    "file:tests/__init__.py": {
+      "name": "__init__.py",
+      "type": "file",
+      "summary": "tests 패키지를 표시하는 빈 package marker 파일이다 (함수/클래스 없음)."
+    },
+    "file:tests/conftest.py": {
+      "name": "conftest.py",
+      "type": "file",
+      "summary": "pytest 실행 전 테스트용 환경 변수(REDIS_URL, JWT_SECRET, API 키 등)를 os.environ에 주입하는 conftest fixture 설정 모듈이다."
+    },
+    "file:tests/integration/__init__.py": {
+      "name": "__init__.py",
+      "type": "file",
+      "summary": "tests.integration 패키지를 표시하는 빈 package marker 파일이다 (함수/클래스 없음)."
+    },
+    "file:tests/llm/__init__.py": {
+      "name": "__init__.py",
+      "type": "file",
+      "summary": "tests.llm 패키지를 표시하는 빈 package marker 파일이다 (함수/클래스 없음)."
+    },
+    "file:tests/output/__init__.py": {
+      "name": "__init__.py",
+      "type": "file",
+      "summary": "tests.output 패키지를 표시하는 빈 package marker 파일이다 (함수/클래스 없음)."
+    },
+    "file:tests/perf/__init__.py": {
+      "name": "__init__.py",
+      "type": "file",
+      "summary": "tests.perf 패키지를 표시하는 빈 package marker 파일이다 (함수/클래스 없음)."
+    },
+    "file:tests/pipeline/__init__.py": {
+      "name": "__init__.py",
+      "type": "file",
+      "summary": "tests.pipeline 패키지를 표시하는 빈 package marker 파일이다 (함수/클래스 없음)."
+    },
+    "file:tests/stt/__init__.py": {
+      "name": "__init__.py",
+      "type": "file",
+      "summary": "tests.stt 패키지를 표시하는 빈 package marker 파일이다 (함수/클래스 없음)."
+    },
+    "file:tests/stt/mic_check.py": {
+      "name": "mic_check.py",
+      "type": "file",
+      "summary": "마이크 입력 오디오 레벨(RMS)을 콜백으로 측정·출력하는 STT 마이크 점검용 테스트 스크립트이다."
+    },
+    "file:tests/tremor/__init__.py": {
+      "name": "__init__.py",
+      "type": "file",
+      "summary": "tests.tremor 패키지를 표시하는 빈 package marker 파일이다 (함수/클래스 없음)."
+    },
+    "file:tests/tts/__init__.py": {
+      "name": "__init__.py",
+      "type": "file",
+      "summary": "tests.tts 패키지를 표시하는 빈 package marker 파일이다 (함수/클래스 없음)."
+    },
+    "file:tests/unit/__init__.py": {
+      "name": "__init__.py",
+      "type": "file",
+      "summary": "tests.unit 패키지를 표시하는 빈 package marker 파일이다 (함수/클래스 없음)."
+    }
+  },
+  "totalNodes": 96,
+  "totalEdges": 145
+}

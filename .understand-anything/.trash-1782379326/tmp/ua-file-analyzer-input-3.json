@@ -1,0 +1,17 @@
+{
+  "projectRoot": "/Users/junha0729/Dev/projects/narsha/2026/bada-ai-server",
+  "batchFiles": [
+    {"path": "app/schemas/llm.py", "language": "python", "sizeLines": 62, "fileCategory": "code"},
+    {"path": "app/services/llm.py", "language": "python", "sizeLines": 224, "fileCategory": "code"},
+    {"path": "app/services/llm_prompt.py", "language": "python", "sizeLines": 105, "fileCategory": "code"},
+    {"path": "app/services/session.py", "language": "python", "sizeLines": 132, "fileCategory": "code"},
+    {"path": "app/services/tts.py", "language": "python", "sizeLines": 136, "fileCategory": "code"},
+    {"path": "tests/llm/manual_llm_check.py", "language": "python", "sizeLines": 93, "fileCategory": "code"},
+    {"path": "tests/llm/raw_dump.py", "language": "python", "sizeLines": 67, "fileCategory": "code"},
+    {"path": "tests/tts/manual_tts_check.py", "language": "python", "sizeLines": 79, "fileCategory": "code"},
+    {"path": "tests/tts/stream_check.py", "language": "python", "sizeLines": 87, "fileCategory": "code"},
+    {"path": "tests/unit/test_llm_parsing.py", "language": "python", "sizeLines": 93, "fileCategory": "code"},
+    {"path": "tests/unit/test_session.py", "language": "python", "sizeLines": 98, "fileCategory": "code"}
+  ],
+  "batchImportData": {"app/schemas/llm.py":["app/core/enums.py"],"app/services/llm.py":["app/core/config.py","app/schemas/llm.py","app/services/llm_prompt.py"],"app/services/llm_prompt.py":["app/schemas/llm.py"],"app/services/session.py":["app/schemas/llm.py"],"app/services/tts.py":["app/core/config.py","app/schemas/llm.py"],"tests/llm/manual_llm_check.py":["app/schemas/llm.py","app/services/llm.py"],"tests/llm/raw_dump.py":["app/schemas/llm.py","app/services/llm_prompt.py","app/services/llm.py"],"tests/tts/manual_tts_check.py":["app/core/config.py","app/schemas/llm.py","app/services/tts.py"],"tests/tts/stream_check.py":["app/core/config.py","app/services/tts.py"],"tests/unit/test_llm_parsing.py":["app/schemas/llm.py","app/services/llm.py"],"tests/unit/test_session.py":["app/schemas/llm.py","app/services/session.py"]}
+}

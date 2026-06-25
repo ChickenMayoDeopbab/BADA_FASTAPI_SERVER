@@ -1,0 +1,2403 @@
+{
+  "scriptCompleted": true,
+  "filesAnalyzed": 11,
+  "filesSkipped": [],
+  "results": [
+    {
+      "path": "app/schemas/llm.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 62,
+      "nonEmptyLines": 49,
+      "classes": [
+        {
+          "name": "AiEmotion",
+          "startLine": 16,
+          "endLine": 23,
+          "methods": [],
+          "properties": []
+        },
+        {
+          "name": "LLMEventType",
+          "startLine": 25,
+          "endLine": 34,
+          "methods": [],
+          "properties": []
+        },
+        {
+          "name": "LLMEvent",
+          "startLine": 37,
+          "endLine": 42,
+          "methods": [],
+          "properties": [
+            "type",
+            "text",
+            "emotion"
+          ]
+        },
+        {
+          "name": "ScenarioTurn",
+          "startLine": 45,
+          "endLine": 50,
+          "methods": [],
+          "properties": [
+            "step",
+            "ai_goal",
+            "hint"
+          ]
+        },
+        {
+          "name": "TurnContext",
+          "startLine": 53,
+          "endLine": 62,
+          "methods": [],
+          "properties": [
+            "personality",
+            "scenario_title",
+            "scenario_role",
+            "script",
+            "current_step",
+            "history",
+            "user_utterance"
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "name": "AiEmotion",
+          "line": 16,
+          "isDefault": false
+        },
+        {
+          "name": "LLMEventType",
+          "line": 25,
+          "isDefault": false
+        },
+        {
+          "name": "LLMEvent",
+          "line": 36,
+          "isDefault": false
+        },
+        {
+          "name": "ScenarioTurn",
+          "line": 44,
+          "isDefault": false
+        },
+        {
+          "name": "TurnContext",
+          "line": 52,
+          "isDefault": false
+        }
+      ],
+      "metrics": {
+        "importCount": 1,
+        "exportCount": 5,
+        "functionCount": 0,
+        "classCount": 5
+      }
+    },
+    {
+      "path": "app/services/llm.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 224,
+      "nonEmptyLines": 196,
+      "functions": [
+        {
+          "name": "_find_first_tag",
+          "startLine": 23,
+          "endLine": 32,
+          "params": [
+            "buffer"
+          ]
+        },
+        {
+          "name": "_trailing_partial_len",
+          "startLine": 35,
+          "endLine": 43,
+          "params": [
+            "buffer"
+          ]
+        },
+        {
+          "name": "_drain_pending",
+          "startLine": 46,
+          "endLine": 67,
+          "params": [
+            "pending"
+          ]
+        }
+      ],
+      "classes": [
+        {
+          "name": "LLMClient",
+          "startLine": 89,
+          "endLine": 224,
+          "methods": [
+            "__init__",
+            "_build_gen_config",
+            "_emit_emotion_head",
+            "_looks_like_partial_head",
+            "stream",
+            "_is_blocked"
+          ],
+          "properties": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "_find_first_tag",
+          "line": 23,
+          "isDefault": false
+        },
+        {
+          "name": "_trailing_partial_len",
+          "line": 35,
+          "isDefault": false
+        },
+        {
+          "name": "_drain_pending",
+          "line": 46,
+          "isDefault": false
+        },
+        {
+          "name": "LLMClient",
+          "line": 89,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "_find_first_tag",
+          "callee": "buffer.find",
+          "lineNumber": 27
+        },
+        {
+          "caller": "_trailing_partial_len",
+          "callee": "min",
+          "lineNumber": 38
+        },
+        {
+          "caller": "_trailing_partial_len",
+          "callee": "len",
+          "lineNumber": 38
+        },
+        {
+          "caller": "_trailing_partial_len",
+          "callee": "len",
+          "lineNumber": 38
+        },
+        {
+          "caller": "_trailing_partial_len",
+          "callee": "range",
+          "lineNumber": 39
+        },
+        {
+          "caller": "_trailing_partial_len",
+          "callee": "tag.startswith",
+          "lineNumber": 40
+        },
+        {
+          "caller": "_trailing_partial_len",
+          "callee": "max",
+          "lineNumber": 41
+        },
+        {
+          "caller": "_drain_pending",
+          "callee": "_find_first_tag",
+          "lineNumber": 51
+        },
+        {
+          "caller": "_drain_pending",
+          "callee": "emit_parts.append",
+          "lineNumber": 56
+        },
+        {
+          "caller": "_drain_pending",
+          "callee": "controls.append",
+          "lineNumber": 57
+        },
+        {
+          "caller": "_drain_pending",
+          "callee": "len",
+          "lineNumber": 58
+        },
+        {
+          "caller": "_drain_pending",
+          "callee": "_trailing_partial_len",
+          "lineNumber": 60
+        },
+        {
+          "caller": "_drain_pending",
+          "callee": "emit_parts.append",
+          "lineNumber": 62
+        },
+        {
+          "caller": "_drain_pending",
+          "callee": "emit_parts.append",
+          "lineNumber": 65
+        },
+        {
+          "caller": "_drain_pending",
+          "callee": "\"\".join",
+          "lineNumber": 67
+        },
+        {
+          "caller": "__init__",
+          "callee": "get_settings",
+          "lineNumber": 91
+        },
+        {
+          "caller": "__init__",
+          "callee": "genai.Client",
+          "lineNumber": 92
+        },
+        {
+          "caller": "_build_gen_config",
+          "callee": "types.GenerateContentConfig",
+          "lineNumber": 96
+        },
+        {
+          "caller": "_build_gen_config",
+          "callee": "types.ThinkingConfig",
+          "lineNumber": 101
+        },
+        {
+          "caller": "_emit_emotion_head",
+          "callee": "_EMOTION_PATTERN.search",
+          "lineNumber": 107
+        },
+        {
+          "caller": "_emit_emotion_head",
+          "callee": "match.group(1).upper",
+          "lineNumber": 110
+        },
+        {
+          "caller": "_emit_emotion_head",
+          "callee": "match.group",
+          "lineNumber": 110
+        },
+        {
+          "caller": "_emit_emotion_head",
+          "callee": "AiEmotion",
+          "lineNumber": 112
+        },
+        {
+          "caller": "_emit_emotion_head",
+          "callee": "logger.warning",
+          "lineNumber": 114
+        },
+        {
+          "caller": "_emit_emotion_head",
+          "callee": "buffer[match.end():].lstrip",
+          "lineNumber": 116
+        },
+        {
+          "caller": "_emit_emotion_head",
+          "callee": "match.end",
+          "lineNumber": 116
+        },
+        {
+          "caller": "_looks_like_partial_head",
+          "callee": "buffer.lstrip",
+          "lineNumber": 122
+        },
+        {
+          "caller": "_looks_like_partial_head",
+          "callee": "len",
+          "lineNumber": 123
+        },
+        {
+          "caller": "_looks_like_partial_head",
+          "callee": "len",
+          "lineNumber": 123
+        },
+        {
+          "caller": "_looks_like_partial_head",
+          "callee": "_EMOTION_PREFIX.startswith",
+          "lineNumber": 124
+        },
+        {
+          "caller": "_looks_like_partial_head",
+          "callee": "head.startswith",
+          "lineNumber": 125
+        },
+        {
+          "caller": "stream",
+          "callee": "build_system_prompt",
+          "lineNumber": 129
+        },
+        {
+          "caller": "stream",
+          "callee": "build_contents",
+          "lineNumber": 130
+        },
+        {
+          "caller": "stream",
+          "callee": "self._build_gen_config",
+          "lineNumber": 131
+        },
+        {
+          "caller": "stream",
+          "callee": "self._client.aio.models.generate_content_stream",
+          "lineNumber": 138
+        },
+        {
+          "caller": "stream",
+          "callee": "self._is_blocked",
+          "lineNumber": 144
+        },
+        {
+          "caller": "stream",
+          "callee": "logger.warning",
+          "lineNumber": 145
+        },
+        {
+          "caller": "stream",
+          "callee": "LLMEvent",
+          "lineNumber": 146
+        },
+        {
+          "caller": "stream",
+          "callee": "self._emit_emotion_head",
+          "lineNumber": 155
+        },
+        {
+          "caller": "stream",
+          "callee": "self._looks_like_partial_head",
+          "lineNumber": 157
+        },
+        {
+          "caller": "stream",
+          "callee": "LLMEvent",
+          "lineNumber": 159
+        },
+        {
+          "caller": "stream",
+          "callee": "LLMEvent",
+          "lineNumber": 169
+        },
+        {
+          "caller": "stream",
+          "callee": "_drain_pending",
+          "lineNumber": 177
+        },
+        {
+          "caller": "stream",
+          "callee": "LLMEvent",
+          "lineNumber": 179
+        },
+        {
+          "caller": "stream",
+          "callee": "LLMEvent",
+          "lineNumber": 181
+        },
+        {
+          "caller": "stream",
+          "callee": "LLMEvent",
+          "lineNumber": 184
+        },
+        {
+          "caller": "stream",
+          "callee": "self._looks_like_partial_head",
+          "lineNumber": 187
+        },
+        {
+          "caller": "stream",
+          "callee": "_drain_pending",
+          "lineNumber": 188
+        },
+        {
+          "caller": "stream",
+          "callee": "LLMEvent",
+          "lineNumber": 190
+        },
+        {
+          "caller": "stream",
+          "callee": "LLMEvent",
+          "lineNumber": 192
+        },
+        {
+          "caller": "stream",
+          "callee": "logger.warning",
+          "lineNumber": 194
+        },
+        {
+          "caller": "stream",
+          "callee": "_trailing_partial_len",
+          "lineNumber": 196
+        },
+        {
+          "caller": "stream",
+          "callee": "len",
+          "lineNumber": 196
+        },
+        {
+          "caller": "stream",
+          "callee": "logger.debug",
+          "lineNumber": 197
+        },
+        {
+          "caller": "stream",
+          "callee": "LLMEvent",
+          "lineNumber": 199
+        },
+        {
+          "caller": "stream",
+          "callee": "LLMEvent",
+          "lineNumber": 201
+        },
+        {
+          "caller": "stream",
+          "callee": "logger.debug",
+          "lineNumber": 204
+        },
+        {
+          "caller": "stream",
+          "callee": "logger.exception",
+          "lineNumber": 207
+        },
+        {
+          "caller": "stream",
+          "callee": "LLMEvent",
+          "lineNumber": 208
+        },
+        {
+          "caller": "stream",
+          "callee": "logger.exception",
+          "lineNumber": 210
+        },
+        {
+          "caller": "stream",
+          "callee": "LLMEvent",
+          "lineNumber": 211
+        },
+        {
+          "caller": "_is_blocked",
+          "callee": "getattr",
+          "lineNumber": 216
+        },
+        {
+          "caller": "_is_blocked",
+          "callee": "getattr",
+          "lineNumber": 217
+        },
+        {
+          "caller": "_is_blocked",
+          "callee": "getattr",
+          "lineNumber": 219
+        },
+        {
+          "caller": "_is_blocked",
+          "callee": "getattr",
+          "lineNumber": 221
+        },
+        {
+          "caller": "_is_blocked",
+          "callee": "str(finish).upper().endswith",
+          "lineNumber": 222
+        },
+        {
+          "caller": "_is_blocked",
+          "callee": "str(finish).upper",
+          "lineNumber": 222
+        },
+        {
+          "caller": "_is_blocked",
+          "callee": "str",
+          "lineNumber": 222
+        }
+      ],
+      "metrics": {
+        "importCount": 3,
+        "exportCount": 4,
+        "functionCount": 3,
+        "classCount": 1
+      }
+    },
+    {
+      "path": "app/services/llm_prompt.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 105,
+      "nonEmptyLines": 94,
+      "functions": [
+        {
+          "name": "_format_script",
+          "startLine": 70,
+          "endLine": 75,
+          "params": [
+            "script",
+            "current_step"
+          ]
+        },
+        {
+          "name": "build_system_prompt",
+          "startLine": 77,
+          "endLine": 93,
+          "params": [
+            "ctx"
+          ]
+        },
+        {
+          "name": "build_contents",
+          "startLine": 95,
+          "endLine": 105,
+          "params": [
+            "ctx"
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "name": "_format_script",
+          "line": 70,
+          "isDefault": false
+        },
+        {
+          "name": "build_system_prompt",
+          "line": 77,
+          "isDefault": false
+        },
+        {
+          "name": "build_contents",
+          "line": 95,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "_format_script",
+          "callee": "lines.append",
+          "lineNumber": 74
+        },
+        {
+          "caller": "_format_script",
+          "callee": "\"\\n\".join",
+          "lineNumber": 75
+        },
+        {
+          "caller": "build_system_prompt",
+          "callee": "_format_script",
+          "lineNumber": 80
+        },
+        {
+          "caller": "build_contents",
+          "callee": "contents.append",
+          "lineNumber": 103
+        },
+        {
+          "caller": "build_contents",
+          "callee": "contents.append",
+          "lineNumber": 104
+        }
+      ],
+      "metrics": {
+        "importCount": 1,
+        "exportCount": 3,
+        "functionCount": 3,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "app/services/session.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 132,
+      "nonEmptyLines": 116,
+      "functions": [
+        {
+          "name": "load_session",
+          "startLine": 15,
+          "endLine": 31,
+          "params": [
+            "redis",
+            "session_id"
+          ]
+        },
+        {
+          "name": "is_session_owner",
+          "startLine": 33,
+          "endLine": 49,
+          "params": [
+            "session",
+            "user_id"
+          ]
+        },
+        {
+          "name": "authenticate_session",
+          "startLine": 51,
+          "endLine": 82,
+          "params": [
+            "ws",
+            "redis",
+            "session_id",
+            "user_id"
+          ]
+        },
+        {
+          "name": "_parse_script",
+          "startLine": 85,
+          "endLine": 103,
+          "params": [
+            "raw_script"
+          ]
+        },
+        {
+          "name": "build_turn_context",
+          "startLine": 106,
+          "endLine": 132,
+          "params": [
+            "session",
+            "current_step",
+            "history",
+            "user_utterance"
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "name": "load_session",
+          "line": 15,
+          "isDefault": false
+        },
+        {
+          "name": "is_session_owner",
+          "line": 33,
+          "isDefault": false
+        },
+        {
+          "name": "authenticate_session",
+          "line": 51,
+          "isDefault": false
+        },
+        {
+          "name": "_parse_script",
+          "line": 85,
+          "isDefault": false
+        },
+        {
+          "name": "build_turn_context",
+          "line": 106,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "load_session",
+          "callee": "redis.get",
+          "lineNumber": 20
+        },
+        {
+          "caller": "load_session",
+          "callee": "json.loads",
+          "lineNumber": 24
+        },
+        {
+          "caller": "load_session",
+          "callee": "logger.error",
+          "lineNumber": 26
+        },
+        {
+          "caller": "is_session_owner",
+          "callee": "session.get",
+          "lineNumber": 35
+        },
+        {
+          "caller": "is_session_owner",
+          "callee": "logger.error",
+          "lineNumber": 37
+        },
+        {
+          "caller": "is_session_owner",
+          "callee": "int",
+          "lineNumber": 43
+        },
+        {
+          "caller": "is_session_owner",
+          "callee": "logger.error",
+          "lineNumber": 45
+        },
+        {
+          "caller": "is_session_owner",
+          "callee": "type",
+          "lineNumber": 47
+        },
+        {
+          "caller": "authenticate_session",
+          "callee": "load_session",
+          "lineNumber": 58
+        },
+        {
+          "caller": "authenticate_session",
+          "callee": "logger.warning",
+          "lineNumber": 61
+        },
+        {
+          "caller": "authenticate_session",
+          "callee": "ws.close",
+          "lineNumber": 65
+        },
+        {
+          "caller": "authenticate_session",
+          "callee": "RuntimeError",
+          "lineNumber": 69
+        },
+        {
+          "caller": "authenticate_session",
+          "callee": "is_session_owner",
+          "lineNumber": 71
+        },
+        {
+          "caller": "authenticate_session",
+          "callee": "logger.warning",
+          "lineNumber": 72
+        },
+        {
+          "caller": "authenticate_session",
+          "callee": "ws.close",
+          "lineNumber": 76
+        },
+        {
+          "caller": "authenticate_session",
+          "callee": "RuntimeError",
+          "lineNumber": 80
+        },
+        {
+          "caller": "_parse_script",
+          "callee": "isinstance",
+          "lineNumber": 88
+        },
+        {
+          "caller": "_parse_script",
+          "callee": "isinstance",
+          "lineNumber": 91
+        },
+        {
+          "caller": "_parse_script",
+          "callee": "turns.append",
+          "lineNumber": 94
+        },
+        {
+          "caller": "_parse_script",
+          "callee": "ScenarioTurn",
+          "lineNumber": 95
+        },
+        {
+          "caller": "_parse_script",
+          "callee": "int",
+          "lineNumber": 96
+        },
+        {
+          "caller": "_parse_script",
+          "callee": "str",
+          "lineNumber": 97
+        },
+        {
+          "caller": "_parse_script",
+          "callee": "str",
+          "lineNumber": 98
+        },
+        {
+          "caller": "_parse_script",
+          "callee": "item.get",
+          "lineNumber": 98
+        },
+        {
+          "caller": "_parse_script",
+          "callee": "logger.warning",
+          "lineNumber": 102
+        },
+        {
+          "caller": "_parse_script",
+          "callee": "sorted",
+          "lineNumber": 103
+        },
+        {
+          "caller": "build_turn_context",
+          "callee": "session.get",
+          "lineNumber": 113
+        },
+        {
+          "caller": "build_turn_context",
+          "callee": "AiPersonality",
+          "lineNumber": 115
+        },
+        {
+          "caller": "build_turn_context",
+          "callee": "str(raw_personality).upper",
+          "lineNumber": 115
+        },
+        {
+          "caller": "build_turn_context",
+          "callee": "str",
+          "lineNumber": 115
+        },
+        {
+          "caller": "build_turn_context",
+          "callee": "logger.warning",
+          "lineNumber": 117
+        },
+        {
+          "caller": "build_turn_context",
+          "callee": "session.get",
+          "lineNumber": 120
+        },
+        {
+          "caller": "build_turn_context",
+          "callee": "isinstance",
+          "lineNumber": 121
+        },
+        {
+          "caller": "build_turn_context",
+          "callee": "TurnContext",
+          "lineNumber": 124
+        },
+        {
+          "caller": "build_turn_context",
+          "callee": "str",
+          "lineNumber": 126
+        },
+        {
+          "caller": "build_turn_context",
+          "callee": "scenario.get",
+          "lineNumber": 126
+        },
+        {
+          "caller": "build_turn_context",
+          "callee": "str",
+          "lineNumber": 127
+        },
+        {
+          "caller": "build_turn_context",
+          "callee": "scenario.get",
+          "lineNumber": 127
+        },
+        {
+          "caller": "build_turn_context",
+          "callee": "_parse_script",
+          "lineNumber": 128
+        },
+        {
+          "caller": "build_turn_context",
+          "callee": "scenario.get",
+          "lineNumber": 128
+        }
+      ],
+      "metrics": {
+        "importCount": 1,
+        "exportCount": 5,
+        "functionCount": 5,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "app/services/tts.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 136,
+      "nonEmptyLines": 118,
+      "classes": [
+        {
+          "name": "TTSSession",
+          "startLine": 26,
+          "endLine": 82,
+          "methods": [
+            "__init__",
+            "_voice_settings_for",
+            "begin",
+            "_send_text",
+            "stream",
+            "aclose"
+          ],
+          "properties": []
+        },
+        {
+          "name": "ElevenLabsTTSClient",
+          "startLine": 85,
+          "endLine": 136,
+          "methods": [
+            "__init__",
+            "_build_uri",
+            "open",
+            "stream"
+          ],
+          "properties": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "TTSSession",
+          "line": 26,
+          "isDefault": false
+        },
+        {
+          "name": "ElevenLabsTTSClient",
+          "line": 85,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "_voice_settings_for",
+          "callee": "dict",
+          "lineNumber": 36
+        },
+        {
+          "caller": "_voice_settings_for",
+          "callee": "settings.update",
+          "lineNumber": 37
+        },
+        {
+          "caller": "_voice_settings_for",
+          "callee": "_EMOTION_VOICE_OVERRIDES.get",
+          "lineNumber": 37
+        },
+        {
+          "caller": "begin",
+          "callee": "self._ws.send",
+          "lineNumber": 43
+        },
+        {
+          "caller": "begin",
+          "callee": "json.dumps",
+          "lineNumber": 44
+        },
+        {
+          "caller": "begin",
+          "callee": "self._voice_settings_for",
+          "lineNumber": 44
+        },
+        {
+          "caller": "_send_text",
+          "callee": "chunk.endswith",
+          "lineNumber": 52
+        },
+        {
+          "caller": "_send_text",
+          "callee": "self._ws.send",
+          "lineNumber": 53
+        },
+        {
+          "caller": "_send_text",
+          "callee": "json.dumps",
+          "lineNumber": 53
+        },
+        {
+          "caller": "_send_text",
+          "callee": "self._ws.send",
+          "lineNumber": 54
+        },
+        {
+          "caller": "_send_text",
+          "callee": "json.dumps",
+          "lineNumber": 54
+        },
+        {
+          "caller": "stream",
+          "callee": "RuntimeError",
+          "lineNumber": 58
+        },
+        {
+          "caller": "stream",
+          "callee": "asyncio.create_task",
+          "lineNumber": 60
+        },
+        {
+          "caller": "stream",
+          "callee": "self._send_text",
+          "lineNumber": 60
+        },
+        {
+          "caller": "stream",
+          "callee": "json.loads",
+          "lineNumber": 63
+        },
+        {
+          "caller": "stream",
+          "callee": "msg.get",
+          "lineNumber": 64
+        },
+        {
+          "caller": "stream",
+          "callee": "base64.b64decode",
+          "lineNumber": 66
+        },
+        {
+          "caller": "stream",
+          "callee": "msg.get",
+          "lineNumber": 67
+        },
+        {
+          "caller": "stream",
+          "callee": "sender.done",
+          "lineNumber": 70
+        },
+        {
+          "caller": "stream",
+          "callee": "sender.cancel",
+          "lineNumber": 71
+        },
+        {
+          "caller": "stream",
+          "callee": "suppress",
+          "lineNumber": 72
+        },
+        {
+          "caller": "aclose",
+          "callee": "self._ws.close",
+          "lineNumber": 80
+        },
+        {
+          "caller": "aclose",
+          "callee": "logger.debug",
+          "lineNumber": 82
+        },
+        {
+          "caller": "open",
+          "callee": "websockets.connect",
+          "lineNumber": 116
+        },
+        {
+          "caller": "open",
+          "callee": "self._build_uri",
+          "lineNumber": 117
+        },
+        {
+          "caller": "open",
+          "callee": "logger.exception",
+          "lineNumber": 121
+        },
+        {
+          "caller": "open",
+          "callee": "TTSSession",
+          "lineNumber": 123
+        },
+        {
+          "caller": "stream",
+          "callee": "self.open",
+          "lineNumber": 130
+        },
+        {
+          "caller": "stream",
+          "callee": "session.begin",
+          "lineNumber": 132
+        },
+        {
+          "caller": "stream",
+          "callee": "session.stream",
+          "lineNumber": 133
+        },
+        {
+          "caller": "stream",
+          "callee": "session.aclose",
+          "lineNumber": 136
+        }
+      ],
+      "metrics": {
+        "importCount": 2,
+        "exportCount": 2,
+        "functionCount": 0,
+        "classCount": 2
+      }
+    },
+    {
+      "path": "tests/llm/manual_llm_check.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 93,
+      "nonEmptyLines": 77,
+      "functions": [
+        {
+          "name": "run_turn",
+          "startLine": 28,
+          "endLine": 49,
+          "params": [
+            "client",
+            "ctx"
+          ]
+        },
+        {
+          "name": "main",
+          "startLine": 52,
+          "endLine": 87,
+          "params": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "run_turn",
+          "line": 28,
+          "isDefault": false
+        },
+        {
+          "name": "main",
+          "line": 52,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "run_turn",
+          "callee": "time.perf_counter",
+          "lineNumber": 30
+        },
+        {
+          "caller": "run_turn",
+          "callee": "client.stream",
+          "lineNumber": 33
+        },
+        {
+          "caller": "run_turn",
+          "callee": "print",
+          "lineNumber": 35
+        },
+        {
+          "caller": "run_turn",
+          "callee": "print",
+          "lineNumber": 36
+        },
+        {
+          "caller": "run_turn",
+          "callee": "time.perf_counter",
+          "lineNumber": 39
+        },
+        {
+          "caller": "run_turn",
+          "callee": "print",
+          "lineNumber": 40
+        },
+        {
+          "caller": "run_turn",
+          "callee": "collected.append",
+          "lineNumber": 41
+        },
+        {
+          "caller": "run_turn",
+          "callee": "print",
+          "lineNumber": 43
+        },
+        {
+          "caller": "run_turn",
+          "callee": "time.perf_counter",
+          "lineNumber": 45
+        },
+        {
+          "caller": "run_turn",
+          "callee": "print",
+          "lineNumber": 47
+        },
+        {
+          "caller": "run_turn",
+          "callee": "\"\".join",
+          "lineNumber": 49
+        },
+        {
+          "caller": "main",
+          "callee": "LLMClient",
+          "lineNumber": 53
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 57
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 58
+        },
+        {
+          "caller": "main",
+          "callee": "input(\"You: \").strip",
+          "lineNumber": 62
+        },
+        {
+          "caller": "main",
+          "callee": "input",
+          "lineNumber": 62
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 64
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 67
+        },
+        {
+          "caller": "main",
+          "callee": "TurnContext",
+          "lineNumber": 70
+        },
+        {
+          "caller": "main",
+          "callee": "run_turn",
+          "lineNumber": 80
+        },
+        {
+          "caller": "main",
+          "callee": "history.append",
+          "lineNumber": 83
+        },
+        {
+          "caller": "main",
+          "callee": "history.append",
+          "lineNumber": 84
+        },
+        {
+          "caller": "main",
+          "callee": "len",
+          "lineNumber": 85
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 87
+        }
+      ],
+      "metrics": {
+        "importCount": 2,
+        "exportCount": 2,
+        "functionCount": 2,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "tests/llm/raw_dump.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 67,
+      "nonEmptyLines": 58,
+      "functions": [
+        {
+          "name": "main",
+          "startLine": 23,
+          "endLine": 63,
+          "params": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "main",
+          "line": 23,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "main",
+          "callee": "LLMClient",
+          "lineNumber": 24
+        },
+        {
+          "caller": "main",
+          "callee": "build_system_prompt",
+          "lineNumber": 25
+        },
+        {
+          "caller": "main",
+          "callee": "build_contents",
+          "lineNumber": 26
+        },
+        {
+          "caller": "main",
+          "callee": "client._build_gen_config",
+          "lineNumber": 28
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 29
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 30
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 31
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 32
+        },
+        {
+          "caller": "main",
+          "callee": "client._client.aio.models.generate_content_stream",
+          "lineNumber": 34
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 43
+        },
+        {
+          "caller": "main",
+          "callee": "getattr",
+          "lineNumber": 44
+        },
+        {
+          "caller": "main",
+          "callee": "getattr",
+          "lineNumber": 46
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 48
+        },
+        {
+          "caller": "main",
+          "callee": "getattr",
+          "lineNumber": 49
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 55
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 56
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 58
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 59
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 60
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 61
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 63
+        }
+      ],
+      "metrics": {
+        "importCount": 3,
+        "exportCount": 1,
+        "functionCount": 1,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "tests/tts/manual_tts_check.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 79,
+      "nonEmptyLines": 62,
+      "functions": [
+        {
+          "name": "text_once",
+          "startLine": 27,
+          "endLine": 28,
+          "params": [
+            "text"
+          ]
+        },
+        {
+          "name": "synth_and_play",
+          "startLine": 31,
+          "endLine": 54,
+          "params": [
+            "client",
+            "text",
+            "emotion"
+          ]
+        },
+        {
+          "name": "main",
+          "startLine": 57,
+          "endLine": 72,
+          "params": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "text_once",
+          "line": 27,
+          "isDefault": false
+        },
+        {
+          "name": "synth_and_play",
+          "line": 31,
+          "isDefault": false
+        },
+        {
+          "name": "main",
+          "line": 57,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "synth_and_play",
+          "callee": "logger.info",
+          "lineNumber": 32
+        },
+        {
+          "caller": "synth_and_play",
+          "callee": "asyncio.get_event_loop().time",
+          "lineNumber": 34
+        },
+        {
+          "caller": "synth_and_play",
+          "callee": "asyncio.get_event_loop",
+          "lineNumber": 34
+        },
+        {
+          "caller": "synth_and_play",
+          "callee": "client.stream",
+          "lineNumber": 37
+        },
+        {
+          "caller": "synth_and_play",
+          "callee": "text_once",
+          "lineNumber": 37
+        },
+        {
+          "caller": "synth_and_play",
+          "callee": "asyncio.get_event_loop().time",
+          "lineNumber": 39
+        },
+        {
+          "caller": "synth_and_play",
+          "callee": "asyncio.get_event_loop",
+          "lineNumber": 39
+        },
+        {
+          "caller": "synth_and_play",
+          "callee": "logger.info",
+          "lineNumber": 40
+        },
+        {
+          "caller": "synth_and_play",
+          "callee": "chunks.append",
+          "lineNumber": 41
+        },
+        {
+          "caller": "synth_and_play",
+          "callee": "b\"\".join",
+          "lineNumber": 43
+        },
+        {
+          "caller": "synth_and_play",
+          "callee": "logger.warning",
+          "lineNumber": 45
+        },
+        {
+          "caller": "synth_and_play",
+          "callee": "np.frombuffer",
+          "lineNumber": 48
+        },
+        {
+          "caller": "synth_and_play",
+          "callee": "np.zeros",
+          "lineNumber": 49
+        },
+        {
+          "caller": "synth_and_play",
+          "callee": "int",
+          "lineNumber": 49
+        },
+        {
+          "caller": "synth_and_play",
+          "callee": "np.concatenate",
+          "lineNumber": 50
+        },
+        {
+          "caller": "synth_and_play",
+          "callee": "sd.play",
+          "lineNumber": 51
+        },
+        {
+          "caller": "synth_and_play",
+          "callee": "sd.wait",
+          "lineNumber": 52
+        },
+        {
+          "caller": "synth_and_play",
+          "callee": "sd.stop",
+          "lineNumber": 53
+        },
+        {
+          "caller": "synth_and_play",
+          "callee": "logger.info",
+          "lineNumber": 54
+        },
+        {
+          "caller": "synth_and_play",
+          "callee": "len",
+          "lineNumber": 54
+        },
+        {
+          "caller": "main",
+          "callee": "get_settings",
+          "lineNumber": 58
+        },
+        {
+          "caller": "main",
+          "callee": "ElevenLabsTTSClient",
+          "lineNumber": 59
+        },
+        {
+          "caller": "main",
+          "callee": "logger.info",
+          "lineNumber": 61
+        },
+        {
+          "caller": "main",
+          "callee": "synth_and_play",
+          "lineNumber": 69
+        },
+        {
+          "caller": "main",
+          "callee": "logger.exception",
+          "lineNumber": 71
+        },
+        {
+          "caller": "main",
+          "callee": "asyncio.sleep",
+          "lineNumber": 72
+        }
+      ],
+      "metrics": {
+        "importCount": 3,
+        "exportCount": 3,
+        "functionCount": 3,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "tests/tts/stream_check.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 87,
+      "nonEmptyLines": 70,
+      "functions": [
+        {
+          "name": "text_once",
+          "startLine": 22,
+          "endLine": 24,
+          "params": [
+            "text"
+          ]
+        },
+        {
+          "name": "write_wav",
+          "startLine": 27,
+          "endLine": 33,
+          "params": [
+            "pcm",
+            "path"
+          ]
+        },
+        {
+          "name": "main",
+          "startLine": 36,
+          "endLine": 83,
+          "params": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "text_once",
+          "line": 22,
+          "isDefault": false
+        },
+        {
+          "name": "write_wav",
+          "line": 27,
+          "isDefault": false
+        },
+        {
+          "name": "main",
+          "line": 36,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "write_wav",
+          "callee": "wave.open",
+          "lineNumber": 29
+        },
+        {
+          "caller": "write_wav",
+          "callee": "wf.setnchannels",
+          "lineNumber": 30
+        },
+        {
+          "caller": "write_wav",
+          "callee": "wf.setsampwidth",
+          "lineNumber": 31
+        },
+        {
+          "caller": "write_wav",
+          "callee": "wf.setframerate",
+          "lineNumber": 32
+        },
+        {
+          "caller": "write_wav",
+          "callee": "wf.writeframes",
+          "lineNumber": 33
+        },
+        {
+          "caller": "main",
+          "callee": "get_settings",
+          "lineNumber": 37
+        },
+        {
+          "caller": "main",
+          "callee": "logger.info",
+          "lineNumber": 39
+        },
+        {
+          "caller": "main",
+          "callee": "logger.info",
+          "lineNumber": 40
+        },
+        {
+          "caller": "main",
+          "callee": "logger.info",
+          "lineNumber": 41
+        },
+        {
+          "caller": "main",
+          "callee": "logger.info",
+          "lineNumber": 42
+        },
+        {
+          "caller": "main",
+          "callee": "logger.info",
+          "lineNumber": 43
+        },
+        {
+          "caller": "main",
+          "callee": "logger.info",
+          "lineNumber": 44
+        },
+        {
+          "caller": "main",
+          "callee": "logger.info",
+          "lineNumber": 45
+        },
+        {
+          "caller": "main",
+          "callee": "logger.info",
+          "lineNumber": 46
+        },
+        {
+          "caller": "main",
+          "callee": "ElevenLabsTTSClient",
+          "lineNumber": 48
+        },
+        {
+          "caller": "main",
+          "callee": "asyncio.get_event_loop().time",
+          "lineNumber": 54
+        },
+        {
+          "caller": "main",
+          "callee": "asyncio.get_event_loop",
+          "lineNumber": 54
+        },
+        {
+          "caller": "main",
+          "callee": "logger.info",
+          "lineNumber": 56
+        },
+        {
+          "caller": "main",
+          "callee": "client.stream",
+          "lineNumber": 58
+        },
+        {
+          "caller": "main",
+          "callee": "text_once",
+          "lineNumber": 58
+        },
+        {
+          "caller": "main",
+          "callee": "asyncio.get_event_loop().time",
+          "lineNumber": 59
+        },
+        {
+          "caller": "main",
+          "callee": "asyncio.get_event_loop",
+          "lineNumber": 59
+        },
+        {
+          "caller": "main",
+          "callee": "logger.info",
+          "lineNumber": 62
+        },
+        {
+          "caller": "main",
+          "callee": "len",
+          "lineNumber": 64
+        },
+        {
+          "caller": "main",
+          "callee": "chunks.append",
+          "lineNumber": 65
+        },
+        {
+          "caller": "main",
+          "callee": "logger.info",
+          "lineNumber": 66
+        },
+        {
+          "caller": "main",
+          "callee": "logger.exception",
+          "lineNumber": 68
+        },
+        {
+          "caller": "main",
+          "callee": "b\"\".join",
+          "lineNumber": 71
+        },
+        {
+          "caller": "main",
+          "callee": "logger.info",
+          "lineNumber": 73
+        },
+        {
+          "caller": "main",
+          "callee": "OUT_DIR.mkdir",
+          "lineNumber": 79
+        },
+        {
+          "caller": "main",
+          "callee": "write_wav",
+          "lineNumber": 80
+        },
+        {
+          "caller": "main",
+          "callee": "str",
+          "lineNumber": 80
+        },
+        {
+          "caller": "main",
+          "callee": "logger.info",
+          "lineNumber": 81
+        },
+        {
+          "caller": "main",
+          "callee": "logger.warning",
+          "lineNumber": 83
+        }
+      ],
+      "metrics": {
+        "importCount": 2,
+        "exportCount": 3,
+        "functionCount": 3,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "tests/unit/test_llm_parsing.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 93,
+      "nonEmptyLines": 70,
+      "functions": [
+        {
+          "name": "test_find_first_tag_none_when_absent",
+          "startLine": 10,
+          "endLine": 11,
+          "params": []
+        },
+        {
+          "name": "test_find_first_tag_returns_earliest",
+          "startLine": 13,
+          "endLine": 17,
+          "params": []
+        },
+        {
+          "name": "test_trailing_partial_len_holds_incomplete_tag",
+          "startLine": 20,
+          "endLine": 21,
+          "params": []
+        },
+        {
+          "name": "test_trailing_partial_len_zero_for_plain_text",
+          "startLine": 23,
+          "endLine": 24,
+          "params": []
+        },
+        {
+          "name": "test_trailing_partial_len_zero_when_bracket_not_tag_prefix",
+          "startLine": 26,
+          "endLine": 27,
+          "params": []
+        },
+        {
+          "name": "test_drain_pending_plain_text_passthrough",
+          "startLine": 30,
+          "endLine": 34,
+          "params": []
+        },
+        {
+          "name": "test_drain_pending_extracts_control_tag",
+          "startLine": 36,
+          "endLine": 40,
+          "params": []
+        },
+        {
+          "name": "test_drain_pending_holds_partial_trailing_tag",
+          "startLine": 42,
+          "endLine": 46,
+          "params": []
+        },
+        {
+          "name": "test_drain_pending_reassembles_split_tag",
+          "startLine": 48,
+          "endLine": 55,
+          "params": []
+        },
+        {
+          "name": "test_drain_pending_two_tags_in_order",
+          "startLine": 57,
+          "endLine": 61,
+          "params": []
+        },
+        {
+          "name": "test_emit_emotion_head_parses_known_emotion",
+          "startLine": 64,
+          "endLine": 69,
+          "params": []
+        },
+        {
+          "name": "test_emit_emotion_head_unknown_falls_back_to_neutral",
+          "startLine": 71,
+          "endLine": 73,
+          "params": []
+        },
+        {
+          "name": "test_emit_emotion_head_none_when_no_tag",
+          "startLine": 75,
+          "endLine": 76,
+          "params": []
+        },
+        {
+          "name": "test_emit_emotion_head_case_insensitive",
+          "startLine": 79,
+          "endLine": 82,
+          "params": []
+        },
+        {
+          "name": "test_looks_like_partial_head_true_for_incomplete",
+          "startLine": 85,
+          "endLine": 87,
+          "params": []
+        },
+        {
+          "name": "test_looks_like_partial_head_false_when_closed",
+          "startLine": 89,
+          "endLine": 90,
+          "params": []
+        },
+        {
+          "name": "test_looks_like_partial_head_false_for_plain_text",
+          "startLine": 92,
+          "endLine": 93,
+          "params": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "test_find_first_tag_none_when_absent",
+          "line": 10,
+          "isDefault": false
+        },
+        {
+          "name": "test_find_first_tag_returns_earliest",
+          "line": 13,
+          "isDefault": false
+        },
+        {
+          "name": "test_trailing_partial_len_holds_incomplete_tag",
+          "line": 20,
+          "isDefault": false
+        },
+        {
+          "name": "test_trailing_partial_len_zero_for_plain_text",
+          "line": 23,
+          "isDefault": false
+        },
+        {
+          "name": "test_trailing_partial_len_zero_when_bracket_not_tag_prefix",
+          "line": 26,
+          "isDefault": false
+        },
+        {
+          "name": "test_drain_pending_plain_text_passthrough",
+          "line": 30,
+          "isDefault": false
+        },
+        {
+          "name": "test_drain_pending_extracts_control_tag",
+          "line": 36,
+          "isDefault": false
+        },
+        {
+          "name": "test_drain_pending_holds_partial_trailing_tag",
+          "line": 42,
+          "isDefault": false
+        },
+        {
+          "name": "test_drain_pending_reassembles_split_tag",
+          "line": 48,
+          "isDefault": false
+        },
+        {
+          "name": "test_drain_pending_two_tags_in_order",
+          "line": 57,
+          "isDefault": false
+        },
+        {
+          "name": "test_emit_emotion_head_parses_known_emotion",
+          "line": 64,
+          "isDefault": false
+        },
+        {
+          "name": "test_emit_emotion_head_unknown_falls_back_to_neutral",
+          "line": 71,
+          "isDefault": false
+        },
+        {
+          "name": "test_emit_emotion_head_none_when_no_tag",
+          "line": 75,
+          "isDefault": false
+        },
+        {
+          "name": "test_emit_emotion_head_case_insensitive",
+          "line": 79,
+          "isDefault": false
+        },
+        {
+          "name": "test_looks_like_partial_head_true_for_incomplete",
+          "line": 85,
+          "isDefault": false
+        },
+        {
+          "name": "test_looks_like_partial_head_false_when_closed",
+          "line": 89,
+          "isDefault": false
+        },
+        {
+          "name": "test_looks_like_partial_head_false_for_plain_text",
+          "line": 92,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "test_find_first_tag_none_when_absent",
+          "callee": "_find_first_tag",
+          "lineNumber": 11
+        },
+        {
+          "caller": "test_find_first_tag_returns_earliest",
+          "callee": "_find_first_tag",
+          "lineNumber": 15
+        },
+        {
+          "caller": "test_find_first_tag_returns_earliest",
+          "callee": "buf[idx:].startswith",
+          "lineNumber": 17
+        },
+        {
+          "caller": "test_trailing_partial_len_holds_incomplete_tag",
+          "callee": "_trailing_partial_len",
+          "lineNumber": 21
+        },
+        {
+          "caller": "test_trailing_partial_len_holds_incomplete_tag",
+          "callee": "len",
+          "lineNumber": 21
+        },
+        {
+          "caller": "test_trailing_partial_len_zero_for_plain_text",
+          "callee": "_trailing_partial_len",
+          "lineNumber": 24
+        },
+        {
+          "caller": "test_trailing_partial_len_zero_when_bracket_not_tag_prefix",
+          "callee": "_trailing_partial_len",
+          "lineNumber": 27
+        },
+        {
+          "caller": "test_drain_pending_plain_text_passthrough",
+          "callee": "_drain_pending",
+          "lineNumber": 31
+        },
+        {
+          "caller": "test_drain_pending_extracts_control_tag",
+          "callee": "_drain_pending",
+          "lineNumber": 37
+        },
+        {
+          "caller": "test_drain_pending_holds_partial_trailing_tag",
+          "callee": "_drain_pending",
+          "lineNumber": 43
+        },
+        {
+          "caller": "test_drain_pending_reassembles_split_tag",
+          "callee": "_drain_pending",
+          "lineNumber": 49
+        },
+        {
+          "caller": "test_drain_pending_reassembles_split_tag",
+          "callee": "_drain_pending",
+          "lineNumber": 52
+        },
+        {
+          "caller": "test_drain_pending_reassembles_split_tag",
+          "callee": "(emit1 + emit2).strip",
+          "lineNumber": 55
+        },
+        {
+          "caller": "test_drain_pending_reassembles_split_tag",
+          "callee": "\"좋아요  뒷말\".strip",
+          "lineNumber": 55
+        },
+        {
+          "caller": "test_drain_pending_two_tags_in_order",
+          "callee": "_drain_pending",
+          "lineNumber": 58
+        },
+        {
+          "caller": "test_emit_emotion_head_parses_known_emotion",
+          "callee": "LLMClient._emit_emotion_head",
+          "lineNumber": 65
+        },
+        {
+          "caller": "test_emit_emotion_head_unknown_falls_back_to_neutral",
+          "callee": "LLMClient._emit_emotion_head",
+          "lineNumber": 72
+        },
+        {
+          "caller": "test_emit_emotion_head_none_when_no_tag",
+          "callee": "LLMClient._emit_emotion_head",
+          "lineNumber": 76
+        },
+        {
+          "caller": "test_emit_emotion_head_case_insensitive",
+          "callee": "LLMClient._emit_emotion_head",
+          "lineNumber": 80
+        },
+        {
+          "caller": "test_looks_like_partial_head_true_for_incomplete",
+          "callee": "LLMClient._looks_like_partial_head",
+          "lineNumber": 86
+        },
+        {
+          "caller": "test_looks_like_partial_head_true_for_incomplete",
+          "callee": "LLMClient._looks_like_partial_head",
+          "lineNumber": 87
+        },
+        {
+          "caller": "test_looks_like_partial_head_false_when_closed",
+          "callee": "LLMClient._looks_like_partial_head",
+          "lineNumber": 90
+        },
+        {
+          "caller": "test_looks_like_partial_head_false_for_plain_text",
+          "callee": "LLMClient._looks_like_partial_head",
+          "lineNumber": 93
+        }
+      ],
+      "metrics": {
+        "importCount": 2,
+        "exportCount": 17,
+        "functionCount": 17,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "tests/unit/test_session.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 98,
+      "nonEmptyLines": 80,
+      "functions": [
+        {
+          "name": "test_owner_match_int",
+          "startLine": 9,
+          "endLine": 10,
+          "params": []
+        },
+        {
+          "name": "test_owner_match_when_stored_as_str",
+          "startLine": 12,
+          "endLine": 13,
+          "params": []
+        },
+        {
+          "name": "test_owner_mismatch",
+          "startLine": 15,
+          "endLine": 16,
+          "params": []
+        },
+        {
+          "name": "test_owner_missing_field",
+          "startLine": 18,
+          "endLine": 19,
+          "params": []
+        },
+        {
+          "name": "test_owner_unparsable_type",
+          "startLine": 21,
+          "endLine": 22,
+          "params": []
+        },
+        {
+          "name": "test_parse_script_sorts_by_step",
+          "startLine": 25,
+          "endLine": 32,
+          "params": []
+        },
+        {
+          "name": "test_parse_script_skips_malformed_items",
+          "startLine": 34,
+          "endLine": 43,
+          "params": []
+        },
+        {
+          "name": "test_parse_script_non_list_returns_empty",
+          "startLine": 45,
+          "endLine": 47,
+          "params": []
+        },
+        {
+          "name": "test_parse_script_hint_defaults_empty",
+          "startLine": 49,
+          "endLine": 51,
+          "params": []
+        },
+        {
+          "name": "_session",
+          "startLine": 54,
+          "endLine": 63,
+          "params": []
+        },
+        {
+          "name": "test_build_turn_context_maps_fields",
+          "startLine": 66,
+          "endLine": 78,
+          "params": []
+        },
+        {
+          "name": "test_build_turn_context_unknown_personality_falls_back_normal",
+          "startLine": 80,
+          "endLine": 84,
+          "params": []
+        },
+        {
+          "name": "test_build_turn_context_missing_scenario_is_safe",
+          "startLine": 86,
+          "endLine": 92,
+          "params": []
+        },
+        {
+          "name": "test_build_turn_context_non_dict_scenario_is_safe",
+          "startLine": 94,
+          "endLine": 98,
+          "params": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "test_owner_match_int",
+          "line": 9,
+          "isDefault": false
+        },
+        {
+          "name": "test_owner_match_when_stored_as_str",
+          "line": 12,
+          "isDefault": false
+        },
+        {
+          "name": "test_owner_mismatch",
+          "line": 15,
+          "isDefault": false
+        },
+        {
+          "name": "test_owner_missing_field",
+          "line": 18,
+          "isDefault": false
+        },
+        {
+          "name": "test_owner_unparsable_type",
+          "line": 21,
+          "isDefault": false
+        },
+        {
+          "name": "test_parse_script_sorts_by_step",
+          "line": 25,
+          "isDefault": false
+        },
+        {
+          "name": "test_parse_script_skips_malformed_items",
+          "line": 34,
+          "isDefault": false
+        },
+        {
+          "name": "test_parse_script_non_list_returns_empty",
+          "line": 45,
+          "isDefault": false
+        },
+        {
+          "name": "test_parse_script_hint_defaults_empty",
+          "line": 49,
+          "isDefault": false
+        },
+        {
+          "name": "_session",
+          "line": 54,
+          "isDefault": false
+        },
+        {
+          "name": "test_build_turn_context_maps_fields",
+          "line": 66,
+          "isDefault": false
+        },
+        {
+          "name": "test_build_turn_context_unknown_personality_falls_back_normal",
+          "line": 80,
+          "isDefault": false
+        },
+        {
+          "name": "test_build_turn_context_missing_scenario_is_safe",
+          "line": 86,
+          "isDefault": false
+        },
+        {
+          "name": "test_build_turn_context_non_dict_scenario_is_safe",
+          "line": 94,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "test_owner_match_int",
+          "callee": "is_session_owner",
+          "lineNumber": 10
+        },
+        {
+          "caller": "test_owner_match_when_stored_as_str",
+          "callee": "is_session_owner",
+          "lineNumber": 13
+        },
+        {
+          "caller": "test_owner_mismatch",
+          "callee": "is_session_owner",
+          "lineNumber": 16
+        },
+        {
+          "caller": "test_owner_missing_field",
+          "callee": "is_session_owner",
+          "lineNumber": 19
+        },
+        {
+          "caller": "test_owner_unparsable_type",
+          "callee": "is_session_owner",
+          "lineNumber": 22
+        },
+        {
+          "caller": "test_parse_script_sorts_by_step",
+          "callee": "_parse_script",
+          "lineNumber": 30
+        },
+        {
+          "caller": "test_parse_script_skips_malformed_items",
+          "callee": "_parse_script",
+          "lineNumber": 41
+        },
+        {
+          "caller": "test_parse_script_skips_malformed_items",
+          "callee": "len",
+          "lineNumber": 42
+        },
+        {
+          "caller": "test_parse_script_non_list_returns_empty",
+          "callee": "_parse_script",
+          "lineNumber": 46
+        },
+        {
+          "caller": "test_parse_script_non_list_returns_empty",
+          "callee": "_parse_script",
+          "lineNumber": 47
+        },
+        {
+          "caller": "test_parse_script_hint_defaults_empty",
+          "callee": "_parse_script",
+          "lineNumber": 50
+        },
+        {
+          "caller": "test_build_turn_context_maps_fields",
+          "callee": "build_turn_context",
+          "lineNumber": 67
+        },
+        {
+          "caller": "test_build_turn_context_maps_fields",
+          "callee": "_session",
+          "lineNumber": 68
+        },
+        {
+          "caller": "test_build_turn_context_maps_fields",
+          "callee": "len",
+          "lineNumber": 78
+        },
+        {
+          "caller": "test_build_turn_context_unknown_personality_falls_back_normal",
+          "callee": "_session",
+          "lineNumber": 81
+        },
+        {
+          "caller": "test_build_turn_context_unknown_personality_falls_back_normal",
+          "callee": "build_turn_context",
+          "lineNumber": 83
+        },
+        {
+          "caller": "test_build_turn_context_missing_scenario_is_safe",
+          "callee": "build_turn_context",
+          "lineNumber": 87
+        },
+        {
+          "caller": "test_build_turn_context_non_dict_scenario_is_safe",
+          "callee": "build_turn_context",
+          "lineNumber": 95
+        }
+      ],
+      "metrics": {
+        "importCount": 2,
+        "exportCount": 14,
+        "functionCount": 14,
+        "classCount": 0
+      }
+    }
+  ]
+}

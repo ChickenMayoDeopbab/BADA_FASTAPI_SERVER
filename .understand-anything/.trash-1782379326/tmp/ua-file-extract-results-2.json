@@ -1,0 +1,1419 @@
+{
+  "scriptCompleted": true,
+  "filesAnalyzed": 15,
+  "filesSkipped": [],
+  "results": [
+    {
+      "path": "app/api/v1/__init__.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 1,
+      "nonEmptyLines": 0,
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "app/api/v1/internal.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 66,
+      "nonEmptyLines": 59,
+      "functions": [
+        {
+          "name": "health",
+          "startLine": 13,
+          "endLine": 14,
+          "params": []
+        },
+        {
+          "name": "get_scenario_context",
+          "startLine": 24,
+          "endLine": 66,
+          "params": [
+            "scenario_id",
+            "db"
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "name": "health",
+          "line": 12,
+          "isDefault": false
+        },
+        {
+          "name": "get_scenario_context",
+          "line": 17,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "get_scenario_context",
+          "callee": "Depends",
+          "lineNumber": 26
+        },
+        {
+          "caller": "get_scenario_context",
+          "callee": "PRESET_MAP.get",
+          "lineNumber": 29
+        },
+        {
+          "caller": "get_scenario_context",
+          "callee": "ScenarioContextResponse",
+          "lineNumber": 31
+        },
+        {
+          "caller": "get_scenario_context",
+          "callee": "ScriptTurnContext",
+          "lineNumber": 35
+        },
+        {
+          "caller": "get_scenario_context",
+          "callee": "turn.get",
+          "lineNumber": 38
+        },
+        {
+          "caller": "get_scenario_context",
+          "callee": "db.get",
+          "lineNumber": 44
+        },
+        {
+          "caller": "get_scenario_context",
+          "callee": "HTTPException",
+          "lineNumber": 46
+        },
+        {
+          "caller": "get_scenario_context",
+          "callee": "isinstance",
+          "lineNumber": 52
+        },
+        {
+          "caller": "get_scenario_context",
+          "callee": "ScriptTurnContext",
+          "lineNumber": 54
+        },
+        {
+          "caller": "get_scenario_context",
+          "callee": "int",
+          "lineNumber": 55
+        },
+        {
+          "caller": "get_scenario_context",
+          "callee": "str",
+          "lineNumber": 56
+        },
+        {
+          "caller": "get_scenario_context",
+          "callee": "str",
+          "lineNumber": 57
+        },
+        {
+          "caller": "get_scenario_context",
+          "callee": "turn.get",
+          "lineNumber": 57
+        },
+        {
+          "caller": "get_scenario_context",
+          "callee": "isinstance",
+          "lineNumber": 60
+        },
+        {
+          "caller": "get_scenario_context",
+          "callee": "ScenarioContextResponse",
+          "lineNumber": 62
+        }
+      ],
+      "metrics": {
+        "importCount": 5,
+        "exportCount": 2,
+        "functionCount": 2,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "app/api/v1/scenario.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 61,
+      "nonEmptyLines": 57,
+      "functions": [
+        {
+          "name": "list_scenarios",
+          "startLine": 28,
+          "endLine": 32,
+          "params": [
+            "db",
+            "category"
+          ]
+        },
+        {
+          "name": "create_custom_scenario",
+          "startLine": 44,
+          "endLine": 61,
+          "params": [
+            "body",
+            "db",
+            "user_id"
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "name": "list_scenarios",
+          "line": 22,
+          "isDefault": false
+        },
+        {
+          "name": "create_custom_scenario",
+          "line": 34,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "list_scenarios",
+          "callee": "Depends",
+          "lineNumber": 29
+        },
+        {
+          "caller": "list_scenarios",
+          "callee": "Query",
+          "lineNumber": 30
+        },
+        {
+          "caller": "list_scenarios",
+          "callee": "svc_get_scenarios",
+          "lineNumber": 32
+        },
+        {
+          "caller": "create_custom_scenario",
+          "callee": "Depends",
+          "lineNumber": 46
+        },
+        {
+          "caller": "create_custom_scenario",
+          "callee": "Depends",
+          "lineNumber": 47
+        },
+        {
+          "caller": "create_custom_scenario",
+          "callee": "svc_create_custom_scenario",
+          "lineNumber": 50
+        },
+        {
+          "caller": "create_custom_scenario",
+          "callee": "HTTPException",
+          "lineNumber": 52
+        },
+        {
+          "caller": "create_custom_scenario",
+          "callee": "HTTPException",
+          "lineNumber": 57
+        },
+        {
+          "caller": "create_custom_scenario",
+          "callee": "str",
+          "lineNumber": 59
+        }
+      ],
+      "metrics": {
+        "importCount": 5,
+        "exportCount": 2,
+        "functionCount": 2,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "app/core/__init__.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 1,
+      "nonEmptyLines": 0,
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "app/core/enums.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 36,
+      "nonEmptyLines": 29,
+      "classes": [
+        {
+          "name": "SessionType",
+          "startLine": 4,
+          "endLine": 7,
+          "methods": [],
+          "properties": []
+        },
+        {
+          "name": "AiPersonality",
+          "startLine": 9,
+          "endLine": 15,
+          "methods": [],
+          "properties": []
+        },
+        {
+          "name": "Difficulty",
+          "startLine": 17,
+          "endLine": 20,
+          "methods": [],
+          "properties": []
+        },
+        {
+          "name": "ScenarioCategory",
+          "startLine": 22,
+          "endLine": 28,
+          "methods": [],
+          "properties": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "SessionType",
+          "line": 4,
+          "isDefault": false
+        },
+        {
+          "name": "AiPersonality",
+          "line": 9,
+          "isDefault": false
+        },
+        {
+          "name": "Difficulty",
+          "line": 17,
+          "isDefault": false
+        },
+        {
+          "name": "ScenarioCategory",
+          "line": 22,
+          "isDefault": false
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 4,
+        "functionCount": 0,
+        "classCount": 4
+      }
+    },
+    {
+      "path": "app/core/preset_scenarios.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 212,
+      "nonEmptyLines": 209,
+      "functions": [
+        {
+          "name": "scenario_to_info",
+          "startLine": 200,
+          "endLine": 212,
+          "params": [
+            "scenario"
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "name": "scenario_to_info",
+          "line": 200,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "scenario_to_info",
+          "callee": "ScenarioInfo",
+          "lineNumber": 201
+        }
+      ],
+      "metrics": {
+        "importCount": 2,
+        "exportCount": 1,
+        "functionCount": 1,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "app/core/prompt_matrix.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 71,
+      "nonEmptyLines": 69,
+      "functions": [
+        {
+          "name": "build_system_prompt",
+          "startLine": 35,
+          "endLine": 71,
+          "params": [
+            "personality",
+            "call_target",
+            "call_purpose",
+            "base_prompt"
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "name": "build_system_prompt",
+          "line": 35,
+          "isDefault": false
+        }
+      ],
+      "metrics": {
+        "importCount": 1,
+        "exportCount": 1,
+        "functionCount": 1,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "app/core/security.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 42,
+      "nonEmptyLines": 35,
+      "functions": [
+        {
+          "name": "require_internal_secret",
+          "startLine": 7,
+          "endLine": 12,
+          "params": [
+            "x_internal_secret"
+          ]
+        },
+        {
+          "name": "decode_access_token",
+          "startLine": 14,
+          "endLine": 31,
+          "params": [
+            "token"
+          ]
+        },
+        {
+          "name": "authenticate_ws",
+          "startLine": 33,
+          "endLine": 42,
+          "params": [
+            "ws",
+            "token"
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "name": "require_internal_secret",
+          "line": 7,
+          "isDefault": false
+        },
+        {
+          "name": "decode_access_token",
+          "line": 14,
+          "isDefault": false
+        },
+        {
+          "name": "authenticate_ws",
+          "line": 33,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "require_internal_secret",
+          "callee": "Header",
+          "lineNumber": 8
+        },
+        {
+          "caller": "require_internal_secret",
+          "callee": "get_settings",
+          "lineNumber": 10
+        },
+        {
+          "caller": "require_internal_secret",
+          "callee": "HTTPException",
+          "lineNumber": 12
+        },
+        {
+          "caller": "decode_access_token",
+          "callee": "get_settings",
+          "lineNumber": 16
+        },
+        {
+          "caller": "decode_access_token",
+          "callee": "jwt.decode",
+          "lineNumber": 18
+        },
+        {
+          "caller": "decode_access_token",
+          "callee": "HTTPException",
+          "lineNumber": 24
+        },
+        {
+          "caller": "decode_access_token",
+          "callee": "HTTPException",
+          "lineNumber": 26
+        },
+        {
+          "caller": "decode_access_token",
+          "callee": "payload.get",
+          "lineNumber": 28
+        },
+        {
+          "caller": "decode_access_token",
+          "callee": "HTTPException",
+          "lineNumber": 29
+        },
+        {
+          "caller": "authenticate_ws",
+          "callee": "decode_access_token",
+          "lineNumber": 36
+        },
+        {
+          "caller": "authenticate_ws",
+          "callee": "ws.close",
+          "lineNumber": 38
+        },
+        {
+          "caller": "authenticate_ws",
+          "callee": "str",
+          "lineNumber": 38
+        },
+        {
+          "caller": "authenticate_ws",
+          "callee": "int",
+          "lineNumber": 40
+        },
+        {
+          "caller": "authenticate_ws",
+          "callee": "payload.get",
+          "lineNumber": 41
+        }
+      ],
+      "metrics": {
+        "importCount": 1,
+        "exportCount": 3,
+        "functionCount": 3,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "app/db/base.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 28,
+      "nonEmptyLines": 21,
+      "functions": [
+        {
+          "name": "init_db",
+          "startLine": 23,
+          "endLine": 28,
+          "params": []
+        }
+      ],
+      "classes": [
+        {
+          "name": "Base",
+          "startLine": 20,
+          "endLine": 21,
+          "methods": [],
+          "properties": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "Base",
+          "line": 20,
+          "isDefault": false
+        },
+        {
+          "name": "init_db",
+          "line": 23,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "init_db",
+          "callee": "engine.begin",
+          "lineNumber": 27
+        },
+        {
+          "caller": "init_db",
+          "callee": "conn.run_sync",
+          "lineNumber": 28
+        }
+      ],
+      "metrics": {
+        "importCount": 1,
+        "exportCount": 2,
+        "functionCount": 1,
+        "classCount": 1
+      }
+    },
+    {
+      "path": "app/db/models.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 33,
+      "nonEmptyLines": 26,
+      "classes": [
+        {
+          "name": "ScenarioORM",
+          "startLine": 9,
+          "endLine": 23,
+          "methods": [],
+          "properties": [
+            "scenario_id",
+            "title",
+            "content",
+            "scenario_image",
+            "tts_voice_id",
+            "ai_prompt",
+            "user_id",
+            "is_custom",
+            "call_target",
+            "call_purpose",
+            "script",
+            "created_at"
+          ]
+        },
+        {
+          "name": "FeedbackORM",
+          "startLine": 25,
+          "endLine": 33,
+          "methods": [],
+          "properties": [
+            "feedback_id",
+            "scenario_id",
+            "shake_count",
+            "silence_duration",
+            "highlights",
+            "created_at"
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "name": "ScenarioORM",
+          "line": 9,
+          "isDefault": false
+        },
+        {
+          "name": "FeedbackORM",
+          "line": 25,
+          "isDefault": false
+        }
+      ],
+      "metrics": {
+        "importCount": 1,
+        "exportCount": 2,
+        "functionCount": 0,
+        "classCount": 2
+      }
+    },
+    {
+      "path": "app/deps/auth.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 18,
+      "nonEmptyLines": 15,
+      "functions": [
+        {
+          "name": "get_current_user_id",
+          "startLine": 8,
+          "endLine": 18,
+          "params": [
+            "credentials"
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "name": "get_current_user_id",
+          "line": 8,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "get_current_user_id",
+          "callee": "Depends",
+          "lineNumber": 9
+        },
+        {
+          "caller": "get_current_user_id",
+          "callee": "decode_access_token",
+          "lineNumber": 11
+        },
+        {
+          "caller": "get_current_user_id",
+          "callee": "int",
+          "lineNumber": 13
+        },
+        {
+          "caller": "get_current_user_id",
+          "callee": "HTTPException",
+          "lineNumber": 15
+        }
+      ],
+      "metrics": {
+        "importCount": 1,
+        "exportCount": 1,
+        "functionCount": 1,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "app/deps/db.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 10,
+      "nonEmptyLines": 6,
+      "functions": [
+        {
+          "name": "get_db",
+          "startLine": 8,
+          "endLine": 10,
+          "params": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "get_db",
+          "line": 8,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "get_db",
+          "callee": "AsyncSessionLocal",
+          "lineNumber": 9
+        }
+      ],
+      "metrics": {
+        "importCount": 1,
+        "exportCount": 1,
+        "functionCount": 1,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "app/schemas/scenario.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 60,
+      "nonEmptyLines": 47,
+      "classes": [
+        {
+          "name": "ScenarioInfo",
+          "startLine": 10,
+          "endLine": 20,
+          "methods": [],
+          "properties": [
+            "scenario_id",
+            "title",
+            "content",
+            "category",
+            "difficulties",
+            "personalities",
+            "scenario_image",
+            "tts_voice_id",
+            "ai_prompt",
+            "is_custom"
+          ]
+        },
+        {
+          "name": "ScenarioListResponse",
+          "startLine": 22,
+          "endLine": 23,
+          "methods": [],
+          "properties": [
+            "scenarios"
+          ]
+        },
+        {
+          "name": "ScriptTurnContext",
+          "startLine": 29,
+          "endLine": 33,
+          "methods": [],
+          "properties": [
+            "step",
+            "ai_goal",
+            "hint"
+          ]
+        },
+        {
+          "name": "ScenarioContextResponse",
+          "startLine": 35,
+          "endLine": 39,
+          "methods": [],
+          "properties": [
+            "title",
+            "ai_role",
+            "script"
+          ]
+        },
+        {
+          "name": "CustomSessionRequest",
+          "startLine": 41,
+          "endLine": 47,
+          "methods": [],
+          "properties": [
+            "title",
+            "call_target",
+            "call_purpose",
+            "personality",
+            "difficulty"
+          ]
+        },
+        {
+          "name": "GenerateDetailScenario",
+          "startLine": 49,
+          "endLine": 55,
+          "methods": [],
+          "properties": [
+            "scenario_id",
+            "title",
+            "content",
+            "ai_prompt",
+            "tts_voice_id",
+            "script"
+          ]
+        },
+        {
+          "name": "CustomScenarioResponse",
+          "startLine": 57,
+          "endLine": 60,
+          "methods": [],
+          "properties": [
+            "scenario",
+            "created_at",
+            "message"
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "name": "ScenarioInfo",
+          "line": 10,
+          "isDefault": false
+        },
+        {
+          "name": "ScenarioListResponse",
+          "line": 22,
+          "isDefault": false
+        },
+        {
+          "name": "ScriptTurnContext",
+          "line": 29,
+          "isDefault": false
+        },
+        {
+          "name": "ScenarioContextResponse",
+          "line": 35,
+          "isDefault": false
+        },
+        {
+          "name": "CustomSessionRequest",
+          "line": 41,
+          "isDefault": false
+        },
+        {
+          "name": "GenerateDetailScenario",
+          "line": 49,
+          "isDefault": false
+        },
+        {
+          "name": "CustomScenarioResponse",
+          "line": 57,
+          "isDefault": false
+        }
+      ],
+      "metrics": {
+        "importCount": 1,
+        "exportCount": 7,
+        "functionCount": 0,
+        "classCount": 7
+      }
+    },
+    {
+      "path": "app/services/scenario_service.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 180,
+      "nonEmptyLines": 160,
+      "functions": [
+        {
+          "name": "get_scenarios",
+          "startLine": 26,
+          "endLine": 75,
+          "params": [
+            "db",
+            "category"
+          ]
+        },
+        {
+          "name": "_normalize_script",
+          "startLine": 98,
+          "endLine": 114,
+          "params": [
+            "raw"
+          ]
+        },
+        {
+          "name": "create_custom_scenario",
+          "startLine": 117,
+          "endLine": 180,
+          "params": [
+            "db",
+            "request",
+            "user_id"
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "name": "get_scenarios",
+          "line": 26,
+          "isDefault": false
+        },
+        {
+          "name": "_normalize_script",
+          "line": 98,
+          "isDefault": false
+        },
+        {
+          "name": "create_custom_scenario",
+          "line": 117,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "get_scenarios",
+          "callee": "select",
+          "lineNumber": 29
+        },
+        {
+          "caller": "get_scenarios",
+          "callee": "db.execute",
+          "lineNumber": 30
+        },
+        {
+          "caller": "get_scenarios",
+          "callee": "result.scalars().all",
+          "lineNumber": 31
+        },
+        {
+          "caller": "get_scenarios",
+          "callee": "result.scalars",
+          "lineNumber": 31
+        },
+        {
+          "caller": "get_scenarios",
+          "callee": "ScenarioListResponse",
+          "lineNumber": 37
+        },
+        {
+          "caller": "get_scenarios",
+          "callee": "scenario_to_info",
+          "lineNumber": 37
+        },
+        {
+          "caller": "get_scenarios",
+          "callee": "infos.append",
+          "lineNumber": 44
+        },
+        {
+          "caller": "get_scenarios",
+          "callee": "ScenarioInfo",
+          "lineNumber": 44
+        },
+        {
+          "caller": "get_scenarios",
+          "callee": "PRESET_MAP.get",
+          "lineNumber": 58
+        },
+        {
+          "caller": "get_scenarios",
+          "callee": "infos.append",
+          "lineNumber": 63
+        },
+        {
+          "caller": "get_scenarios",
+          "callee": "ScenarioInfo",
+          "lineNumber": 63
+        },
+        {
+          "caller": "get_scenarios",
+          "callee": "ScenarioListResponse",
+          "lineNumber": 75
+        },
+        {
+          "caller": "_normalize_script",
+          "callee": "isinstance",
+          "lineNumber": 100
+        },
+        {
+          "caller": "_normalize_script",
+          "callee": "isinstance",
+          "lineNumber": 104
+        },
+        {
+          "caller": "_normalize_script",
+          "callee": "turns.append",
+          "lineNumber": 107
+        },
+        {
+          "caller": "_normalize_script",
+          "callee": "int",
+          "lineNumber": 108
+        },
+        {
+          "caller": "_normalize_script",
+          "callee": "str",
+          "lineNumber": 109
+        },
+        {
+          "caller": "_normalize_script",
+          "callee": "str",
+          "lineNumber": 110
+        },
+        {
+          "caller": "_normalize_script",
+          "callee": "item.get",
+          "lineNumber": 110
+        },
+        {
+          "caller": "_normalize_script",
+          "callee": "sorted",
+          "lineNumber": 114
+        },
+        {
+          "caller": "create_custom_scenario",
+          "callee": "get_settings",
+          "lineNumber": 123
+        },
+        {
+          "caller": "create_custom_scenario",
+          "callee": "ValueError",
+          "lineNumber": 125
+        },
+        {
+          "caller": "create_custom_scenario",
+          "callee": "AsyncAnthropic",
+          "lineNumber": 135
+        },
+        {
+          "caller": "create_custom_scenario",
+          "callee": "client.messages.create",
+          "lineNumber": 136
+        },
+        {
+          "caller": "create_custom_scenario",
+          "callee": "MessageParam",
+          "lineNumber": 140
+        },
+        {
+          "caller": "create_custom_scenario",
+          "callee": "ai_response.content[0].text.strip",
+          "lineNumber": 143
+        },
+        {
+          "caller": "create_custom_scenario",
+          "callee": "raw.startswith",
+          "lineNumber": 144
+        },
+        {
+          "caller": "create_custom_scenario",
+          "callee": "raw.split",
+          "lineNumber": 145
+        },
+        {
+          "caller": "create_custom_scenario",
+          "callee": "raw.startswith",
+          "lineNumber": 146
+        },
+        {
+          "caller": "create_custom_scenario",
+          "callee": "json.loads",
+          "lineNumber": 148
+        },
+        {
+          "caller": "create_custom_scenario",
+          "callee": "raw.strip",
+          "lineNumber": 148
+        },
+        {
+          "caller": "create_custom_scenario",
+          "callee": "_normalize_script",
+          "lineNumber": 150
+        },
+        {
+          "caller": "create_custom_scenario",
+          "callee": "data.get",
+          "lineNumber": 150
+        },
+        {
+          "caller": "create_custom_scenario",
+          "callee": "datetime.now(UTC).replace",
+          "lineNumber": 151
+        },
+        {
+          "caller": "create_custom_scenario",
+          "callee": "datetime.now",
+          "lineNumber": 151
+        },
+        {
+          "caller": "create_custom_scenario",
+          "callee": "ScenarioORM",
+          "lineNumber": 153
+        },
+        {
+          "caller": "create_custom_scenario",
+          "callee": "db.add",
+          "lineNumber": 166
+        },
+        {
+          "caller": "create_custom_scenario",
+          "callee": "db.commit",
+          "lineNumber": 167
+        },
+        {
+          "caller": "create_custom_scenario",
+          "callee": "db.refresh",
+          "lineNumber": 168
+        },
+        {
+          "caller": "create_custom_scenario",
+          "callee": "CustomScenarioResponse",
+          "lineNumber": 170
+        },
+        {
+          "caller": "create_custom_scenario",
+          "callee": "GenerateDetailScenario",
+          "lineNumber": 171
+        },
+        {
+          "caller": "create_custom_scenario",
+          "callee": "ScriptTurnContext",
+          "lineNumber": 177
+        }
+      ],
+      "metrics": {
+        "importCount": 6,
+        "exportCount": 3,
+        "functionCount": 3,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "tests/unit/test_internal_context.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 101,
+      "nonEmptyLines": 73,
+      "functions": [
+        {
+          "name": "_make_app",
+          "startLine": 23,
+          "endLine": 32,
+          "params": [
+            "db_row"
+          ]
+        },
+        {
+          "name": "_get",
+          "startLine": 35,
+          "endLine": 38,
+          "params": [
+            "app",
+            "path"
+          ]
+        },
+        {
+          "name": "test_preset_context_returns_camelcase_with_script",
+          "startLine": 41,
+          "endLine": 51,
+          "params": []
+        },
+        {
+          "name": "test_custom_context_returns_stored_script",
+          "startLine": 54,
+          "endLine": 70,
+          "params": []
+        },
+        {
+          "name": "test_custom_context_without_script_is_empty",
+          "startLine": 73,
+          "endLine": 78,
+          "params": []
+        },
+        {
+          "name": "test_unknown_scenario_returns_404",
+          "startLine": 81,
+          "endLine": 85,
+          "params": []
+        },
+        {
+          "name": "test_require_internal_secret_rejects_wrong",
+          "startLine": 88,
+          "endLine": 94,
+          "params": [
+            "monkeypatch"
+          ]
+        },
+        {
+          "name": "test_require_internal_secret_accepts_match",
+          "startLine": 97,
+          "endLine": 101,
+          "params": [
+            "monkeypatch"
+          ]
+        }
+      ],
+      "classes": [
+        {
+          "name": "_FakeSession",
+          "startLine": 13,
+          "endLine": 20,
+          "methods": [
+            "__init__",
+            "get"
+          ],
+          "properties": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "_FakeSession",
+          "line": 13,
+          "isDefault": false
+        },
+        {
+          "name": "_make_app",
+          "line": 23,
+          "isDefault": false
+        },
+        {
+          "name": "_get",
+          "line": 35,
+          "isDefault": false
+        },
+        {
+          "name": "test_preset_context_returns_camelcase_with_script",
+          "line": 41,
+          "isDefault": false
+        },
+        {
+          "name": "test_custom_context_returns_stored_script",
+          "line": 54,
+          "isDefault": false
+        },
+        {
+          "name": "test_custom_context_without_script_is_empty",
+          "line": 73,
+          "isDefault": false
+        },
+        {
+          "name": "test_unknown_scenario_returns_404",
+          "line": 81,
+          "isDefault": false
+        },
+        {
+          "name": "test_require_internal_secret_rejects_wrong",
+          "line": 88,
+          "isDefault": false
+        },
+        {
+          "name": "test_require_internal_secret_accepts_match",
+          "line": 97,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "_make_app",
+          "callee": "FastAPI",
+          "lineNumber": 24
+        },
+        {
+          "caller": "_make_app",
+          "callee": "app.include_router",
+          "lineNumber": 25
+        },
+        {
+          "caller": "_fake_db",
+          "callee": "_FakeSession",
+          "lineNumber": 29
+        },
+        {
+          "caller": "_get",
+          "callee": "httpx.ASGITransport",
+          "lineNumber": 36
+        },
+        {
+          "caller": "_get",
+          "callee": "httpx.AsyncClient",
+          "lineNumber": 37
+        },
+        {
+          "caller": "_get",
+          "callee": "client.get",
+          "lineNumber": 38
+        },
+        {
+          "caller": "test_preset_context_returns_camelcase_with_script",
+          "callee": "_get",
+          "lineNumber": 42
+        },
+        {
+          "caller": "test_preset_context_returns_camelcase_with_script",
+          "callee": "_make_app",
+          "lineNumber": 42
+        },
+        {
+          "caller": "test_preset_context_returns_camelcase_with_script",
+          "callee": "resp.json",
+          "lineNumber": 45
+        },
+        {
+          "caller": "test_preset_context_returns_camelcase_with_script",
+          "callee": "len",
+          "lineNumber": 48
+        },
+        {
+          "caller": "test_preset_context_returns_camelcase_with_script",
+          "callee": "set",
+          "lineNumber": 50
+        },
+        {
+          "caller": "test_preset_context_returns_camelcase_with_script",
+          "callee": "first.keys",
+          "lineNumber": 50
+        },
+        {
+          "caller": "test_custom_context_returns_stored_script",
+          "callee": "SimpleNamespace",
+          "lineNumber": 55
+        },
+        {
+          "caller": "test_custom_context_returns_stored_script",
+          "callee": "_get",
+          "lineNumber": 63
+        },
+        {
+          "caller": "test_custom_context_returns_stored_script",
+          "callee": "_make_app",
+          "lineNumber": 63
+        },
+        {
+          "caller": "test_custom_context_returns_stored_script",
+          "callee": "resp.json",
+          "lineNumber": 66
+        },
+        {
+          "caller": "test_custom_context_returns_stored_script",
+          "callee": "len",
+          "lineNumber": 69
+        },
+        {
+          "caller": "test_custom_context_returns_stored_script",
+          "callee": "set",
+          "lineNumber": 70
+        },
+        {
+          "caller": "test_custom_context_returns_stored_script",
+          "callee": "body[\"script\"][0].keys",
+          "lineNumber": 70
+        },
+        {
+          "caller": "test_custom_context_without_script_is_empty",
+          "callee": "SimpleNamespace",
+          "lineNumber": 74
+        },
+        {
+          "caller": "test_custom_context_without_script_is_empty",
+          "callee": "_get",
+          "lineNumber": 75
+        },
+        {
+          "caller": "test_custom_context_without_script_is_empty",
+          "callee": "_make_app",
+          "lineNumber": 75
+        },
+        {
+          "caller": "test_custom_context_without_script_is_empty",
+          "callee": "resp.json",
+          "lineNumber": 78
+        },
+        {
+          "caller": "test_unknown_scenario_returns_404",
+          "callee": "_get",
+          "lineNumber": 82
+        },
+        {
+          "caller": "test_unknown_scenario_returns_404",
+          "callee": "_make_app",
+          "lineNumber": 82
+        },
+        {
+          "caller": "test_unknown_scenario_returns_404",
+          "callee": "resp.json",
+          "lineNumber": 85
+        },
+        {
+          "caller": "test_require_internal_secret_rejects_wrong",
+          "callee": "monkeypatch.setattr",
+          "lineNumber": 89
+        },
+        {
+          "caller": "test_require_internal_secret_rejects_wrong",
+          "callee": "SimpleNamespace",
+          "lineNumber": 90
+        },
+        {
+          "caller": "test_require_internal_secret_rejects_wrong",
+          "callee": "pytest.raises",
+          "lineNumber": 92
+        },
+        {
+          "caller": "test_require_internal_secret_rejects_wrong",
+          "callee": "require_internal_secret",
+          "lineNumber": 93
+        },
+        {
+          "caller": "test_require_internal_secret_accepts_match",
+          "callee": "monkeypatch.setattr",
+          "lineNumber": 98
+        },
+        {
+          "caller": "test_require_internal_secret_accepts_match",
+          "callee": "SimpleNamespace",
+          "lineNumber": 99
+        },
+        {
+          "caller": "test_require_internal_secret_accepts_match",
+          "callee": "require_internal_secret",
+          "lineNumber": 101
+        }
+      ],
+      "metrics": {
+        "importCount": 5,
+        "exportCount": 9,
+        "functionCount": 8,
+        "classCount": 1
+      }
+    }
+  ]
+}

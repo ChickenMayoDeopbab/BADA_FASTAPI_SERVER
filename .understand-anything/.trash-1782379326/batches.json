@@ -1,0 +1,1751 @@
+{
+  "schemaVersion": 1,
+  "algorithm": "louvain",
+  "totalFiles": 86,
+  "totalBatches": 10,
+  "exportsByPath": {
+    ".understand-anything/.understandignore": [],
+    "app/__init__.py": [],
+    "app/api/__init__.py": [],
+    "app/api/v1/__init__.py": [],
+    "app/api/v1/feedback.py": [],
+    "app/api/v1/internal.py": [
+      "health",
+      "get_scenario_context"
+    ],
+    "app/api/v1/scenario.py": [
+      "list_scenarios",
+      "create_custom_scenario"
+    ],
+    "app/api/v1/websocket.py": [
+      "voice_stream"
+    ],
+    "app/core/__init__.py": [],
+    "app/core/config.py": [
+      "Settings",
+      "get_settings"
+    ],
+    "app/core/enums.py": [
+      "SessionType",
+      "AiPersonality",
+      "Difficulty",
+      "ScenarioCategory"
+    ],
+    "app/core/logging.py": [
+      "setup_logging"
+    ],
+    "app/core/metrics.py": [
+      "now_ms",
+      "_ms_between",
+      "Stopwatch",
+      "log_metric"
+    ],
+    "app/core/preset_scenarios.py": [
+      "scenario_to_info"
+    ],
+    "app/core/prompt_matrix.py": [
+      "build_system_prompt"
+    ],
+    "app/core/security.py": [
+      "require_internal_secret",
+      "decode_access_token",
+      "authenticate_ws"
+    ],
+    "app/db/__init__.py": [],
+    "app/db/base.py": [
+      "Base",
+      "init_db"
+    ],
+    "app/db/models.py": [
+      "ScenarioORM",
+      "FeedbackORM"
+    ],
+    "app/deps/__init__.py": [],
+    "app/deps/auth.py": [
+      "get_current_user_id"
+    ],
+    "app/deps/db.py": [
+      "get_db"
+    ],
+    "app/deps/redis.py": [
+      "init_redis",
+      "close_redis",
+      "_mask_url",
+      "get_redis"
+    ],
+    "app/main.py": [
+      "lifespan",
+      "create_app"
+    ],
+    "app/schemas/__init__.py": [],
+    "app/schemas/feedback.py": [
+      "FeedbackResponse"
+    ],
+    "app/schemas/frames.py": [
+      "FrameType",
+      "EndReason",
+      "emotion_frame",
+      "speaking_end_frame",
+      "interrupt_frame",
+      "end_frame",
+      "error_frame"
+    ],
+    "app/schemas/llm.py": [
+      "AiEmotion",
+      "LLMEventType",
+      "LLMEvent",
+      "ScenarioTurn",
+      "TurnContext"
+    ],
+    "app/schemas/scenario.py": [
+      "ScenarioInfo",
+      "ScenarioListResponse",
+      "ScriptTurnContext",
+      "ScenarioContextResponse",
+      "CustomSessionRequest",
+      "GenerateDetailScenario",
+      "CustomScenarioResponse"
+    ],
+    "app/services/__init__.py": [],
+    "app/services/llm_prompt.py": [
+      "_format_script",
+      "build_system_prompt",
+      "build_contents"
+    ],
+    "app/services/llm.py": [
+      "_find_first_tag",
+      "_trailing_partial_len",
+      "_drain_pending",
+      "LLMClient"
+    ],
+    "app/services/pipeline.py": [
+      "_State",
+      "_TurnTimings",
+      "VoicePipeline"
+    ],
+    "app/services/scenario_service.py": [
+      "get_scenarios",
+      "_normalize_script",
+      "create_custom_scenario"
+    ],
+    "app/services/session.py": [
+      "load_session",
+      "is_session_owner",
+      "authenticate_session",
+      "_parse_script",
+      "build_turn_context"
+    ],
+    "app/services/spring_client.py": [
+      "SpringInternalClient"
+    ],
+    "app/services/stt.py": [
+      "STTIdleTimeoutError",
+      "_is_idle_timeout",
+      "STTEventType",
+      "STTEvent",
+      "GoogleSTTClient",
+      "_to_seconds"
+    ],
+    "app/services/tremor.py": [
+      "TremorConfig",
+      "TremorResult",
+      "TremorAnalyzer"
+    ],
+    "app/services/tts.py": [
+      "TTSSession",
+      "ElevenLabsTTSClient"
+    ],
+    "app/workers/__init__.py": [],
+    "tests/__init__.py": [],
+    "tests/conftest.py": [],
+    "tests/integration/__init__.py": [],
+    "tests/integration/test_spring_client.py": [
+      "_CapturingHandler",
+      "_MockSpring",
+      "_client_for",
+      "test_notify_session_closed_sends_correct_request",
+      "test_trailing_slash_in_base_url_is_normalized",
+      "test_server_error_is_swallowed",
+      "test_unreachable_server_is_swallowed"
+    ],
+    "tests/llm/__init__.py": [],
+    "tests/llm/manual_llm_check.py": [
+      "run_turn",
+      "main"
+    ],
+    "tests/llm/raw_dump.py": [
+      "main"
+    ],
+    "tests/output/__init__.py": [],
+    "tests/perf/__init__.py": [],
+    "tests/perf/_stats.py": [
+      "percentile",
+      "summarize",
+      "print_table"
+    ],
+    "tests/perf/rest_bench.py": [
+      "_load_spec",
+      "_measure",
+      "main"
+    ],
+    "tests/perf/ws_bench.py": [
+      "_load_audio",
+      "_build_uri",
+      "_session_id_of",
+      "_run_turn",
+      "_run",
+      "_fmt",
+      "main"
+    ],
+    "tests/pipeline/__init__.py": [],
+    "tests/pipeline/manual_pipeline_check.py": [
+      "FakeWebSocket",
+      "main"
+    ],
+    "tests/pipeline/manual_pipeline_check2.py": [
+      "FakeWebSocket",
+      "_state_watcher",
+      "main"
+    ],
+    "tests/pipeline/manual_pipeline_check3.py": [
+      "ErrorCollector",
+      "Metrics",
+      "FakeWebSocket",
+      "_state_watcher",
+      "_find_input_device",
+      "_print_summary",
+      "main"
+    ],
+    "tests/pipeline/manual_pipeline_feedback_check.py": [
+      "FakeWebSocket",
+      "_print_verdict",
+      "main"
+    ],
+    "tests/pipeline/test_good_segments.py": [
+      "_pipeline_with_turns",
+      "test_intersect_clips_to_turns",
+      "test_intersect_no_overlap",
+      "test_pick_excludes_ai_turns",
+      "test_pick_top3_longest_chronological",
+      "test_pick_drops_short_fragments",
+      "test_pick_empty_when_no_overlap"
+    ],
+    "tests/stt/__init__.py": [],
+    "tests/stt/latency_check.py": [
+      "feed_microphone",
+      "_summary",
+      "consume_events",
+      "main"
+    ],
+    "tests/stt/manual_stt_check.py": [
+      "feed_microphone",
+      "consume_events",
+      "main"
+    ],
+    "tests/stt/mic_check.py": [
+      "cb"
+    ],
+    "tests/stt/stream_check.py": [
+      "main"
+    ],
+    "tests/tremor/__init__.py": [],
+    "tests/tremor/manual_tremor_check.py": [
+      "float_to_pcm16",
+      "report",
+      "synth_pcm",
+      "run_synth",
+      "run_mic",
+      "run_file",
+      "main"
+    ],
+    "tests/tremor/test_tremor.py": [
+      "test_subtract_hole_in_middle",
+      "test_subtract_no_overlap",
+      "test_subtract_hole_covers_whole",
+      "test_subtract_edges",
+      "test_subtract_no_holes",
+      "_analyzer",
+      "_voiced",
+      "test_speaking_spans_continuous",
+      "test_speaking_spans_short_gap_bridged",
+      "test_speaking_spans_long_gap_splits",
+      "test_speaking_spans_leading_silence_excluded",
+      "_overlap",
+      "test_analyze_flat_tone_no_tremor_one_good_span",
+      "test_analyze_tremor_bursts_detected_and_excluded"
+    ],
+    "tests/tts/__init__.py": [],
+    "tests/tts/manual_tts_check.py": [
+      "text_once",
+      "synth_and_play",
+      "main"
+    ],
+    "tests/tts/stream_check.py": [
+      "text_once",
+      "write_wav",
+      "main"
+    ],
+    "tests/unit/__init__.py": [],
+    "tests/unit/test_internal_context.py": [
+      "_FakeSession",
+      "_make_app",
+      "_get",
+      "test_preset_context_returns_camelcase_with_script",
+      "test_custom_context_returns_stored_script",
+      "test_custom_context_without_script_is_empty",
+      "test_unknown_scenario_returns_404",
+      "test_require_internal_secret_rejects_wrong",
+      "test_require_internal_secret_accepts_match"
+    ],
+    "tests/unit/test_llm_parsing.py": [
+      "test_find_first_tag_none_when_absent",
+      "test_find_first_tag_returns_earliest",
+      "test_trailing_partial_len_holds_incomplete_tag",
+      "test_trailing_partial_len_zero_for_plain_text",
+      "test_trailing_partial_len_zero_when_bracket_not_tag_prefix",
+      "test_drain_pending_plain_text_passthrough",
+      "test_drain_pending_extracts_control_tag",
+      "test_drain_pending_holds_partial_trailing_tag",
+      "test_drain_pending_reassembles_split_tag",
+      "test_drain_pending_two_tags_in_order",
+      "test_emit_emotion_head_parses_known_emotion",
+      "test_emit_emotion_head_unknown_falls_back_to_neutral",
+      "test_emit_emotion_head_none_when_no_tag",
+      "test_emit_emotion_head_case_insensitive",
+      "test_looks_like_partial_head_true_for_incomplete",
+      "test_looks_like_partial_head_false_when_closed",
+      "test_looks_like_partial_head_false_for_plain_text"
+    ],
+    "tests/unit/test_metrics.py": [
+      "test_now_ms_is_monotonic_nondecreasing",
+      "test_stopwatch_elapsed_nonnegative",
+      "test_stopwatch_between_marks",
+      "test_stopwatch_missing_mark_returns_none",
+      "test_log_metric_emits_record_with_fields",
+      "test_log_metric_swallows_logger_exceptions",
+      "_full_timings",
+      "test_turn_timings_full_metrics",
+      "test_turn_timings_partial_turn_yields_none"
+    ],
+    "tests/unit/test_pipeline_send_json.py": [
+      "_make_pipeline",
+      "_RaisingWS",
+      "test_send_json_disconnect_is_quiet",
+      "test_send_json_runtime_error_is_quiet",
+      "test_send_json_unexpected_keeps_traceback",
+      "test_send_json_noop_when_already_dead"
+    ],
+    "tests/unit/test_session.py": [
+      "test_owner_match_int",
+      "test_owner_match_when_stored_as_str",
+      "test_owner_mismatch",
+      "test_owner_missing_field",
+      "test_owner_unparsable_type",
+      "test_parse_script_sorts_by_step",
+      "test_parse_script_skips_malformed_items",
+      "test_parse_script_non_list_returns_empty",
+      "test_parse_script_hint_defaults_empty",
+      "_session",
+      "test_build_turn_context_maps_fields",
+      "test_build_turn_context_unknown_personality_falls_back_normal",
+      "test_build_turn_context_missing_scenario_is_safe",
+      "test_build_turn_context_non_dict_scenario_is_safe"
+    ],
+    "tests/unit/test_stt_idle_timeout.py": [
+      "_make_stt_client",
+      "_RaisingResponses",
+      "_FakeSpeechClient",
+      "_drain",
+      "test_idle_timeout_converted_to_stt_idle_timeout",
+      "test_other_out_of_range_is_reraised",
+      "test_unavailable_is_reraised",
+      "_make_pipeline",
+      "test_consumer_idle_timeout_closes_no_audio",
+      "test_consumer_api_error_closes_error"
+    ]
+  },
+  "batches": [
+    {
+      "batchIndex": 1,
+      "files": [
+        {
+          "path": "app/core/config.py",
+          "language": "python",
+          "sizeLines": 64,
+          "fileCategory": "code"
+        },
+        {
+          "path": "app/schemas/frames.py",
+          "language": "python",
+          "sizeLines": 44,
+          "fileCategory": "code"
+        },
+        {
+          "path": "app/services/pipeline.py",
+          "language": "python",
+          "sizeLines": 563,
+          "fileCategory": "code"
+        },
+        {
+          "path": "app/services/spring_client.py",
+          "language": "python",
+          "sizeLines": 50,
+          "fileCategory": "code"
+        },
+        {
+          "path": "app/services/stt.py",
+          "language": "python",
+          "sizeLines": 175,
+          "fileCategory": "code"
+        },
+        {
+          "path": "tests/integration/test_spring_client.py",
+          "language": "python",
+          "sizeLines": 114,
+          "fileCategory": "code"
+        },
+        {
+          "path": "tests/pipeline/manual_pipeline_check.py",
+          "language": "python",
+          "sizeLines": 107,
+          "fileCategory": "code"
+        },
+        {
+          "path": "tests/pipeline/manual_pipeline_check2.py",
+          "language": "python",
+          "sizeLines": 186,
+          "fileCategory": "code"
+        },
+        {
+          "path": "tests/pipeline/manual_pipeline_check3.py",
+          "language": "python",
+          "sizeLines": 303,
+          "fileCategory": "code"
+        },
+        {
+          "path": "tests/pipeline/manual_pipeline_feedback_check.py",
+          "language": "python",
+          "sizeLines": 174,
+          "fileCategory": "code"
+        },
+        {
+          "path": "tests/pipeline/test_good_segments.py",
+          "language": "python",
+          "sizeLines": 56,
+          "fileCategory": "code"
+        },
+        {
+          "path": "tests/stt/latency_check.py",
+          "language": "python",
+          "sizeLines": 161,
+          "fileCategory": "code"
+        },
+        {
+          "path": "tests/stt/manual_stt_check.py",
+          "language": "python",
+          "sizeLines": 106,
+          "fileCategory": "code"
+        },
+        {
+          "path": "tests/stt/stream_check.py",
+          "language": "python",
+          "sizeLines": 32,
+          "fileCategory": "code"
+        },
+        {
+          "path": "tests/unit/test_pipeline_send_json.py",
+          "language": "python",
+          "sizeLines": 75,
+          "fileCategory": "code"
+        },
+        {
+          "path": "tests/unit/test_stt_idle_timeout.py",
+          "language": "python",
+          "sizeLines": 119,
+          "fileCategory": "code"
+        }
+      ],
+      "batchImportData": {
+        "app/core/config.py": [],
+        "app/schemas/frames.py": [
+          "app/schemas/llm.py"
+        ],
+        "app/services/pipeline.py": [
+          "app/core/config.py",
+          "app/core/enums.py",
+          "app/core/metrics.py",
+          "app/schemas/frames.py",
+          "app/schemas/llm.py",
+          "app/services/llm.py",
+          "app/services/session.py",
+          "app/services/spring_client.py",
+          "app/services/stt.py",
+          "app/services/tremor.py",
+          "app/services/tts.py"
+        ],
+        "app/services/spring_client.py": [
+          "app/core/config.py",
+          "app/schemas/frames.py"
+        ],
+        "app/services/stt.py": [],
+        "tests/integration/test_spring_client.py": [
+          "app/schemas/frames.py",
+          "app/services/spring_client.py"
+        ],
+        "tests/pipeline/manual_pipeline_check.py": [
+          "app/core/config.py",
+          "app/services/pipeline.py",
+          "app/services/spring_client.py"
+        ],
+        "tests/pipeline/manual_pipeline_check2.py": [
+          "app/core/config.py",
+          "app/services/pipeline.py",
+          "app/services/spring_client.py"
+        ],
+        "tests/pipeline/manual_pipeline_check3.py": [
+          "app/core/config.py",
+          "app/services/pipeline.py",
+          "app/services/spring_client.py",
+          "app/services/stt.py"
+        ],
+        "tests/pipeline/manual_pipeline_feedback_check.py": [
+          "app/core/config.py",
+          "app/services/pipeline.py",
+          "app/services/spring_client.py"
+        ],
+        "tests/pipeline/test_good_segments.py": [
+          "app/services/pipeline.py"
+        ],
+        "tests/stt/latency_check.py": [
+          "app/core/config.py",
+          "app/services/stt.py"
+        ],
+        "tests/stt/manual_stt_check.py": [
+          "app/core/config.py",
+          "app/services/stt.py"
+        ],
+        "tests/stt/stream_check.py": [
+          "app/services/stt.py"
+        ],
+        "tests/unit/test_pipeline_send_json.py": [
+          "app/services/pipeline.py"
+        ],
+        "tests/unit/test_stt_idle_timeout.py": [
+          "app/schemas/frames.py",
+          "app/services/pipeline.py",
+          "app/services/stt.py"
+        ]
+      },
+      "neighborMap": {
+        "app/core/config.py": [
+          {
+            "path": "app/api/v1/websocket.py",
+            "batchIndex": 4,
+            "symbols": [
+              "voice_stream"
+            ]
+          },
+          {
+            "path": "app/core/logging.py",
+            "batchIndex": 4,
+            "symbols": [
+              "setup_logging"
+            ]
+          },
+          {
+            "path": "app/core/security.py",
+            "batchIndex": 2,
+            "symbols": [
+              "require_internal_secret",
+              "decode_access_token",
+              "authenticate_ws"
+            ]
+          },
+          {
+            "path": "app/db/base.py",
+            "batchIndex": 2,
+            "symbols": [
+              "Base",
+              "init_db"
+            ]
+          },
+          {
+            "path": "app/main.py",
+            "batchIndex": 4,
+            "symbols": [
+              "lifespan",
+              "create_app"
+            ]
+          },
+          {
+            "path": "app/services/llm.py",
+            "batchIndex": 3,
+            "symbols": [
+              "_find_first_tag",
+              "_trailing_partial_len",
+              "_drain_pending",
+              "LLMClient"
+            ]
+          },
+          {
+            "path": "app/services/scenario_service.py",
+            "batchIndex": 2,
+            "symbols": [
+              "get_scenarios",
+              "_normalize_script",
+              "create_custom_scenario"
+            ]
+          },
+          {
+            "path": "app/services/tts.py",
+            "batchIndex": 3,
+            "symbols": [
+              "TTSSession",
+              "ElevenLabsTTSClient"
+            ]
+          },
+          {
+            "path": "tests/tts/manual_tts_check.py",
+            "batchIndex": 3,
+            "symbols": [
+              "text_once",
+              "synth_and_play",
+              "main"
+            ]
+          },
+          {
+            "path": "tests/tts/stream_check.py",
+            "batchIndex": 3,
+            "symbols": [
+              "text_once",
+              "write_wav",
+              "main"
+            ]
+          }
+        ],
+        "app/schemas/frames.py": [
+          {
+            "path": "app/schemas/llm.py",
+            "batchIndex": 3,
+            "symbols": [
+              "AiEmotion",
+              "LLMEventType",
+              "LLMEvent",
+              "ScenarioTurn",
+              "TurnContext"
+            ]
+          }
+        ],
+        "app/services/pipeline.py": [
+          {
+            "path": "app/core/enums.py",
+            "batchIndex": 2,
+            "symbols": [
+              "SessionType",
+              "AiPersonality",
+              "Difficulty",
+              "ScenarioCategory"
+            ]
+          },
+          {
+            "path": "app/core/metrics.py",
+            "batchIndex": 4,
+            "symbols": [
+              "now_ms",
+              "_ms_between",
+              "Stopwatch",
+              "log_metric"
+            ]
+          },
+          {
+            "path": "app/schemas/llm.py",
+            "batchIndex": 3,
+            "symbols": [
+              "AiEmotion",
+              "LLMEventType",
+              "LLMEvent",
+              "ScenarioTurn",
+              "TurnContext"
+            ]
+          },
+          {
+            "path": "app/services/llm.py",
+            "batchIndex": 3,
+            "symbols": [
+              "_find_first_tag",
+              "_trailing_partial_len",
+              "_drain_pending",
+              "LLMClient"
+            ]
+          },
+          {
+            "path": "app/services/session.py",
+            "batchIndex": 3,
+            "symbols": [
+              "load_session",
+              "is_session_owner",
+              "authenticate_session",
+              "_parse_script",
+              "build_turn_context"
+            ]
+          },
+          {
+            "path": "app/services/tremor.py",
+            "batchIndex": 5,
+            "symbols": [
+              "TremorConfig",
+              "TremorResult",
+              "TremorAnalyzer"
+            ]
+          },
+          {
+            "path": "app/services/tts.py",
+            "batchIndex": 3,
+            "symbols": [
+              "TTSSession",
+              "ElevenLabsTTSClient"
+            ]
+          },
+          {
+            "path": "app/api/v1/websocket.py",
+            "batchIndex": 4,
+            "symbols": [
+              "voice_stream"
+            ]
+          },
+          {
+            "path": "tests/unit/test_metrics.py",
+            "batchIndex": 4,
+            "symbols": [
+              "test_now_ms_is_monotonic_nondecreasing",
+              "test_stopwatch_elapsed_nonnegative",
+              "test_stopwatch_between_marks",
+              "test_stopwatch_missing_mark_returns_none",
+              "test_log_metric_emits_record_with_fields",
+              "test_log_metric_swallows_logger_exceptions",
+              "_full_timings",
+              "test_turn_timings_full_metrics",
+              "test_turn_timings_partial_turn_yields_none"
+            ]
+          }
+        ],
+        "app/services/spring_client.py": [
+          {
+            "path": "app/api/v1/websocket.py",
+            "batchIndex": 4,
+            "symbols": [
+              "voice_stream"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "batchIndex": 2,
+      "files": [
+        {
+          "path": "app/api/v1/__init__.py",
+          "language": "python",
+          "sizeLines": 0,
+          "fileCategory": "code"
+        },
+        {
+          "path": "app/api/v1/internal.py",
+          "language": "python",
+          "sizeLines": 66,
+          "fileCategory": "code"
+        },
+        {
+          "path": "app/api/v1/scenario.py",
+          "language": "python",
+          "sizeLines": 61,
+          "fileCategory": "code"
+        },
+        {
+          "path": "app/core/__init__.py",
+          "language": "python",
+          "sizeLines": 0,
+          "fileCategory": "code"
+        },
+        {
+          "path": "app/core/enums.py",
+          "language": "python",
+          "sizeLines": 36,
+          "fileCategory": "code"
+        },
+        {
+          "path": "app/core/preset_scenarios.py",
+          "language": "python",
+          "sizeLines": 212,
+          "fileCategory": "code"
+        },
+        {
+          "path": "app/core/prompt_matrix.py",
+          "language": "python",
+          "sizeLines": 71,
+          "fileCategory": "code"
+        },
+        {
+          "path": "app/core/security.py",
+          "language": "python",
+          "sizeLines": 42,
+          "fileCategory": "code"
+        },
+        {
+          "path": "app/db/base.py",
+          "language": "python",
+          "sizeLines": 28,
+          "fileCategory": "code"
+        },
+        {
+          "path": "app/db/models.py",
+          "language": "python",
+          "sizeLines": 33,
+          "fileCategory": "code"
+        },
+        {
+          "path": "app/deps/auth.py",
+          "language": "python",
+          "sizeLines": 18,
+          "fileCategory": "code"
+        },
+        {
+          "path": "app/deps/db.py",
+          "language": "python",
+          "sizeLines": 10,
+          "fileCategory": "code"
+        },
+        {
+          "path": "app/schemas/scenario.py",
+          "language": "python",
+          "sizeLines": 60,
+          "fileCategory": "code"
+        },
+        {
+          "path": "app/services/scenario_service.py",
+          "language": "python",
+          "sizeLines": 180,
+          "fileCategory": "code"
+        },
+        {
+          "path": "tests/unit/test_internal_context.py",
+          "language": "python",
+          "sizeLines": 101,
+          "fileCategory": "code"
+        }
+      ],
+      "batchImportData": {
+        "app/api/v1/__init__.py": [],
+        "app/api/v1/internal.py": [
+          "app/core/preset_scenarios.py",
+          "app/core/security.py",
+          "app/db/models.py",
+          "app/deps/db.py",
+          "app/schemas/scenario.py"
+        ],
+        "app/api/v1/scenario.py": [
+          "app/core/enums.py",
+          "app/deps/auth.py",
+          "app/deps/db.py",
+          "app/schemas/scenario.py",
+          "app/services/scenario_service.py"
+        ],
+        "app/core/__init__.py": [],
+        "app/core/enums.py": [],
+        "app/core/preset_scenarios.py": [
+          "app/core/enums.py",
+          "app/schemas/scenario.py"
+        ],
+        "app/core/prompt_matrix.py": [
+          "app/core/enums.py"
+        ],
+        "app/core/security.py": [
+          "app/core/config.py"
+        ],
+        "app/db/base.py": [
+          "app/core/config.py"
+        ],
+        "app/db/models.py": [
+          "app/db/base.py"
+        ],
+        "app/deps/auth.py": [
+          "app/core/security.py"
+        ],
+        "app/deps/db.py": [
+          "app/db/base.py"
+        ],
+        "app/schemas/scenario.py": [
+          "app/core/enums.py"
+        ],
+        "app/services/scenario_service.py": [
+          "app/core/config.py",
+          "app/core/enums.py",
+          "app/core/preset_scenarios.py",
+          "app/core/prompt_matrix.py",
+          "app/db/models.py",
+          "app/schemas/scenario.py"
+        ],
+        "tests/unit/test_internal_context.py": [
+          "app/api/v1/__init__.py",
+          "app/api/v1/internal.py",
+          "app/core/__init__.py",
+          "app/core/security.py",
+          "app/deps/db.py"
+        ]
+      },
+      "neighborMap": {
+        "app/api/v1/__init__.py": [
+          {
+            "path": "app/main.py",
+            "batchIndex": 4,
+            "symbols": [
+              "lifespan",
+              "create_app"
+            ]
+          }
+        ],
+        "app/api/v1/internal.py": [
+          {
+            "path": "app/main.py",
+            "batchIndex": 4,
+            "symbols": [
+              "lifespan",
+              "create_app"
+            ]
+          }
+        ],
+        "app/api/v1/scenario.py": [
+          {
+            "path": "app/main.py",
+            "batchIndex": 4,
+            "symbols": [
+              "lifespan",
+              "create_app"
+            ]
+          }
+        ],
+        "app/core/enums.py": [
+          {
+            "path": "app/schemas/llm.py",
+            "batchIndex": 3,
+            "symbols": [
+              "AiEmotion",
+              "LLMEventType",
+              "LLMEvent",
+              "ScenarioTurn",
+              "TurnContext"
+            ]
+          },
+          {
+            "path": "app/services/pipeline.py",
+            "batchIndex": 1,
+            "symbols": [
+              "_State",
+              "_TurnTimings",
+              "VoicePipeline"
+            ]
+          }
+        ],
+        "app/core/security.py": [
+          {
+            "path": "app/core/config.py",
+            "batchIndex": 1,
+            "symbols": [
+              "Settings",
+              "get_settings"
+            ]
+          },
+          {
+            "path": "app/api/v1/websocket.py",
+            "batchIndex": 4,
+            "symbols": [
+              "voice_stream"
+            ]
+          }
+        ],
+        "app/db/base.py": [
+          {
+            "path": "app/core/config.py",
+            "batchIndex": 1,
+            "symbols": [
+              "Settings",
+              "get_settings"
+            ]
+          },
+          {
+            "path": "app/main.py",
+            "batchIndex": 4,
+            "symbols": [
+              "lifespan",
+              "create_app"
+            ]
+          }
+        ],
+        "app/services/scenario_service.py": [
+          {
+            "path": "app/core/config.py",
+            "batchIndex": 1,
+            "symbols": [
+              "Settings",
+              "get_settings"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "batchIndex": 3,
+      "files": [
+        {
+          "path": "app/schemas/llm.py",
+          "language": "python",
+          "sizeLines": 62,
+          "fileCategory": "code"
+        },
+        {
+          "path": "app/services/llm.py",
+          "language": "python",
+          "sizeLines": 224,
+          "fileCategory": "code"
+        },
+        {
+          "path": "app/services/llm_prompt.py",
+          "language": "python",
+          "sizeLines": 105,
+          "fileCategory": "code"
+        },
+        {
+          "path": "app/services/session.py",
+          "language": "python",
+          "sizeLines": 132,
+          "fileCategory": "code"
+        },
+        {
+          "path": "app/services/tts.py",
+          "language": "python",
+          "sizeLines": 136,
+          "fileCategory": "code"
+        },
+        {
+          "path": "tests/llm/manual_llm_check.py",
+          "language": "python",
+          "sizeLines": 93,
+          "fileCategory": "code"
+        },
+        {
+          "path": "tests/llm/raw_dump.py",
+          "language": "python",
+          "sizeLines": 67,
+          "fileCategory": "code"
+        },
+        {
+          "path": "tests/tts/manual_tts_check.py",
+          "language": "python",
+          "sizeLines": 79,
+          "fileCategory": "code"
+        },
+        {
+          "path": "tests/tts/stream_check.py",
+          "language": "python",
+          "sizeLines": 87,
+          "fileCategory": "code"
+        },
+        {
+          "path": "tests/unit/test_llm_parsing.py",
+          "language": "python",
+          "sizeLines": 93,
+          "fileCategory": "code"
+        },
+        {
+          "path": "tests/unit/test_session.py",
+          "language": "python",
+          "sizeLines": 98,
+          "fileCategory": "code"
+        }
+      ],
+      "batchImportData": {
+        "app/schemas/llm.py": [
+          "app/core/enums.py"
+        ],
+        "app/services/llm.py": [
+          "app/core/config.py",
+          "app/schemas/llm.py",
+          "app/services/llm_prompt.py"
+        ],
+        "app/services/llm_prompt.py": [
+          "app/schemas/llm.py"
+        ],
+        "app/services/session.py": [
+          "app/schemas/llm.py"
+        ],
+        "app/services/tts.py": [
+          "app/core/config.py",
+          "app/schemas/llm.py"
+        ],
+        "tests/llm/manual_llm_check.py": [
+          "app/schemas/llm.py",
+          "app/services/llm.py"
+        ],
+        "tests/llm/raw_dump.py": [
+          "app/schemas/llm.py",
+          "app/services/llm_prompt.py",
+          "app/services/llm.py"
+        ],
+        "tests/tts/manual_tts_check.py": [
+          "app/core/config.py",
+          "app/schemas/llm.py",
+          "app/services/tts.py"
+        ],
+        "tests/tts/stream_check.py": [
+          "app/core/config.py",
+          "app/services/tts.py"
+        ],
+        "tests/unit/test_llm_parsing.py": [
+          "app/schemas/llm.py",
+          "app/services/llm.py"
+        ],
+        "tests/unit/test_session.py": [
+          "app/schemas/llm.py",
+          "app/services/session.py"
+        ]
+      },
+      "neighborMap": {
+        "app/schemas/llm.py": [
+          {
+            "path": "app/core/enums.py",
+            "batchIndex": 2,
+            "symbols": [
+              "SessionType",
+              "AiPersonality",
+              "Difficulty",
+              "ScenarioCategory"
+            ]
+          },
+          {
+            "path": "app/schemas/frames.py",
+            "batchIndex": 1,
+            "symbols": [
+              "FrameType",
+              "EndReason",
+              "emotion_frame",
+              "speaking_end_frame",
+              "interrupt_frame",
+              "end_frame",
+              "error_frame"
+            ]
+          },
+          {
+            "path": "app/services/pipeline.py",
+            "batchIndex": 1,
+            "symbols": [
+              "_State",
+              "_TurnTimings",
+              "VoicePipeline"
+            ]
+          }
+        ],
+        "app/services/llm.py": [
+          {
+            "path": "app/core/config.py",
+            "batchIndex": 1,
+            "symbols": [
+              "Settings",
+              "get_settings"
+            ]
+          },
+          {
+            "path": "app/services/pipeline.py",
+            "batchIndex": 1,
+            "symbols": [
+              "_State",
+              "_TurnTimings",
+              "VoicePipeline"
+            ]
+          }
+        ],
+        "app/services/session.py": [
+          {
+            "path": "app/api/v1/websocket.py",
+            "batchIndex": 4,
+            "symbols": [
+              "voice_stream"
+            ]
+          },
+          {
+            "path": "app/services/pipeline.py",
+            "batchIndex": 1,
+            "symbols": [
+              "_State",
+              "_TurnTimings",
+              "VoicePipeline"
+            ]
+          }
+        ],
+        "app/services/tts.py": [
+          {
+            "path": "app/core/config.py",
+            "batchIndex": 1,
+            "symbols": [
+              "Settings",
+              "get_settings"
+            ]
+          },
+          {
+            "path": "app/services/pipeline.py",
+            "batchIndex": 1,
+            "symbols": [
+              "_State",
+              "_TurnTimings",
+              "VoicePipeline"
+            ]
+          }
+        ],
+        "tests/tts/manual_tts_check.py": [
+          {
+            "path": "app/core/config.py",
+            "batchIndex": 1,
+            "symbols": [
+              "Settings",
+              "get_settings"
+            ]
+          }
+        ],
+        "tests/tts/stream_check.py": [
+          {
+            "path": "app/core/config.py",
+            "batchIndex": 1,
+            "symbols": [
+              "Settings",
+              "get_settings"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "batchIndex": 4,
+      "files": [
+        {
+          "path": "app/api/v1/websocket.py",
+          "language": "python",
+          "sizeLines": 66,
+          "fileCategory": "code"
+        },
+        {
+          "path": "app/core/logging.py",
+          "language": "python",
+          "sizeLines": 72,
+          "fileCategory": "code"
+        },
+        {
+          "path": "app/core/metrics.py",
+          "language": "python",
+          "sizeLines": 63,
+          "fileCategory": "code"
+        },
+        {
+          "path": "app/deps/redis.py",
+          "language": "python",
+          "sizeLines": 44,
+          "fileCategory": "code"
+        },
+        {
+          "path": "app/main.py",
+          "language": "python",
+          "sizeLines": 79,
+          "fileCategory": "code"
+        },
+        {
+          "path": "tests/unit/test_metrics.py",
+          "language": "python",
+          "sizeLines": 90,
+          "fileCategory": "code"
+        }
+      ],
+      "batchImportData": {
+        "app/api/v1/websocket.py": [
+          "app/core/config.py",
+          "app/core/security.py",
+          "app/deps/redis.py",
+          "app/services/pipeline.py",
+          "app/services/session.py",
+          "app/services/spring_client.py"
+        ],
+        "app/core/logging.py": [
+          "app/core/config.py"
+        ],
+        "app/core/metrics.py": [
+          "app/core/logging.py"
+        ],
+        "app/deps/redis.py": [],
+        "app/main.py": [
+          "app/api/v1/__init__.py",
+          "app/api/v1/internal.py",
+          "app/api/v1/scenario.py",
+          "app/api/v1/websocket.py",
+          "app/core/config.py",
+          "app/core/logging.py",
+          "app/core/metrics.py",
+          "app/db/base.py",
+          "app/deps/redis.py"
+        ],
+        "tests/unit/test_metrics.py": [
+          "app/core/metrics.py",
+          "app/services/pipeline.py"
+        ]
+      },
+      "neighborMap": {
+        "app/api/v1/websocket.py": [
+          {
+            "path": "app/core/config.py",
+            "batchIndex": 1,
+            "symbols": [
+              "Settings",
+              "get_settings"
+            ]
+          },
+          {
+            "path": "app/core/security.py",
+            "batchIndex": 2,
+            "symbols": [
+              "require_internal_secret",
+              "decode_access_token",
+              "authenticate_ws"
+            ]
+          },
+          {
+            "path": "app/services/pipeline.py",
+            "batchIndex": 1,
+            "symbols": [
+              "_State",
+              "_TurnTimings",
+              "VoicePipeline"
+            ]
+          },
+          {
+            "path": "app/services/session.py",
+            "batchIndex": 3,
+            "symbols": [
+              "load_session",
+              "is_session_owner",
+              "authenticate_session",
+              "_parse_script",
+              "build_turn_context"
+            ]
+          },
+          {
+            "path": "app/services/spring_client.py",
+            "batchIndex": 1,
+            "symbols": [
+              "SpringInternalClient"
+            ]
+          }
+        ],
+        "app/core/logging.py": [
+          {
+            "path": "app/core/config.py",
+            "batchIndex": 1,
+            "symbols": [
+              "Settings",
+              "get_settings"
+            ]
+          }
+        ],
+        "app/core/metrics.py": [
+          {
+            "path": "app/services/pipeline.py",
+            "batchIndex": 1,
+            "symbols": [
+              "_State",
+              "_TurnTimings",
+              "VoicePipeline"
+            ]
+          }
+        ],
+        "app/main.py": [
+          {
+            "path": "app/api/v1/__init__.py",
+            "batchIndex": 2,
+            "symbols": []
+          },
+          {
+            "path": "app/api/v1/internal.py",
+            "batchIndex": 2,
+            "symbols": [
+              "health",
+              "get_scenario_context"
+            ]
+          },
+          {
+            "path": "app/api/v1/scenario.py",
+            "batchIndex": 2,
+            "symbols": [
+              "list_scenarios",
+              "create_custom_scenario"
+            ]
+          },
+          {
+            "path": "app/core/config.py",
+            "batchIndex": 1,
+            "symbols": [
+              "Settings",
+              "get_settings"
+            ]
+          },
+          {
+            "path": "app/db/base.py",
+            "batchIndex": 2,
+            "symbols": [
+              "Base",
+              "init_db"
+            ]
+          }
+        ],
+        "tests/unit/test_metrics.py": [
+          {
+            "path": "app/services/pipeline.py",
+            "batchIndex": 1,
+            "symbols": [
+              "_State",
+              "_TurnTimings",
+              "VoicePipeline"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "batchIndex": 5,
+      "files": [
+        {
+          "path": "app/services/tremor.py",
+          "language": "python",
+          "sizeLines": 270,
+          "fileCategory": "code"
+        },
+        {
+          "path": "tests/tremor/manual_tremor_check.py",
+          "language": "python",
+          "sizeLines": 173,
+          "fileCategory": "code"
+        },
+        {
+          "path": "tests/tremor/test_tremor.py",
+          "language": "python",
+          "sizeLines": 87,
+          "fileCategory": "code"
+        }
+      ],
+      "batchImportData": {
+        "app/services/tremor.py": [],
+        "tests/tremor/manual_tremor_check.py": [],
+        "tests/tremor/test_tremor.py": [
+          "app/services/tremor.py",
+          "tests/tremor/manual_tremor_check.py"
+        ]
+      },
+      "neighborMap": {
+        "app/services/tremor.py": [
+          {
+            "path": "app/services/pipeline.py",
+            "batchIndex": 1,
+            "symbols": [
+              "_State",
+              "_TurnTimings",
+              "VoicePipeline"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "batchIndex": 6,
+      "files": [
+        {
+          "path": "tests/perf/_stats.py",
+          "language": "python",
+          "sizeLines": 49,
+          "fileCategory": "code"
+        },
+        {
+          "path": "tests/perf/rest_bench.py",
+          "language": "python",
+          "sizeLines": 99,
+          "fileCategory": "code"
+        },
+        {
+          "path": "tests/perf/ws_bench.py",
+          "language": "python",
+          "sizeLines": 155,
+          "fileCategory": "code"
+        }
+      ],
+      "batchImportData": {
+        "tests/perf/_stats.py": [],
+        "tests/perf/rest_bench.py": [
+          "tests/perf/_stats.py"
+        ],
+        "tests/perf/ws_bench.py": [
+          "tests/perf/_stats.py"
+        ]
+      },
+      "neighborMap": {}
+    },
+    {
+      "batchIndex": 7,
+      "files": [
+        {
+          "path": ".dockerignore",
+          "language": "unknown",
+          "sizeLines": 41,
+          "fileCategory": "infra"
+        },
+        {
+          "path": "docker-compose.prod.yml",
+          "language": "yaml",
+          "sizeLines": 21,
+          "fileCategory": "infra"
+        },
+        {
+          "path": "docker-compose.yml",
+          "language": "yaml",
+          "sizeLines": 78,
+          "fileCategory": "infra"
+        },
+        {
+          "path": "Dockerfile",
+          "language": "dockerfile",
+          "sizeLines": 36,
+          "fileCategory": "infra"
+        }
+      ],
+      "batchImportData": {
+        ".dockerignore": [],
+        "docker-compose.prod.yml": [],
+        "docker-compose.yml": [],
+        "Dockerfile": []
+      },
+      "neighborMap": {}
+    },
+    {
+      "batchIndex": 8,
+      "files": [
+        {
+          "path": ".github/workflows/ci.yml",
+          "language": "yaml",
+          "sizeLines": 29,
+          "fileCategory": "infra"
+        },
+        {
+          "path": ".github/workflows/deploy.yml",
+          "language": "yaml",
+          "sizeLines": 125,
+          "fileCategory": "infra"
+        }
+      ],
+      "batchImportData": {
+        ".github/workflows/ci.yml": [],
+        ".github/workflows/deploy.yml": []
+      },
+      "neighborMap": {}
+    },
+    {
+      "batchIndex": 9,
+      "files": [
+        {
+          "path": "README.md",
+          "language": "markdown",
+          "sizeLines": 1,
+          "fileCategory": "docs"
+        },
+        {
+          "path": "pyproject.toml",
+          "language": "toml",
+          "sizeLines": 73,
+          "fileCategory": "config"
+        },
+        {
+          "path": "requirements.txt",
+          "language": "txt",
+          "sizeLines": 41,
+          "fileCategory": "docs"
+        }
+      ],
+      "batchImportData": {
+        "README.md": [],
+        "pyproject.toml": [],
+        "requirements.txt": []
+      },
+      "neighborMap": {}
+    },
+    {
+      "batchIndex": 10,
+      "files": [
+        {
+          "path": ".understand-anything/.understandignore",
+          "language": "unknown",
+          "sizeLines": 47,
+          "fileCategory": "code"
+        },
+        {
+          "path": ".understand-anything/config.json",
+          "language": "json",
+          "sizeLines": 2,
+          "fileCategory": "config"
+        },
+        {
+          "path": "app/__init__.py",
+          "language": "python",
+          "sizeLines": 0,
+          "fileCategory": "code"
+        },
+        {
+          "path": "app/api/__init__.py",
+          "language": "python",
+          "sizeLines": 0,
+          "fileCategory": "code"
+        },
+        {
+          "path": "app/api/v1/feedback.py",
+          "language": "python",
+          "sizeLines": 11,
+          "fileCategory": "code"
+        },
+        {
+          "path": "app/db/__init__.py",
+          "language": "python",
+          "sizeLines": 0,
+          "fileCategory": "code"
+        },
+        {
+          "path": "app/deps/__init__.py",
+          "language": "python",
+          "sizeLines": 0,
+          "fileCategory": "code"
+        },
+        {
+          "path": "app/schemas/__init__.py",
+          "language": "python",
+          "sizeLines": 0,
+          "fileCategory": "code"
+        },
+        {
+          "path": "app/schemas/feedback.py",
+          "language": "python",
+          "sizeLines": 8,
+          "fileCategory": "code"
+        },
+        {
+          "path": "app/services/__init__.py",
+          "language": "python",
+          "sizeLines": 0,
+          "fileCategory": "code"
+        },
+        {
+          "path": "app/workers/__init__.py",
+          "language": "python",
+          "sizeLines": 0,
+          "fileCategory": "code"
+        },
+        {
+          "path": "tests/__init__.py",
+          "language": "python",
+          "sizeLines": 0,
+          "fileCategory": "code"
+        },
+        {
+          "path": "tests/conftest.py",
+          "language": "python",
+          "sizeLines": 19,
+          "fileCategory": "code"
+        },
+        {
+          "path": "tests/integration/__init__.py",
+          "language": "python",
+          "sizeLines": 0,
+          "fileCategory": "code"
+        },
+        {
+          "path": "tests/llm/__init__.py",
+          "language": "python",
+          "sizeLines": 0,
+          "fileCategory": "code"
+        },
+        {
+          "path": "tests/output/__init__.py",
+          "language": "python",
+          "sizeLines": 0,
+          "fileCategory": "code"
+        },
+        {
+          "path": "tests/perf/__init__.py",
+          "language": "python",
+          "sizeLines": 0,
+          "fileCategory": "code"
+        },
+        {
+          "path": "tests/pipeline/__init__.py",
+          "language": "python",
+          "sizeLines": 0,
+          "fileCategory": "code"
+        },
+        {
+          "path": "tests/stt/__init__.py",
+          "language": "python",
+          "sizeLines": 0,
+          "fileCategory": "code"
+        },
+        {
+          "path": "tests/stt/mic_check.py",
+          "language": "python",
+          "sizeLines": 17,
+          "fileCategory": "code"
+        },
+        {
+          "path": "tests/tremor/__init__.py",
+          "language": "python",
+          "sizeLines": 0,
+          "fileCategory": "code"
+        },
+        {
+          "path": "tests/tts/__init__.py",
+          "language": "python",
+          "sizeLines": 0,
+          "fileCategory": "code"
+        },
+        {
+          "path": "tests/unit/__init__.py",
+          "language": "python",
+          "sizeLines": 0,
+          "fileCategory": "code"
+        }
+      ],
+      "batchImportData": {
+        ".understand-anything/.understandignore": [],
+        ".understand-anything/config.json": [],
+        "app/__init__.py": [],
+        "app/api/__init__.py": [],
+        "app/api/v1/feedback.py": [],
+        "app/db/__init__.py": [],
+        "app/deps/__init__.py": [],
+        "app/schemas/__init__.py": [],
+        "app/schemas/feedback.py": [],
+        "app/services/__init__.py": [],
+        "app/workers/__init__.py": [],
+        "tests/__init__.py": [],
+        "tests/conftest.py": [],
+        "tests/integration/__init__.py": [],
+        "tests/llm/__init__.py": [],
+        "tests/output/__init__.py": [],
+        "tests/perf/__init__.py": [],
+        "tests/pipeline/__init__.py": [],
+        "tests/stt/__init__.py": [],
+        "tests/stt/mic_check.py": [],
+        "tests/tremor/__init__.py": [],
+        "tests/tts/__init__.py": [],
+        "tests/unit/__init__.py": []
+      },
+      "neighborMap": {}
+    }
+  ]
+}
