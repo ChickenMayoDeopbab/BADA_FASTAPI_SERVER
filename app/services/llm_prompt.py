@@ -78,10 +78,17 @@ def build_system_prompt(ctx: TurnContext) -> str:
     """시스템 프롬프트 조립"""
     persona = _PERSONALITY_SPEC[ctx.personality]
     script_block = _format_script(ctx.script, ctx.current_step)
+    scenario_prompt = ctx.scenario_prompt.strip()
+    prompt_block = (
+        f"[시나리오 역할 지시]\n{scenario_prompt}\n\n"
+        if scenario_prompt
+        else ""
+    )
 
     return (
         f"너는 전화 통화 연습 앱에서 '{ctx.scenario_role}' 역할을 연기하는 AI다.\n"
         f"상황: {ctx.scenario_title}\n\n"
+        f"{prompt_block}"
         f"[성격 설정]\n{persona}\n\n"
         f"[대화 진행 스크립트] (이 순서를 따라가되 표현은 사용자 발화에 맞춰 자연스럽게 변형)\n"
         f"{script_block}\n\n"

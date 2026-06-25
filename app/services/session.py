@@ -129,4 +129,5 @@ def build_turn_context(
         current_step=current_step,
         history=history,
         user_utterance=user_utterance,
+        scenario_prompt=str(scenario.get("aiPrompt", "")),
     )

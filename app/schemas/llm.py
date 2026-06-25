@@ -56,8 +56,8 @@ class TurnContext:
     personality: AiPersonality  # AI 성격
     scenario_title: str         # 시나리오 제목
     scenario_role: str          # AI가 연기할 역할
-    scenario_prompt: str        # 시나리오별 역할 지시
     script: list[ScenarioTurn]
     current_step: int           # 몇 번째
     history: list[dict]         # 나눴던 대화
     user_utterance: str         # 사용자가 말한 내용
+    scenario_prompt: str = ""   # 시나리오별 역할 지시
