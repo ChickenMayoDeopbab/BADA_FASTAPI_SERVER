@@ -45,3 +45,8 @@ AGENTS.md
 CLAUDE.md
 .claude/hooks/stop-gate.sh
 .claude/hooks/session-context.sh
+
+.understand-anything/intermediate/
+.understand-anything/diff-overlay.json
+.understand-anything/.trash-*/
+.understand-anything/tmp/

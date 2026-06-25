@@ -1,0 +1,5317 @@
+{
+  "version": "1.0.0",
+  "gitCommitHash": "88899d2abb589a4269b3ea91acf272bcdd8e26d4",
+  "generatedAt": "2026-06-25T09:21:55.306Z",
+  "files": {
+    ".dockerignore": {
+      "filePath": ".dockerignore",
+      "contentHash": "677e790c23a50e17cf8032510d2b81569afe5b1d3547dbffe7516ee2705c9b7c",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 42,
+      "hasStructuralAnalysis": false
+    },
+    ".github/workflows/ci.yml": {
+      "filePath": ".github/workflows/ci.yml",
+      "contentHash": "46202d00401e6244a08d4827e0face48477790e37cabf6a8fb511b6561d0df1c",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 30,
+      "hasStructuralAnalysis": true
+    },
+    ".github/workflows/deploy.yml": {
+      "filePath": ".github/workflows/deploy.yml",
+      "contentHash": "de97440483dd4ddf7b21f15d73ac86575df49fa054c6f79528e1eb487aefe959",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 126,
+      "hasStructuralAnalysis": true
+    },
+    ".understand-anything/.understandignore": {
+      "filePath": ".understand-anything/.understandignore",
+      "contentHash": "af52fcda931a4a16e6f63dd3a81e2b6fcd110b1b800f073da546fc0af14a364a",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 48,
+      "hasStructuralAnalysis": false
+    },
+    ".understand-anything/config.json": {
+      "filePath": ".understand-anything/config.json",
+      "contentHash": "a80a1a497d66022e9bbfca38401115cffe5360f9b74e3fd515d2e1a9ad7e5322",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 3,
+      "hasStructuralAnalysis": true
+    },
+    "app/__init__.py": {
+      "filePath": "app/__init__.py",
+      "contentHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 1,
+      "hasStructuralAnalysis": true
+    },
+    "app/api/__init__.py": {
+      "filePath": "app/api/__init__.py",
+      "contentHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 1,
+      "hasStructuralAnalysis": true
+    },
+    "app/api/v1/__init__.py": {
+      "filePath": "app/api/v1/__init__.py",
+      "contentHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 1,
+      "hasStructuralAnalysis": true
+    },
+    "app/api/v1/feedback.py": {
+      "filePath": "app/api/v1/feedback.py",
+      "contentHash": "434ae13f47c01def6c6fb423cc67fdf25bbc11e7bf3be796022c302d5a31e3ad",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "fastapi",
+          "specifiers": [
+            "APIRouter"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 12,
+      "hasStructuralAnalysis": true
+    },
+    "app/api/v1/internal.py": {
+      "filePath": "app/api/v1/internal.py",
+      "contentHash": "9c0d39fe5dc2d4e610381285238b46031b2b85d6a961468c84ad7e5b85715666",
+      "functions": [
+        {
+          "name": "health",
+          "params": [],
+          "returnType": "dict[str, str]",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "get_scenario_context",
+          "params": [
+            "scenario_id",
+            "db"
+          ],
+          "returnType": "ScenarioContextResponse",
+          "exported": true,
+          "lineCount": 43
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "fastapi",
+          "specifiers": [
+            "APIRouter",
+            "Depends",
+            "HTTPException",
+            "status"
+          ]
+        },
+        {
+          "source": "sqlalchemy.ext.asyncio",
+          "specifiers": [
+            "AsyncSession"
+          ]
+        },
+        {
+          "source": "app.core.preset_scenarios",
+          "specifiers": [
+            "PRESET_MAP"
+          ]
+        },
+        {
+          "source": "app.core.security",
+          "specifiers": [
+            "require_internal_secret"
+          ]
+        },
+        {
+          "source": "app.db.models",
+          "specifiers": [
+            "ScenarioORM"
+          ]
+        },
+        {
+          "source": "app.deps.db",
+          "specifiers": [
+            "get_db"
+          ]
+        },
+        {
+          "source": "app.schemas.scenario",
+          "specifiers": [
+            "ScenarioContextResponse",
+            "ScriptTurnContext"
+          ]
+        }
+      ],
+      "exports": [
+        "health",
+        "get_scenario_context"
+      ],
+      "totalLines": 67,
+      "hasStructuralAnalysis": true
+    },
+    "app/api/v1/scenario.py": {
+      "filePath": "app/api/v1/scenario.py",
+      "contentHash": "c724a6110dfe4f7ee0f39933619cda1762ad78aeff4dc3e4ececf7e166dd6b64",
+      "functions": [
+        {
+          "name": "list_scenarios",
+          "params": [
+            "db",
+            "category"
+          ],
+          "returnType": "ScenarioListResponse",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "create_custom_scenario",
+          "params": [
+            "body",
+            "db",
+            "user_id"
+          ],
+          "returnType": "CustomScenarioResponse",
+          "exported": true,
+          "lineCount": 18
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "anthropic",
+          "specifiers": [
+            "APIError"
+          ]
+        },
+        {
+          "source": "fastapi",
+          "specifiers": [
+            "APIRouter",
+            "Depends",
+            "HTTPException",
+            "Query",
+            "status"
+          ]
+        },
+        {
+          "source": "sqlalchemy.ext.asyncio",
+          "specifiers": [
+            "AsyncSession"
+          ]
+        },
+        {
+          "source": "app.core.enums",
+          "specifiers": [
+            "ScenarioCategory"
+          ]
+        },
+        {
+          "source": "app.deps.auth",
+          "specifiers": [
+            "get_current_user_id"
+          ]
+        },
+        {
+          "source": "app.deps.db",
+          "specifiers": [
+            "get_db"
+          ]
+        },
+        {
+          "source": "app.schemas.scenario",
+          "specifiers": [
+            "CustomScenarioResponse",
+            "CustomSessionRequest",
+            "ScenarioListResponse"
+          ]
+        },
+        {
+          "source": "app.services.scenario_service",
+          "specifiers": [
+            "svc_create_custom_scenario"
+          ]
+        },
+        {
+          "source": "app.services.scenario_service",
+          "specifiers": [
+            "svc_get_scenarios"
+          ]
+        }
+      ],
+      "exports": [
+        "list_scenarios",
+        "create_custom_scenario"
+      ],
+      "totalLines": 62,
+      "hasStructuralAnalysis": true
+    },
+    "app/api/v1/websocket.py": {
+      "filePath": "app/api/v1/websocket.py",
+      "contentHash": "24fe602cd24244cd9ed8d1b9085422e2aea755d73dcfa1c443f5b4ed2d6432ef",
+      "functions": [
+        {
+          "name": "voice_stream",
+          "params": [
+            "ws",
+            "session_id",
+            "token",
+            "redis"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 48
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "contextlib",
+          "specifiers": [
+            "suppress"
+          ]
+        },
+        {
+          "source": "fastapi",
+          "specifiers": [
+            "APIRouter",
+            "Depends",
+            "Query",
+            "WebSocket",
+            "WebSocketDisconnect",
+            "status"
+          ]
+        },
+        {
+          "source": "redis.asyncio",
+          "specifiers": [
+            "Redis"
+          ]
+        },
+        {
+          "source": "app.core.config",
+          "specifiers": [
+            "get_settings"
+          ]
+        },
+        {
+          "source": "app.core.security",
+          "specifiers": [
+            "authenticate_ws"
+          ]
+        },
+        {
+          "source": "app.deps.redis",
+          "specifiers": [
+            "get_redis"
+          ]
+        },
+        {
+          "source": "app.services.pipeline",
+          "specifiers": [
+            "VoicePipeline"
+          ]
+        },
+        {
+          "source": "app.services.session",
+          "specifiers": [
+            "authenticate_session"
+          ]
+        },
+        {
+          "source": "app.services.spring_client",
+          "specifiers": [
+            "SpringInternalClient"
+          ]
+        }
+      ],
+      "exports": [
+        "voice_stream"
+      ],
+      "totalLines": 67,
+      "hasStructuralAnalysis": true
+    },
+    "app/core/__init__.py": {
+      "filePath": "app/core/__init__.py",
+      "contentHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 1,
+      "hasStructuralAnalysis": true
+    },
+    "app/core/config.py": {
+      "filePath": "app/core/config.py",
+      "contentHash": "0919a8607b26eb00c48960368b9d85313602318ede74ccb90af5dce8224ec4ae",
+      "functions": [
+        {
+          "name": "get_settings",
+          "params": [],
+          "returnType": "Settings",
+          "exported": true,
+          "lineCount": 2
+        }
+      ],
+      "classes": [
+        {
+          "name": "Settings",
+          "methods": [],
+          "properties": [
+            "env",
+            "cors_origins",
+            "redis_url",
+            "rabbitmq_url",
+            "jwt_secret",
+            "jwt_algorithm",
+            "internal_secret",
+            "google_stt_credentials_path",
+            "google_project_id",
+            "google_stt_location",
+            "google_stt_model",
+            "google_stt_language",
+            "gemini_api_key",
+            "llm_realtime_model",
+            "anthropic_api_key",
+            "llm_analysis_model",
+            "elevenlabs_api_key",
+            "elevenlabs_model",
+            "elevenlabs_voice_id",
+            "elevenlabs_ws_host",
+            "elevenlabs_output_format",
+            "elevenlabs_language_code",
+            "elevenlabs_apply_text_normalization",
+            "elevenlabs_auto_mode",
+            "elevenlabs_stability",
+            "elevenlabs_similarity_boost",
+            "elevenlabs_style",
+            "elevenlabs_speaker_boost",
+            "elevenlabs_speed",
+            "spring_boot_internal_url",
+            "database_url"
+          ],
+          "exported": true,
+          "lineCount": 54
+        }
+      ],
+      "imports": [
+        {
+          "source": "functools",
+          "specifiers": [
+            "lru_cache"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "pydantic_settings",
+          "specifiers": [
+            "BaseSettings",
+            "SettingsConfigDict"
+          ]
+        }
+      ],
+      "exports": [
+        "Settings",
+        "get_settings"
+      ],
+      "totalLines": 65,
+      "hasStructuralAnalysis": true
+    },
+    "app/core/enums.py": {
+      "filePath": "app/core/enums.py",
+      "contentHash": "cc0a8fd99ddc5b767986fec922a0e747bd588b6242f3388ebdaea02dbabbd789",
+      "functions": [],
+      "classes": [
+        {
+          "name": "SessionType",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "AiPersonality",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "Difficulty",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "ScenarioCategory",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 7
+        }
+      ],
+      "imports": [
+        {
+          "source": "enum",
+          "specifiers": [
+            "StrEnum"
+          ]
+        }
+      ],
+      "exports": [
+        "SessionType",
+        "AiPersonality",
+        "Difficulty",
+        "ScenarioCategory"
+      ],
+      "totalLines": 37,
+      "hasStructuralAnalysis": true
+    },
+    "app/core/logging.py": {
+      "filePath": "app/core/logging.py",
+      "contentHash": "f2bf713cd3a4d3ad52d23a4e988aa7c7b4fd8fa17bb7b4d246db9f6913fbf204",
+      "functions": [
+        {
+          "name": "setup_logging",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 66
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "sys",
+          "specifiers": [
+            "sys"
+          ]
+        },
+        {
+          "source": "logging.config",
+          "specifiers": [
+            "dictConfig"
+          ]
+        },
+        {
+          "source": "app.core.config",
+          "specifiers": [
+            "get_settings"
+          ]
+        }
+      ],
+      "exports": [
+        "setup_logging"
+      ],
+      "totalLines": 73,
+      "hasStructuralAnalysis": true
+    },
+    "app/core/metrics.py": {
+      "filePath": "app/core/metrics.py",
+      "contentHash": "b43e662eb3d66b28cce06b758681ab67c058789a66f01e7fa8adf024edbd5ce5",
+      "functions": [
+        {
+          "name": "now_ms",
+          "params": [],
+          "returnType": "float",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "_ms_between",
+          "params": [
+            "start",
+            "end"
+          ],
+          "returnType": "float | None",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "log_metric",
+          "params": [
+            "name"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 7
+        }
+      ],
+      "classes": [
+        {
+          "name": "Stopwatch",
+          "methods": [
+            "__init__",
+            "mark",
+            "at",
+            "since",
+            "between",
+            "elapsed_ms"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 35
+        }
+      ],
+      "imports": [
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "contextlib",
+          "specifiers": [
+            "suppress"
+          ]
+        }
+      ],
+      "exports": [
+        "now_ms",
+        "_ms_between",
+        "Stopwatch",
+        "log_metric"
+      ],
+      "totalLines": 64,
+      "hasStructuralAnalysis": true
+    },
+    "app/core/preset_scenarios.py": {
+      "filePath": "app/core/preset_scenarios.py",
+      "contentHash": "da2084cde6fb76cbe76949182042581b39250bebff37f16d1cbce924f668f3c4",
+      "functions": [
+        {
+          "name": "scenario_to_info",
+          "params": [
+            "scenario"
+          ],
+          "returnType": "ScenarioInfo",
+          "exported": true,
+          "lineCount": 13
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "app.core.enums",
+          "specifiers": [
+            "ALL_DIFFICULTIES",
+            "ALL_PERSONALITIES",
+            "ScenarioCategory"
+          ]
+        },
+        {
+          "source": "app.schemas.scenario",
+          "specifiers": [
+            "ScenarioInfo"
+          ]
+        }
+      ],
+      "exports": [
+        "scenario_to_info"
+      ],
+      "totalLines": 213,
+      "hasStructuralAnalysis": true
+    },
+    "app/core/prompt_matrix.py": {
+      "filePath": "app/core/prompt_matrix.py",
+      "contentHash": "2971851810b9e82dc0d8e65e20f8e766e8a388406b79b1c840cc7bd6abfd4e6c",
+      "functions": [
+        {
+          "name": "build_system_prompt",
+          "params": [
+            "personality",
+            "call_target",
+            "call_purpose",
+            "base_prompt"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 37
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "app.core.enums",
+          "specifiers": [
+            "AiPersonality"
+          ]
+        }
+      ],
+      "exports": [
+        "build_system_prompt"
+      ],
+      "totalLines": 72,
+      "hasStructuralAnalysis": true
+    },
+    "app/core/security.py": {
+      "filePath": "app/core/security.py",
+      "contentHash": "ef8e8a6b00acd9560cca78edf7e8f523b3eb9a7972a2bcf86037817f8c59e12b",
+      "functions": [
+        {
+          "name": "require_internal_secret",
+          "params": [
+            "x_internal_secret"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "decode_access_token",
+          "params": [
+            "token"
+          ],
+          "returnType": "dict",
+          "exported": true,
+          "lineCount": 18
+        },
+        {
+          "name": "authenticate_ws",
+          "params": [
+            "ws",
+            "token"
+          ],
+          "returnType": "tuple[int, str | None]",
+          "exported": true,
+          "lineCount": 10
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "jwt",
+          "specifiers": [
+            "jwt"
+          ]
+        },
+        {
+          "source": "fastapi",
+          "specifiers": [
+            "Header",
+            "HTTPException",
+            "WebSocket",
+            "status"
+          ]
+        },
+        {
+          "source": "app.core.config",
+          "specifiers": [
+            "get_settings"
+          ]
+        }
+      ],
+      "exports": [
+        "require_internal_secret",
+        "decode_access_token",
+        "authenticate_ws"
+      ],
+      "totalLines": 43,
+      "hasStructuralAnalysis": true
+    },
+    "app/db/__init__.py": {
+      "filePath": "app/db/__init__.py",
+      "contentHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 1,
+      "hasStructuralAnalysis": true
+    },
+    "app/db/base.py": {
+      "filePath": "app/db/base.py",
+      "contentHash": "6b212405a499770fcb7c5ab5dd42ffbcefe799656e57b46e3a4e3a43bde2f0a8",
+      "functions": [
+        {
+          "name": "init_db",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 6
+        }
+      ],
+      "classes": [
+        {
+          "name": "Base",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 2
+        }
+      ],
+      "imports": [
+        {
+          "source": "sqlalchemy.ext.asyncio",
+          "specifiers": [
+            "AsyncSession",
+            "async_sessionmaker",
+            "create_async_engine"
+          ]
+        },
+        {
+          "source": "sqlalchemy.orm",
+          "specifiers": [
+            "DeclarativeBase"
+          ]
+        },
+        {
+          "source": "app.core.config",
+          "specifiers": [
+            "get_settings"
+          ]
+        }
+      ],
+      "exports": [
+        "Base",
+        "init_db"
+      ],
+      "totalLines": 29,
+      "hasStructuralAnalysis": true
+    },
+    "app/db/models.py": {
+      "filePath": "app/db/models.py",
+      "contentHash": "d27978ad285b6c8ffe8253e26fb6b903d2e048a5ac4e41e3bc2a72f3272bed28",
+      "functions": [],
+      "classes": [
+        {
+          "name": "ScenarioORM",
+          "methods": [],
+          "properties": [
+            "scenario_id",
+            "title",
+            "content",
+            "scenario_image",
+            "tts_voice_id",
+            "ai_prompt",
+            "user_id",
+            "is_custom",
+            "call_target",
+            "call_purpose",
+            "script",
+            "created_at"
+          ],
+          "exported": true,
+          "lineCount": 15
+        },
+        {
+          "name": "FeedbackORM",
+          "methods": [],
+          "properties": [
+            "feedback_id",
+            "scenario_id",
+            "shake_count",
+            "silence_duration",
+            "highlights",
+            "created_at"
+          ],
+          "exported": true,
+          "lineCount": 9
+        }
+      ],
+      "imports": [
+        {
+          "source": "datetime",
+          "specifiers": [
+            "datetime"
+          ]
+        },
+        {
+          "source": "sqlalchemy",
+          "specifiers": [
+            "JSON",
+            "BigInteger",
+            "Boolean",
+            "DateTime",
+            "ForeignKey",
+            "String",
+            "Text"
+          ]
+        },
+        {
+          "source": "sqlalchemy.orm",
+          "specifiers": [
+            "Mapped",
+            "mapped_column"
+          ]
+        },
+        {
+          "source": "app.db.base",
+          "specifiers": [
+            "Base"
+          ]
+        }
+      ],
+      "exports": [
+        "ScenarioORM",
+        "FeedbackORM"
+      ],
+      "totalLines": 34,
+      "hasStructuralAnalysis": true
+    },
+    "app/deps/__init__.py": {
+      "filePath": "app/deps/__init__.py",
+      "contentHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 1,
+      "hasStructuralAnalysis": true
+    },
+    "app/deps/auth.py": {
+      "filePath": "app/deps/auth.py",
+      "contentHash": "8dd449538a4cdb1023117150f929c208268ef1fedcdc0963bf85db3a2ef7e2ef",
+      "functions": [
+        {
+          "name": "get_current_user_id",
+          "params": [
+            "credentials"
+          ],
+          "returnType": "int",
+          "exported": true,
+          "lineCount": 11
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "fastapi",
+          "specifiers": [
+            "Depends",
+            "HTTPException",
+            "status"
+          ]
+        },
+        {
+          "source": "fastapi.security",
+          "specifiers": [
+            "HTTPAuthorizationCredentials",
+            "HTTPBearer"
+          ]
+        },
+        {
+          "source": "app.core.security",
+          "specifiers": [
+            "decode_access_token"
+          ]
+        }
+      ],
+      "exports": [
+        "get_current_user_id"
+      ],
+      "totalLines": 19,
+      "hasStructuralAnalysis": true
+    },
+    "app/deps/db.py": {
+      "filePath": "app/deps/db.py",
+      "contentHash": "bda50e6ce91e43b84a8518b337532bf000a5dd24701de95c987abed5a0a6069a",
+      "functions": [
+        {
+          "name": "get_db",
+          "params": [],
+          "returnType": "AsyncGenerator[AsyncSession, None]",
+          "exported": true,
+          "lineCount": 3
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "collections.abc",
+          "specifiers": [
+            "AsyncGenerator"
+          ]
+        },
+        {
+          "source": "sqlalchemy.ext.asyncio",
+          "specifiers": [
+            "AsyncSession"
+          ]
+        },
+        {
+          "source": "app.db.base",
+          "specifiers": [
+            "AsyncSessionLocal"
+          ]
+        }
+      ],
+      "exports": [
+        "get_db"
+      ],
+      "totalLines": 11,
+      "hasStructuralAnalysis": true
+    },
+    "app/deps/redis.py": {
+      "filePath": "app/deps/redis.py",
+      "contentHash": "95cba304522859240fb01b984ddb842809ca4c7dc8e5b0a00e89ccd6675ba54e",
+      "functions": [
+        {
+          "name": "init_redis",
+          "params": [
+            "url"
+          ],
+          "returnType": "Redis",
+          "exported": true,
+          "lineCount": 15
+        },
+        {
+          "name": "close_redis",
+          "params": [
+            "client"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "_mask_url",
+          "params": [
+            "url"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "get_redis",
+          "params": [
+            "conn"
+          ],
+          "returnType": "Redis",
+          "exported": true,
+          "lineCount": 6
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "redis.asyncio",
+          "specifiers": [
+            "Redis",
+            "from_url"
+          ]
+        },
+        {
+          "source": "starlette.requests",
+          "specifiers": [
+            "HTTPConnection"
+          ]
+        }
+      ],
+      "exports": [
+        "init_redis",
+        "close_redis",
+        "_mask_url",
+        "get_redis"
+      ],
+      "totalLines": 45,
+      "hasStructuralAnalysis": true
+    },
+    "app/main.py": {
+      "filePath": "app/main.py",
+      "contentHash": "a7a5cff4230280a97c1745d203d9d0b5a32e6b21cb97dad7b701366c03c0325a",
+      "functions": [
+        {
+          "name": "lifespan",
+          "params": [
+            "app"
+          ],
+          "returnType": "AsyncIterator[None]",
+          "exported": true,
+          "lineCount": 14
+        },
+        {
+          "name": "create_app",
+          "params": [],
+          "returnType": "FastAPI",
+          "exported": true,
+          "lineCount": 45
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "collections.abc",
+          "specifiers": [
+            "AsyncIterator"
+          ]
+        },
+        {
+          "source": "contextlib",
+          "specifiers": [
+            "asynccontextmanager"
+          ]
+        },
+        {
+          "source": "fastapi",
+          "specifiers": [
+            "FastAPI",
+            "Request"
+          ]
+        },
+        {
+          "source": "fastapi.middleware.cors",
+          "specifiers": [
+            "CORSMiddleware"
+          ]
+        },
+        {
+          "source": "app.api.v1",
+          "specifiers": [
+            "internal",
+            "websocket"
+          ]
+        },
+        {
+          "source": "app.api.v1.scenario",
+          "specifiers": [
+            "scenario_router"
+          ]
+        },
+        {
+          "source": "app.core.config",
+          "specifiers": [
+            "get_settings"
+          ]
+        },
+        {
+          "source": "app.core.logging",
+          "specifiers": [
+            "setup_logging"
+          ]
+        },
+        {
+          "source": "app.core.metrics",
+          "specifiers": [
+            "log_metric",
+            "now_ms"
+          ]
+        },
+        {
+          "source": "app.db.base",
+          "specifiers": [
+            "init_db"
+          ]
+        },
+        {
+          "source": "app.deps.redis",
+          "specifiers": [
+            "close_redis",
+            "init_redis"
+          ]
+        }
+      ],
+      "exports": [
+        "lifespan",
+        "create_app"
+      ],
+      "totalLines": 80,
+      "hasStructuralAnalysis": true
+    },
+    "app/schemas/__init__.py": {
+      "filePath": "app/schemas/__init__.py",
+      "contentHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 1,
+      "hasStructuralAnalysis": true
+    },
+    "app/schemas/feedback.py": {
+      "filePath": "app/schemas/feedback.py",
+      "contentHash": "62cb5d7145c3550ee560d8a522139f2a369697cdb6eff2a99fa32614f8456d8b",
+      "functions": [],
+      "classes": [
+        {
+          "name": "FeedbackResponse",
+          "methods": [],
+          "properties": [
+            "shake_count",
+            "silence_duration",
+            "highlights"
+          ],
+          "exported": true,
+          "lineCount": 4
+        }
+      ],
+      "imports": [
+        {
+          "source": "pydantic",
+          "specifiers": [
+            "BaseModel"
+          ]
+        }
+      ],
+      "exports": [
+        "FeedbackResponse"
+      ],
+      "totalLines": 9,
+      "hasStructuralAnalysis": true
+    },
+    "app/schemas/frames.py": {
+      "filePath": "app/schemas/frames.py",
+      "contentHash": "1a40585496c80431441c7756c0f3e61d9602b552232befd50217740b346b9d60",
+      "functions": [
+        {
+          "name": "emotion_frame",
+          "params": [
+            "emotion"
+          ],
+          "returnType": "dict",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "speaking_end_frame",
+          "params": [],
+          "returnType": "dict",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "interrupt_frame",
+          "params": [],
+          "returnType": "dict",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "end_frame",
+          "params": [
+            "reason",
+            "feedback"
+          ],
+          "returnType": "dict",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "error_frame",
+          "params": [
+            "code"
+          ],
+          "returnType": "dict",
+          "exported": true,
+          "lineCount": 2
+        }
+      ],
+      "classes": [
+        {
+          "name": "FrameType",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "EndReason",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 8
+        }
+      ],
+      "imports": [
+        {
+          "source": "enum",
+          "specifiers": [
+            "StrEnum"
+          ]
+        },
+        {
+          "source": "app.schemas.llm",
+          "specifiers": [
+            "AiEmotion"
+          ]
+        }
+      ],
+      "exports": [
+        "FrameType",
+        "EndReason",
+        "emotion_frame",
+        "speaking_end_frame",
+        "interrupt_frame",
+        "end_frame",
+        "error_frame"
+      ],
+      "totalLines": 45,
+      "hasStructuralAnalysis": true
+    },
+    "app/schemas/llm.py": {
+      "filePath": "app/schemas/llm.py",
+      "contentHash": "82f7a56561ead398d13fbd8f3f133125ee5bfd03e800333714e8a35aeb1a1235",
+      "functions": [],
+      "classes": [
+        {
+          "name": "AiEmotion",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "LLMEventType",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "LLMEvent",
+          "methods": [],
+          "properties": [
+            "type",
+            "text",
+            "emotion"
+          ],
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "ScenarioTurn",
+          "methods": [],
+          "properties": [
+            "step",
+            "ai_goal",
+            "hint"
+          ],
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "TurnContext",
+          "methods": [],
+          "properties": [
+            "personality",
+            "scenario_title",
+            "scenario_role",
+            "script",
+            "current_step",
+            "history",
+            "user_utterance"
+          ],
+          "exported": true,
+          "lineCount": 10
+        }
+      ],
+      "imports": [
+        {
+          "source": "dataclasses",
+          "specifiers": [
+            "dataclass"
+          ]
+        },
+        {
+          "source": "enum",
+          "specifiers": [
+            "StrEnum"
+          ]
+        },
+        {
+          "source": "app.core.enums",
+          "specifiers": [
+            "AiPersonality"
+          ]
+        }
+      ],
+      "exports": [
+        "AiEmotion",
+        "LLMEventType",
+        "LLMEvent",
+        "ScenarioTurn",
+        "TurnContext"
+      ],
+      "totalLines": 63,
+      "hasStructuralAnalysis": true
+    },
+    "app/schemas/scenario.py": {
+      "filePath": "app/schemas/scenario.py",
+      "contentHash": "e4c17591cb77685f6f9ca98ebd5d0af6bc8fbf9d24c166acbcc4fc393b1bf966",
+      "functions": [],
+      "classes": [
+        {
+          "name": "ScenarioInfo",
+          "methods": [],
+          "properties": [
+            "scenario_id",
+            "title",
+            "content",
+            "category",
+            "difficulties",
+            "personalities",
+            "scenario_image",
+            "tts_voice_id",
+            "ai_prompt",
+            "is_custom"
+          ],
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "ScenarioListResponse",
+          "methods": [],
+          "properties": [
+            "scenarios"
+          ],
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "ScriptTurnContext",
+          "methods": [],
+          "properties": [
+            "step",
+            "ai_goal",
+            "hint"
+          ],
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "ScenarioContextResponse",
+          "methods": [],
+          "properties": [
+            "title",
+            "ai_role",
+            "script"
+          ],
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "CustomSessionRequest",
+          "methods": [],
+          "properties": [
+            "title",
+            "call_target",
+            "call_purpose",
+            "personality",
+            "difficulty"
+          ],
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "GenerateDetailScenario",
+          "methods": [],
+          "properties": [
+            "scenario_id",
+            "title",
+            "content",
+            "ai_prompt",
+            "tts_voice_id",
+            "script"
+          ],
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "CustomScenarioResponse",
+          "methods": [],
+          "properties": [
+            "scenario",
+            "created_at",
+            "message"
+          ],
+          "exported": true,
+          "lineCount": 4
+        }
+      ],
+      "imports": [
+        {
+          "source": "datetime",
+          "specifiers": [
+            "datetime"
+          ]
+        },
+        {
+          "source": "pydantic",
+          "specifiers": [
+            "BaseModel",
+            "ConfigDict",
+            "Field"
+          ]
+        },
+        {
+          "source": "app.core.enums",
+          "specifiers": [
+            "AiPersonality",
+            "Difficulty",
+            "ScenarioCategory"
+          ]
+        }
+      ],
+      "exports": [
+        "ScenarioInfo",
+        "ScenarioListResponse",
+        "ScriptTurnContext",
+        "ScenarioContextResponse",
+        "CustomSessionRequest",
+        "GenerateDetailScenario",
+        "CustomScenarioResponse"
+      ],
+      "totalLines": 61,
+      "hasStructuralAnalysis": true
+    },
+    "app/services/__init__.py": {
+      "filePath": "app/services/__init__.py",
+      "contentHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 1,
+      "hasStructuralAnalysis": true
+    },
+    "app/services/llm_prompt.py": {
+      "filePath": "app/services/llm_prompt.py",
+      "contentHash": "c2c067f46de181f225661033461b61643c07f4a528aeb3e36d457b8fe97f01fe",
+      "functions": [
+        {
+          "name": "_format_script",
+          "params": [
+            "script",
+            "current_step"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "build_system_prompt",
+          "params": [
+            "ctx"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 17
+        },
+        {
+          "name": "build_contents",
+          "params": [
+            "ctx"
+          ],
+          "returnType": "list[dict]",
+          "exported": true,
+          "lineCount": 11
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "app.schemas.llm",
+          "specifiers": [
+            "AiEmotion",
+            "AiPersonality",
+            "ScenarioTurn",
+            "TurnContext"
+          ]
+        }
+      ],
+      "exports": [
+        "_format_script",
+        "build_system_prompt",
+        "build_contents"
+      ],
+      "totalLines": 106,
+      "hasStructuralAnalysis": true
+    },
+    "app/services/llm.py": {
+      "filePath": "app/services/llm.py",
+      "contentHash": "ed3422065a4c85bda471f3967e9c0d57d230230aab132d3e7df077783705cec1",
+      "functions": [
+        {
+          "name": "_find_first_tag",
+          "params": [
+            "buffer"
+          ],
+          "returnType": "tuple[int, str] | None",
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "_trailing_partial_len",
+          "params": [
+            "buffer"
+          ],
+          "returnType": "int",
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "_drain_pending",
+          "params": [
+            "pending"
+          ],
+          "returnType": "tuple[str, list[LLMEventType], str]",
+          "exported": true,
+          "lineCount": 22
+        }
+      ],
+      "classes": [
+        {
+          "name": "LLMClient",
+          "methods": [
+            "__init__",
+            "_build_gen_config",
+            "_emit_emotion_head",
+            "_looks_like_partial_head",
+            "stream",
+            "_is_blocked"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 136
+        }
+      ],
+      "imports": [
+        {
+          "source": "asyncio",
+          "specifiers": [
+            "asyncio"
+          ]
+        },
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "re",
+          "specifiers": [
+            "re"
+          ]
+        },
+        {
+          "source": "google",
+          "specifiers": [
+            "genai"
+          ]
+        },
+        {
+          "source": "google.genai",
+          "specifiers": [
+            "errors",
+            "types"
+          ]
+        },
+        {
+          "source": "app.core.config",
+          "specifiers": [
+            "get_settings"
+          ]
+        },
+        {
+          "source": "app.schemas.llm",
+          "specifiers": [
+            "AiEmotion",
+            "LLMEvent",
+            "LLMEventType",
+            "TurnContext"
+          ]
+        },
+        {
+          "source": "app.services.llm_prompt",
+          "specifiers": [
+            "build_contents",
+            "build_system_prompt"
+          ]
+        }
+      ],
+      "exports": [
+        "_find_first_tag",
+        "_trailing_partial_len",
+        "_drain_pending",
+        "LLMClient"
+      ],
+      "totalLines": 225,
+      "hasStructuralAnalysis": true
+    },
+    "app/services/pipeline.py": {
+      "filePath": "app/services/pipeline.py",
+      "contentHash": "eee74eff8539c03a38865636b801d74c0c1fef96a2dfbb539c8a9674bfee8465",
+      "functions": [],
+      "classes": [
+        {
+          "name": "_State",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "_TurnTimings",
+          "methods": [
+            "_delta",
+            "as_metrics"
+          ],
+          "properties": [
+            "final_at",
+            "last_audio_at",
+            "ctx_sent_at",
+            "first_token_at",
+            "last_token_at",
+            "first_pcm_at",
+            "last_pcm_at"
+          ],
+          "exported": true,
+          "lineCount": 28
+        },
+        {
+          "name": "VoicePipeline",
+          "methods": [
+            "__init__",
+            "run",
+            "_recv_loop",
+            "_handle_client_text",
+            "_stt_consumer",
+            "_consume_one_stream",
+            "_handle_stt_event",
+            "_start_turn",
+            "_run_turn",
+            "_cleanup_turn_tts",
+            "_finalize_turn",
+            "_barge_in",
+            "_max_duration_timer",
+            "_close",
+            "_teardown",
+            "_send_json",
+            "_buf_sec",
+            "_open_user_turn",
+            "_close_user_turn",
+            "_intersect",
+            "_pick_good_segments"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 480
+        }
+      ],
+      "imports": [
+        {
+          "source": "asyncio",
+          "specifiers": [
+            "asyncio"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "contextlib",
+          "specifiers": [
+            "suppress"
+          ]
+        },
+        {
+          "source": "dataclasses",
+          "specifiers": [
+            "dataclass"
+          ]
+        },
+        {
+          "source": "enum",
+          "specifiers": [
+            "StrEnum"
+          ]
+        },
+        {
+          "source": "fastapi",
+          "specifiers": [
+            "WebSocket",
+            "WebSocketDisconnect"
+          ]
+        },
+        {
+          "source": "google.api_core.exceptions",
+          "specifiers": [
+            "GoogleAPICallError"
+          ]
+        },
+        {
+          "source": "app.core.config",
+          "specifiers": [
+            "Settings"
+          ]
+        },
+        {
+          "source": "app.core.enums",
+          "specifiers": [
+            "SessionType"
+          ]
+        },
+        {
+          "source": "app.core.metrics",
+          "specifiers": [
+            "log_metric",
+            "now_ms"
+          ]
+        },
+        {
+          "source": "app.schemas.frames",
+          "specifiers": [
+            "EndReason",
+            "emotion_frame",
+            "end_frame",
+            "error_frame",
+            "interrupt_frame",
+            "speaking_end_frame"
+          ]
+        },
+        {
+          "source": "app.schemas.llm",
+          "specifiers": [
+            "AiEmotion",
+            "LLMEventType"
+          ]
+        },
+        {
+          "source": "app.services.llm",
+          "specifiers": [
+            "LLMClient"
+          ]
+        },
+        {
+          "source": "app.services.session",
+          "specifiers": [
+            "build_turn_context"
+          ]
+        },
+        {
+          "source": "app.services.spring_client",
+          "specifiers": [
+            "SpringInternalClient"
+          ]
+        },
+        {
+          "source": "app.services.stt",
+          "specifiers": [
+            "AUDIO_EOS",
+            "GoogleSTTClient",
+            "STTEventType",
+            "STTIdleTimeoutError"
+          ]
+        },
+        {
+          "source": "app.services.tremor",
+          "specifiers": [
+            "TremorAnalyzer"
+          ]
+        },
+        {
+          "source": "app.services.tts",
+          "specifiers": [
+            "ElevenLabsTTSClient",
+            "TTSSession"
+          ]
+        }
+      ],
+      "exports": [
+        "_State",
+        "_TurnTimings",
+        "VoicePipeline"
+      ],
+      "totalLines": 564,
+      "hasStructuralAnalysis": true
+    },
+    "app/services/scenario_service.py": {
+      "filePath": "app/services/scenario_service.py",
+      "contentHash": "ce6e0da27f2567367a22aae3c9e1480d4e6c48f788a49c289768dfe32a7dae0b",
+      "functions": [
+        {
+          "name": "get_scenarios",
+          "params": [
+            "db",
+            "category"
+          ],
+          "returnType": "ScenarioListResponse",
+          "exported": true,
+          "lineCount": 50
+        },
+        {
+          "name": "_normalize_script",
+          "params": [
+            "raw"
+          ],
+          "returnType": "list[dict]",
+          "exported": true,
+          "lineCount": 17
+        },
+        {
+          "name": "create_custom_scenario",
+          "params": [
+            "db",
+            "request",
+            "user_id"
+          ],
+          "returnType": "CustomScenarioResponse",
+          "exported": true,
+          "lineCount": 64
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "datetime",
+          "specifiers": [
+            "UTC",
+            "datetime"
+          ]
+        },
+        {
+          "source": "anthropic",
+          "specifiers": [
+            "AsyncAnthropic"
+          ]
+        },
+        {
+          "source": "anthropic.types",
+          "specifiers": [
+            "MessageParam"
+          ]
+        },
+        {
+          "source": "sqlalchemy",
+          "specifiers": [
+            "select"
+          ]
+        },
+        {
+          "source": "sqlalchemy.ext.asyncio",
+          "specifiers": [
+            "AsyncSession"
+          ]
+        },
+        {
+          "source": "app.core.config",
+          "specifiers": [
+            "get_settings"
+          ]
+        },
+        {
+          "source": "app.core.enums",
+          "specifiers": [
+            "ALL_DIFFICULTIES",
+            "ALL_PERSONALITIES",
+            "ScenarioCategory"
+          ]
+        },
+        {
+          "source": "app.core.preset_scenarios",
+          "specifiers": [
+            "PRESET_MAP",
+            "PRESET_SCENARIOS",
+            "scenario_to_info"
+          ]
+        },
+        {
+          "source": "app.core.prompt_matrix",
+          "specifiers": [
+            "PERSONALITY_BASE"
+          ]
+        },
+        {
+          "source": "app.db.models",
+          "specifiers": [
+            "ScenarioORM"
+          ]
+        },
+        {
+          "source": "app.schemas.scenario",
+          "specifiers": [
+            "CustomScenarioResponse",
+            "CustomSessionRequest",
+            "GenerateDetailScenario",
+            "ScenarioInfo",
+            "ScenarioListResponse",
+            "ScriptTurnContext"
+          ]
+        }
+      ],
+      "exports": [
+        "get_scenarios",
+        "_normalize_script",
+        "create_custom_scenario"
+      ],
+      "totalLines": 181,
+      "hasStructuralAnalysis": true
+    },
+    "app/services/session.py": {
+      "filePath": "app/services/session.py",
+      "contentHash": "2699a6f9ff6bd5679138d5af2223860d53ecb1c017539a3c1163eec3b2b1402c",
+      "functions": [
+        {
+          "name": "load_session",
+          "params": [
+            "redis",
+            "session_id"
+          ],
+          "returnType": "dict[str, Any] | None",
+          "exported": true,
+          "lineCount": 17
+        },
+        {
+          "name": "is_session_owner",
+          "params": [
+            "session",
+            "user_id"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 17
+        },
+        {
+          "name": "authenticate_session",
+          "params": [
+            "ws",
+            "redis",
+            "session_id",
+            "user_id"
+          ],
+          "returnType": "dict[str, Any]",
+          "exported": true,
+          "lineCount": 32
+        },
+        {
+          "name": "_parse_script",
+          "params": [
+            "raw_script"
+          ],
+          "returnType": "list[ScenarioTurn]",
+          "exported": true,
+          "lineCount": 19
+        },
+        {
+          "name": "build_turn_context",
+          "params": [
+            "session",
+            "current_step",
+            "history",
+            "user_utterance"
+          ],
+          "returnType": "TurnContext",
+          "exported": true,
+          "lineCount": 27
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any"
+          ]
+        },
+        {
+          "source": "fastapi",
+          "specifiers": [
+            "WebSocket",
+            "status"
+          ]
+        },
+        {
+          "source": "redis.asyncio",
+          "specifiers": [
+            "Redis"
+          ]
+        },
+        {
+          "source": "app.schemas.llm",
+          "specifiers": [
+            "AiPersonality",
+            "ScenarioTurn",
+            "TurnContext"
+          ]
+        }
+      ],
+      "exports": [
+        "load_session",
+        "is_session_owner",
+        "authenticate_session",
+        "_parse_script",
+        "build_turn_context"
+      ],
+      "totalLines": 133,
+      "hasStructuralAnalysis": true
+    },
+    "app/services/spring_client.py": {
+      "filePath": "app/services/spring_client.py",
+      "contentHash": "6162d390cb643d90f1aceb089302c798b8c73821ec62c73f6baf8f0c871e09f7",
+      "functions": [],
+      "classes": [
+        {
+          "name": "SpringInternalClient",
+          "methods": [
+            "__init__",
+            "notify_session_closed"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 41
+        }
+      ],
+      "imports": [
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "httpx",
+          "specifiers": [
+            "httpx"
+          ]
+        },
+        {
+          "source": "app.core.config",
+          "specifiers": [
+            "Settings"
+          ]
+        },
+        {
+          "source": "app.schemas.frames",
+          "specifiers": [
+            "EndReason"
+          ]
+        }
+      ],
+      "exports": [
+        "SpringInternalClient"
+      ],
+      "totalLines": 51,
+      "hasStructuralAnalysis": true
+    },
+    "app/services/stt.py": {
+      "filePath": "app/services/stt.py",
+      "contentHash": "c6a62e21bc57f0fee507428736dac876ae5f9c5ba19824f6a8e950b98dee8292",
+      "functions": [
+        {
+          "name": "_is_idle_timeout",
+          "params": [
+            "exc"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "_to_seconds",
+          "params": [
+            "duration"
+          ],
+          "returnType": "float | None",
+          "exported": true,
+          "lineCount": 10
+        }
+      ],
+      "classes": [
+        {
+          "name": "STTIdleTimeoutError",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "STTEventType",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "STTEvent",
+          "methods": [],
+          "properties": [
+            "type",
+            "text",
+            "end_offset_sec"
+          ],
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "GoogleSTTClient",
+          "methods": [
+            "__init__",
+            "_build_config_request",
+            "_request_generator",
+            "_parse_response",
+            "stream"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 121
+        }
+      ],
+      "imports": [
+        {
+          "source": "asyncio",
+          "specifiers": [
+            "asyncio"
+          ]
+        },
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "collections.abc",
+          "specifiers": [
+            "AsyncIterator"
+          ]
+        },
+        {
+          "source": "dataclasses",
+          "specifiers": [
+            "dataclass"
+          ]
+        },
+        {
+          "source": "enum",
+          "specifiers": [
+            "StrEnum"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Final"
+          ]
+        },
+        {
+          "source": "google.api_core.client_options",
+          "specifiers": [
+            "ClientOptions"
+          ]
+        },
+        {
+          "source": "google.api_core.exceptions",
+          "specifiers": [
+            "GoogleAPICallError",
+            "OutOfRange"
+          ]
+        },
+        {
+          "source": "google.cloud.speech_v2",
+          "specifiers": [
+            "SpeechAsyncClient"
+          ]
+        },
+        {
+          "source": "google.cloud.speech_v2.types",
+          "specifiers": [
+            "cs"
+          ]
+        }
+      ],
+      "exports": [
+        "STTIdleTimeoutError",
+        "_is_idle_timeout",
+        "STTEventType",
+        "STTEvent",
+        "GoogleSTTClient",
+        "_to_seconds"
+      ],
+      "totalLines": 176,
+      "hasStructuralAnalysis": true
+    },
+    "app/services/tremor.py": {
+      "filePath": "app/services/tremor.py",
+      "contentHash": "6ddf2dec4243dd7f926f233d8860ed0cbab0add246c274025ee1ff77fa587a41",
+      "functions": [],
+      "classes": [
+        {
+          "name": "TremorConfig",
+          "methods": [],
+          "properties": [
+            "sample_rate",
+            "pcm_dtype",
+            "fmin",
+            "fmax",
+            "contour_fs",
+            "energy_active_frac",
+            "octave_ratio",
+            "median_kernel",
+            "tremor_lo",
+            "tremor_hi",
+            "intonation_hp",
+            "min_sustained_sec",
+            "sustained_gap_sec",
+            "win_sec",
+            "hop_sec",
+            "min_voiced_frac",
+            "amp_thresh_cents",
+            "concentration_min",
+            "merge_gap_sec",
+            "min_episode_sec",
+            "min_silence_sec"
+          ],
+          "exported": true,
+          "lineCount": 35
+        },
+        {
+          "name": "TremorResult",
+          "methods": [],
+          "properties": [
+            "shake_count",
+            "episodes",
+            "voiced_sec",
+            "sustained_sec",
+            "debug_windows",
+            "good_candidates"
+          ],
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "TremorAnalyzer",
+          "methods": [
+            "__init__",
+            "_pcm_to_float",
+            "_extract_f0_cents",
+            "_octave_fix",
+            "_sustained_mask",
+            "_speaking_spans",
+            "_subtract",
+            "analyze",
+            "_group_episodes",
+            "_flush"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 213
+        }
+      ],
+      "imports": [
+        {
+          "source": "dataclasses",
+          "specifiers": [
+            "dataclass",
+            "field"
+          ]
+        },
+        {
+          "source": "librosa",
+          "specifiers": [
+            "librosa"
+          ]
+        },
+        {
+          "source": "numpy",
+          "specifiers": [
+            "np"
+          ]
+        },
+        {
+          "source": "scipy.signal",
+          "specifiers": [
+            "butter",
+            "medfilt",
+            "sosfiltfilt"
+          ]
+        }
+      ],
+      "exports": [
+        "TremorConfig",
+        "TremorResult",
+        "TremorAnalyzer"
+      ],
+      "totalLines": 271,
+      "hasStructuralAnalysis": true
+    },
+    "app/services/tts.py": {
+      "filePath": "app/services/tts.py",
+      "contentHash": "4e12ed503fd0411279ad85571c2e02e8d5a34e110b6efcc1d0fd58722dc7004e",
+      "functions": [],
+      "classes": [
+        {
+          "name": "TTSSession",
+          "methods": [
+            "__init__",
+            "_voice_settings_for",
+            "begin",
+            "_send_text",
+            "stream",
+            "aclose"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 57
+        },
+        {
+          "name": "ElevenLabsTTSClient",
+          "methods": [
+            "__init__",
+            "_build_uri",
+            "open",
+            "stream"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 52
+        }
+      ],
+      "imports": [
+        {
+          "source": "asyncio",
+          "specifiers": [
+            "asyncio"
+          ]
+        },
+        {
+          "source": "base64",
+          "specifiers": [
+            "base64"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "collections.abc",
+          "specifiers": [
+            "AsyncIterator"
+          ]
+        },
+        {
+          "source": "contextlib",
+          "specifiers": [
+            "suppress"
+          ]
+        },
+        {
+          "source": "websockets",
+          "specifiers": [
+            "websockets"
+          ]
+        },
+        {
+          "source": "websockets.asyncio.client",
+          "specifiers": [
+            "ClientConnection"
+          ]
+        },
+        {
+          "source": "websockets.exceptions",
+          "specifiers": [
+            "WebSocketException"
+          ]
+        },
+        {
+          "source": "app.core.config",
+          "specifiers": [
+            "Settings"
+          ]
+        },
+        {
+          "source": "app.schemas.llm",
+          "specifiers": [
+            "AiEmotion"
+          ]
+        }
+      ],
+      "exports": [
+        "TTSSession",
+        "ElevenLabsTTSClient"
+      ],
+      "totalLines": 137,
+      "hasStructuralAnalysis": true
+    },
+    "app/workers/__init__.py": {
+      "filePath": "app/workers/__init__.py",
+      "contentHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 1,
+      "hasStructuralAnalysis": true
+    },
+    "docker-compose.prod.yml": {
+      "filePath": "docker-compose.prod.yml",
+      "contentHash": "6b292b964aa5f238962ee1ea78f2e874dfbb091861663273e0b47fd6bb5a0d59",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 22,
+      "hasStructuralAnalysis": true
+    },
+    "docker-compose.yml": {
+      "filePath": "docker-compose.yml",
+      "contentHash": "430327de683c5a3e23ca93403b8b5194a9f0ec1c8ebdd9765693b4efe2bfdd75",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 79,
+      "hasStructuralAnalysis": true
+    },
+    "Dockerfile": {
+      "filePath": "Dockerfile",
+      "contentHash": "ac8890028054a48673df7298ada4d95f2dc464b674896c44be85410f4e468078",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 37,
+      "hasStructuralAnalysis": true
+    },
+    "pyproject.toml": {
+      "filePath": "pyproject.toml",
+      "contentHash": "863e61d2d6ee22c85858213c50ce2cfd23fbfbca8be9ff9a9964b468504c8ea8",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 74,
+      "hasStructuralAnalysis": true
+    },
+    "README.md": {
+      "filePath": "README.md",
+      "contentHash": "cbd4b4e9fbada2e666a40f9eacf8d97fbe15400d3a50fe90f98ff96ffedecf5d",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 2,
+      "hasStructuralAnalysis": true
+    },
+    "requirements.txt": {
+      "filePath": "requirements.txt",
+      "contentHash": "83094b5ccd56c0ad6b998b7c88c11fcebd1085c0cb8719d11e1fe2c1e5e8cc85",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 42,
+      "hasStructuralAnalysis": false
+    },
+    "tests/__init__.py": {
+      "filePath": "tests/__init__.py",
+      "contentHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 1,
+      "hasStructuralAnalysis": true
+    },
+    "tests/conftest.py": {
+      "filePath": "tests/conftest.py",
+      "contentHash": "c1e30096ab648f734277e1adbb013cc9b9916d6c12762a81d0ab92463d35dcc9",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 20,
+      "hasStructuralAnalysis": true
+    },
+    "tests/integration/__init__.py": {
+      "filePath": "tests/integration/__init__.py",
+      "contentHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 1,
+      "hasStructuralAnalysis": true
+    },
+    "tests/integration/test_spring_client.py": {
+      "filePath": "tests/integration/test_spring_client.py",
+      "contentHash": "ea3f76f2e48cec1d571db1f48726aad473f474fa0ce7d71c3cc2266c936cba60",
+      "functions": [
+        {
+          "name": "_client_for",
+          "params": [
+            "base_url"
+          ],
+          "returnType": "SpringInternalClient",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "test_notify_session_closed_sends_correct_request",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 29
+        },
+        {
+          "name": "test_trailing_slash_in_base_url_is_normalized",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "test_server_error_is_swallowed",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "test_unreachable_server_is_swallowed",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 7
+        }
+      ],
+      "classes": [
+        {
+          "name": "_CapturingHandler",
+          "methods": [
+            "do_POST",
+            "log_message"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 14
+        },
+        {
+          "name": "_MockSpring",
+          "methods": [
+            "__init__",
+            "base_url",
+            "captured",
+            "__enter__",
+            "__exit__"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 23
+        }
+      ],
+      "imports": [
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "threading",
+          "specifiers": [
+            "threading"
+          ]
+        },
+        {
+          "source": "http.server",
+          "specifiers": [
+            "BaseHTTPRequestHandler",
+            "HTTPServer"
+          ]
+        },
+        {
+          "source": "types",
+          "specifiers": [
+            "SimpleNamespace"
+          ]
+        },
+        {
+          "source": "app.schemas.frames",
+          "specifiers": [
+            "EndReason"
+          ]
+        },
+        {
+          "source": "app.services.spring_client",
+          "specifiers": [
+            "SpringInternalClient"
+          ]
+        }
+      ],
+      "exports": [
+        "_CapturingHandler",
+        "_MockSpring",
+        "_client_for",
+        "test_notify_session_closed_sends_correct_request",
+        "test_trailing_slash_in_base_url_is_normalized",
+        "test_server_error_is_swallowed",
+        "test_unreachable_server_is_swallowed"
+      ],
+      "totalLines": 115,
+      "hasStructuralAnalysis": true
+    },
+    "tests/llm/__init__.py": {
+      "filePath": "tests/llm/__init__.py",
+      "contentHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 1,
+      "hasStructuralAnalysis": true
+    },
+    "tests/llm/manual_llm_check.py": {
+      "filePath": "tests/llm/manual_llm_check.py",
+      "contentHash": "6d2b89abd31a489b53cf19db50fc039a1a1f8a6cb1f46653b640c147f27537b3",
+      "functions": [
+        {
+          "name": "run_turn",
+          "params": [
+            "client",
+            "ctx"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 22
+        },
+        {
+          "name": "main",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 36
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "asyncio",
+          "specifiers": [
+            "asyncio"
+          ]
+        },
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "sys",
+          "specifiers": [
+            "sys"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "app.schemas.llm",
+          "specifiers": [
+            "AiPersonality",
+            "LLMEventType",
+            "ScenarioTurn",
+            "TurnContext"
+          ]
+        },
+        {
+          "source": "app.services.llm",
+          "specifiers": [
+            "LLMClient"
+          ]
+        }
+      ],
+      "exports": [
+        "run_turn",
+        "main"
+      ],
+      "totalLines": 94,
+      "hasStructuralAnalysis": true
+    },
+    "tests/llm/raw_dump.py": {
+      "filePath": "tests/llm/raw_dump.py",
+      "contentHash": "ea7d202b83724005b7dd372ea47a52b873874763dc5ffcde79a8c2dc38fab039",
+      "functions": [
+        {
+          "name": "main",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 41
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "asyncio",
+          "specifiers": [
+            "asyncio"
+          ]
+        },
+        {
+          "source": "app.schemas.llm",
+          "specifiers": [
+            "AiPersonality",
+            "ScenarioTurn",
+            "TurnContext"
+          ]
+        },
+        {
+          "source": "app.services.llm",
+          "specifiers": [
+            "LLMClient"
+          ]
+        },
+        {
+          "source": "app.services.llm_prompt",
+          "specifiers": [
+            "build_contents",
+            "build_system_prompt"
+          ]
+        }
+      ],
+      "exports": [
+        "main"
+      ],
+      "totalLines": 68,
+      "hasStructuralAnalysis": true
+    },
+    "tests/output/__init__.py": {
+      "filePath": "tests/output/__init__.py",
+      "contentHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 1,
+      "hasStructuralAnalysis": true
+    },
+    "tests/perf/__init__.py": {
+      "filePath": "tests/perf/__init__.py",
+      "contentHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 1,
+      "hasStructuralAnalysis": true
+    },
+    "tests/perf/_stats.py": {
+      "filePath": "tests/perf/_stats.py",
+      "contentHash": "8c464cb58b94ae18238939a8bc7ab11a39b3a214ab9317b53baf5a2d3cd57971",
+      "functions": [
+        {
+          "name": "percentile",
+          "params": [
+            "samples",
+            "p"
+          ],
+          "returnType": "float | None",
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "summarize",
+          "params": [
+            "samples"
+          ],
+          "returnType": "dict | None",
+          "exported": true,
+          "lineCount": 14
+        },
+        {
+          "name": "print_table",
+          "params": [
+            "rows",
+            "unit"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 14
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "statistics",
+          "specifiers": [
+            "statistics"
+          ]
+        }
+      ],
+      "exports": [
+        "percentile",
+        "summarize",
+        "print_table"
+      ],
+      "totalLines": 50,
+      "hasStructuralAnalysis": true
+    },
+    "tests/perf/rest_bench.py": {
+      "filePath": "tests/perf/rest_bench.py",
+      "contentHash": "968e7281454375f212eeebebff7810626e008366d52b685c3f828ab85443d9b4",
+      "functions": [
+        {
+          "name": "_load_spec",
+          "params": [
+            "path"
+          ],
+          "returnType": "list[dict]",
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "_measure",
+          "params": [
+            "client",
+            "ep",
+            "count",
+            "base_headers"
+          ],
+          "returnType": "tuple[list[float], list[int], float | None]",
+          "exported": true,
+          "lineCount": 25
+        },
+        {
+          "name": "main",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 44
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "argparse",
+          "specifiers": [
+            "argparse"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "httpx",
+          "specifiers": [
+            "httpx"
+          ]
+        },
+        {
+          "source": "tests.perf._stats",
+          "specifiers": [
+            "print_table",
+            "summarize"
+          ]
+        }
+      ],
+      "exports": [
+        "_load_spec",
+        "_measure",
+        "main"
+      ],
+      "totalLines": 100,
+      "hasStructuralAnalysis": true
+    },
+    "tests/perf/ws_bench.py": {
+      "filePath": "tests/perf/ws_bench.py",
+      "contentHash": "410e0840b5a46c73aadb3ee1f2666b374e548bd2deb457753f3c1344539ebb5b",
+      "functions": [
+        {
+          "name": "_load_audio",
+          "params": [
+            "path"
+          ],
+          "returnType": "bytes",
+          "exported": true,
+          "lineCount": 12
+        },
+        {
+          "name": "_build_uri",
+          "params": [
+            "args"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "_session_id_of",
+          "params": [
+            "args"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "_run_turn",
+          "params": [
+            "ws",
+            "audio",
+            "chunk_bytes",
+            "chunk_s",
+            "timeout"
+          ],
+          "returnType": "dict",
+          "exported": true,
+          "lineCount": 44
+        },
+        {
+          "name": "_run",
+          "params": [
+            "args"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 35
+        },
+        {
+          "name": "_fmt",
+          "params": [
+            "v"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "main",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 23
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "argparse",
+          "specifiers": [
+            "argparse"
+          ]
+        },
+        {
+          "source": "asyncio",
+          "specifiers": [
+            "asyncio"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "wave",
+          "specifiers": [
+            "wave"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "urllib.parse",
+          "specifiers": [
+            "urlencode"
+          ]
+        },
+        {
+          "source": "websockets",
+          "specifiers": [
+            "websockets"
+          ]
+        },
+        {
+          "source": "tests.perf._stats",
+          "specifiers": [
+            "print_table",
+            "summarize"
+          ]
+        }
+      ],
+      "exports": [
+        "_load_audio",
+        "_build_uri",
+        "_session_id_of",
+        "_run_turn",
+        "_run",
+        "_fmt",
+        "main"
+      ],
+      "totalLines": 156,
+      "hasStructuralAnalysis": true
+    },
+    "tests/pipeline/__init__.py": {
+      "filePath": "tests/pipeline/__init__.py",
+      "contentHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 1,
+      "hasStructuralAnalysis": true
+    },
+    "tests/pipeline/manual_pipeline_check.py": {
+      "filePath": "tests/pipeline/manual_pipeline_check.py",
+      "contentHash": "277427342b0db9673d5d6941e93d5ca011a4f3934815f157de666064aa1b3dcd",
+      "functions": [
+        {
+          "name": "main",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 29
+        }
+      ],
+      "classes": [
+        {
+          "name": "FakeWebSocket",
+          "methods": [
+            "__init__",
+            "feed_mic",
+            "disconnect",
+            "receive",
+            "send_bytes",
+            "send_json",
+            "close"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 30
+        }
+      ],
+      "imports": [
+        {
+          "source": "asyncio",
+          "specifiers": [
+            "asyncio"
+          ]
+        },
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "sys",
+          "specifiers": [
+            "sys"
+          ]
+        },
+        {
+          "source": "contextlib",
+          "specifiers": [
+            "suppress"
+          ]
+        },
+        {
+          "source": "numpy",
+          "specifiers": [
+            "np"
+          ]
+        },
+        {
+          "source": "sounddevice",
+          "specifiers": [
+            "sd"
+          ]
+        },
+        {
+          "source": "app.core.config",
+          "specifiers": [
+            "get_settings"
+          ]
+        },
+        {
+          "source": "app.services.pipeline",
+          "specifiers": [
+            "VoicePipeline"
+          ]
+        },
+        {
+          "source": "app.services.spring_client",
+          "specifiers": [
+            "SpringInternalClient"
+          ]
+        }
+      ],
+      "exports": [
+        "FakeWebSocket",
+        "main"
+      ],
+      "totalLines": 108,
+      "hasStructuralAnalysis": true
+    },
+    "tests/pipeline/manual_pipeline_check2.py": {
+      "filePath": "tests/pipeline/manual_pipeline_check2.py",
+      "contentHash": "63b04e3be045b4d84c1cfa99dfe1c4848572e6ea4d3d63a97cfd5bbe528c6ec7",
+      "functions": [
+        {
+          "name": "_state_watcher",
+          "params": [
+            "pipeline"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "main",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 69
+        }
+      ],
+      "classes": [
+        {
+          "name": "FakeWebSocket",
+          "methods": [
+            "__init__",
+            "feed_mic",
+            "disconnect",
+            "receive",
+            "send_bytes",
+            "send_json",
+            "close"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 56
+        }
+      ],
+      "imports": [
+        {
+          "source": "asyncio",
+          "specifiers": [
+            "asyncio"
+          ]
+        },
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "sys",
+          "specifiers": [
+            "sys"
+          ]
+        },
+        {
+          "source": "threading",
+          "specifiers": [
+            "threading"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "contextlib",
+          "specifiers": [
+            "suppress"
+          ]
+        },
+        {
+          "source": "numpy",
+          "specifiers": [
+            "np"
+          ]
+        },
+        {
+          "source": "sounddevice",
+          "specifiers": [
+            "sd"
+          ]
+        },
+        {
+          "source": "app.core.config",
+          "specifiers": [
+            "get_settings"
+          ]
+        },
+        {
+          "source": "app.services.pipeline",
+          "specifiers": [
+            "VoicePipeline",
+            "_State"
+          ]
+        },
+        {
+          "source": "app.services.spring_client",
+          "specifiers": [
+            "SpringInternalClient"
+          ]
+        }
+      ],
+      "exports": [
+        "FakeWebSocket",
+        "_state_watcher",
+        "main"
+      ],
+      "totalLines": 187,
+      "hasStructuralAnalysis": true
+    },
+    "tests/pipeline/manual_pipeline_check3.py": {
+      "filePath": "tests/pipeline/manual_pipeline_check3.py",
+      "contentHash": "807744f9befa8df47d4d4acf19ebb65ea376971210062efaa8a59ccc55d774a6",
+      "functions": [
+        {
+          "name": "_state_watcher",
+          "params": [
+            "pipeline"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "_find_input_device",
+          "params": [
+            "hint"
+          ],
+          "returnType": "int | None",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "_print_summary",
+          "params": [
+            "metrics",
+            "errors"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 37
+        },
+        {
+          "name": "main",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 88
+        }
+      ],
+      "classes": [
+        {
+          "name": "ErrorCollector",
+          "methods": [
+            "__init__",
+            "emit"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "Metrics",
+          "methods": [
+            "begin_turn",
+            "on_emotion",
+            "on_first_audio",
+            "on_audio_done",
+            "finalize",
+            "on_barge_in"
+          ],
+          "properties": [
+            "turns",
+            "barge_ins",
+            "end_reason",
+            "_cur",
+            "_t_final",
+            "_t_emotion"
+          ],
+          "exported": true,
+          "lineCount": 41
+        },
+        {
+          "name": "FakeWebSocket",
+          "methods": [
+            "__init__",
+            "feed_mic",
+            "disconnect",
+            "receive",
+            "send_bytes",
+            "send_json",
+            "close"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 52
+        }
+      ],
+      "imports": [
+        {
+          "source": "asyncio",
+          "specifiers": [
+            "asyncio"
+          ]
+        },
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "sys",
+          "specifiers": [
+            "sys"
+          ]
+        },
+        {
+          "source": "threading",
+          "specifiers": [
+            "threading"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "contextlib",
+          "specifiers": [
+            "suppress"
+          ]
+        },
+        {
+          "source": "dataclasses",
+          "specifiers": [
+            "dataclass",
+            "field"
+          ]
+        },
+        {
+          "source": "statistics",
+          "specifiers": [
+            "mean"
+          ]
+        },
+        {
+          "source": "numpy",
+          "specifiers": [
+            "np"
+          ]
+        },
+        {
+          "source": "sounddevice",
+          "specifiers": [
+            "sd"
+          ]
+        },
+        {
+          "source": "app.core.config",
+          "specifiers": [
+            "get_settings"
+          ]
+        },
+        {
+          "source": "app.services.pipeline",
+          "specifiers": [
+            "VoicePipeline",
+            "_State"
+          ]
+        },
+        {
+          "source": "app.services.spring_client",
+          "specifiers": [
+            "SpringInternalClient"
+          ]
+        },
+        {
+          "source": "app.services.stt",
+          "specifiers": [
+            "STTEventType"
+          ]
+        }
+      ],
+      "exports": [
+        "ErrorCollector",
+        "Metrics",
+        "FakeWebSocket",
+        "_state_watcher",
+        "_find_input_device",
+        "_print_summary",
+        "main"
+      ],
+      "totalLines": 304,
+      "hasStructuralAnalysis": true
+    },
+    "tests/pipeline/manual_pipeline_feedback_check.py": {
+      "filePath": "tests/pipeline/manual_pipeline_feedback_check.py",
+      "contentHash": "a5533cab0fee577d7a515f6ed647f73aafcf0b0b4ce7b9c62bd0c41b767e30f5",
+      "functions": [
+        {
+          "name": "_print_verdict",
+          "params": [
+            "ws"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 34
+        },
+        {
+          "name": "main",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 38
+        }
+      ],
+      "classes": [
+        {
+          "name": "FakeWebSocket",
+          "methods": [
+            "__init__",
+            "feed_mic",
+            "feed_end",
+            "disconnect",
+            "receive",
+            "send_bytes",
+            "send_json",
+            "close"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 48
+        }
+      ],
+      "imports": [
+        {
+          "source": "asyncio",
+          "specifiers": [
+            "asyncio"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "sys",
+          "specifiers": [
+            "sys"
+          ]
+        },
+        {
+          "source": "threading",
+          "specifiers": [
+            "threading"
+          ]
+        },
+        {
+          "source": "contextlib",
+          "specifiers": [
+            "suppress"
+          ]
+        },
+        {
+          "source": "numpy",
+          "specifiers": [
+            "np"
+          ]
+        },
+        {
+          "source": "sounddevice",
+          "specifiers": [
+            "sd"
+          ]
+        },
+        {
+          "source": "app.core.config",
+          "specifiers": [
+            "get_settings"
+          ]
+        },
+        {
+          "source": "app.services.pipeline",
+          "specifiers": [
+            "VoicePipeline",
+            "_State"
+          ]
+        },
+        {
+          "source": "app.services.spring_client",
+          "specifiers": [
+            "SpringInternalClient"
+          ]
+        }
+      ],
+      "exports": [
+        "FakeWebSocket",
+        "_print_verdict",
+        "main"
+      ],
+      "totalLines": 175,
+      "hasStructuralAnalysis": true
+    },
+    "tests/pipeline/test_good_segments.py": {
+      "filePath": "tests/pipeline/test_good_segments.py",
+      "contentHash": "19c097f0b0667ac5b5ed70717d567f93ed9214fcbf95b6631b4e588abbc36b80",
+      "functions": [
+        {
+          "name": "_pipeline_with_turns",
+          "params": [
+            "turns"
+          ],
+          "returnType": "VoicePipeline",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "test_intersect_clips_to_turns",
+          "params": [],
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "test_intersect_no_overlap",
+          "params": [],
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "test_pick_excludes_ai_turns",
+          "params": [],
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "test_pick_top3_longest_chronological",
+          "params": [],
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "test_pick_drops_short_fragments",
+          "params": [],
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "test_pick_empty_when_no_overlap",
+          "params": [],
+          "exported": true,
+          "lineCount": 3
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "app.services.pipeline",
+          "specifiers": [
+            "VoicePipeline"
+          ]
+        }
+      ],
+      "exports": [
+        "_pipeline_with_turns",
+        "test_intersect_clips_to_turns",
+        "test_intersect_no_overlap",
+        "test_pick_excludes_ai_turns",
+        "test_pick_top3_longest_chronological",
+        "test_pick_drops_short_fragments",
+        "test_pick_empty_when_no_overlap"
+      ],
+      "totalLines": 57,
+      "hasStructuralAnalysis": true
+    },
+    "tests/stt/__init__.py": {
+      "filePath": "tests/stt/__init__.py",
+      "contentHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 1,
+      "hasStructuralAnalysis": true
+    },
+    "tests/stt/latency_check.py": {
+      "filePath": "tests/stt/latency_check.py",
+      "contentHash": "a645e6e044bb78c94c47d4662ec3cea194307024d4fb89c99159111907acd144",
+      "functions": [
+        {
+          "name": "feed_microphone",
+          "params": [
+            "audio_queue",
+            "stop_event"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 23
+        },
+        {
+          "name": "_summary",
+          "params": [
+            "label",
+            "samples"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 24
+        },
+        {
+          "name": "consume_events",
+          "params": [
+            "client",
+            "audio_queue"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 41
+        },
+        {
+          "name": "main",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 35
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "asyncio",
+          "specifiers": [
+            "asyncio"
+          ]
+        },
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "statistics",
+          "specifiers": [
+            "statistics"
+          ]
+        },
+        {
+          "source": "sys",
+          "specifiers": [
+            "sys"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "sounddevice",
+          "specifiers": [
+            "sd"
+          ]
+        },
+        {
+          "source": "app.core.config",
+          "specifiers": [
+            "get_settings"
+          ]
+        },
+        {
+          "source": "app.services.stt",
+          "specifiers": [
+            "AUDIO_EOS",
+            "GoogleSTTClient",
+            "STTEventType"
+          ]
+        }
+      ],
+      "exports": [
+        "feed_microphone",
+        "_summary",
+        "consume_events",
+        "main"
+      ],
+      "totalLines": 162,
+      "hasStructuralAnalysis": true
+    },
+    "tests/stt/manual_stt_check.py": {
+      "filePath": "tests/stt/manual_stt_check.py",
+      "contentHash": "2a3f3b7defda70c8e15ad4b09be0da9ccdf2004a9530f435291d41a2e56e7fa2",
+      "functions": [
+        {
+          "name": "feed_microphone",
+          "params": [
+            "audio_queue",
+            "stop_event"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 26
+        },
+        {
+          "name": "consume_events",
+          "params": [
+            "client",
+            "audio_queue"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 24
+        },
+        {
+          "name": "main",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 24
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "asyncio",
+          "specifiers": [
+            "asyncio"
+          ]
+        },
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "sounddevice",
+          "specifiers": [
+            "sd"
+          ]
+        },
+        {
+          "source": "app.core.config",
+          "specifiers": [
+            "get_settings"
+          ]
+        },
+        {
+          "source": "app.services.stt",
+          "specifiers": [
+            "AUDIO_EOS",
+            "GoogleSTTClient",
+            "STTEventType"
+          ]
+        }
+      ],
+      "exports": [
+        "feed_microphone",
+        "consume_events",
+        "main"
+      ],
+      "totalLines": 107,
+      "hasStructuralAnalysis": true
+    },
+    "tests/stt/mic_check.py": {
+      "filePath": "tests/stt/mic_check.py",
+      "contentHash": "0431f752e8917722f05a9c9eaa946086416e5b9126ab6e95b7e28f8e313bb8f4",
+      "functions": [
+        {
+          "name": "cb",
+          "params": [
+            "indata",
+            "frames",
+            "t",
+            "status"
+          ],
+          "exported": true,
+          "lineCount": 3
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "sounddevice",
+          "specifiers": [
+            "sd"
+          ]
+        },
+        {
+          "source": "numpy",
+          "specifiers": [
+            "np"
+          ]
+        }
+      ],
+      "exports": [
+        "cb"
+      ],
+      "totalLines": 18,
+      "hasStructuralAnalysis": true
+    },
+    "tests/stt/stream_check.py": {
+      "filePath": "tests/stt/stream_check.py",
+      "contentHash": "1e131b5049a70de9c169947ebe1a1dfb2439e8ca0ee2553426d7a39c1afd0b26",
+      "functions": [
+        {
+          "name": "main",
+          "params": [],
+          "exported": true,
+          "lineCount": 21
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "asyncio",
+          "specifiers": [
+            "asyncio"
+          ]
+        },
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "app.services.stt",
+          "specifiers": [
+            "AUDIO_EOS",
+            "GoogleSTTClient"
+          ]
+        }
+      ],
+      "exports": [
+        "main"
+      ],
+      "totalLines": 33,
+      "hasStructuralAnalysis": true
+    },
+    "tests/tremor/__init__.py": {
+      "filePath": "tests/tremor/__init__.py",
+      "contentHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 1,
+      "hasStructuralAnalysis": true
+    },
+    "tests/tremor/manual_tremor_check.py": {
+      "filePath": "tests/tremor/manual_tremor_check.py",
+      "contentHash": "8ecd5f5fd8b9eba6f8a2e70f446b04e097c6933097addc372b742d34275b5747",
+      "functions": [
+        {
+          "name": "float_to_pcm16",
+          "params": [
+            "x"
+          ],
+          "returnType": "bytes",
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "report",
+          "params": [
+            "label",
+            "pcm"
+          ],
+          "returnType": "int",
+          "exported": true,
+          "lineCount": 31
+        },
+        {
+          "name": "synth_pcm",
+          "params": [
+            "bursts",
+            "seconds",
+            "f0",
+            "tremor_hz",
+            "depth_cents",
+            "sr"
+          ],
+          "returnType": "bytes",
+          "exported": true,
+          "lineCount": 19
+        },
+        {
+          "name": "run_synth",
+          "params": [],
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "run_mic",
+          "params": [
+            "seconds"
+          ],
+          "exported": true,
+          "lineCount": 17
+        },
+        {
+          "name": "run_file",
+          "params": [
+            "path"
+          ],
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "main",
+          "params": [
+            "argv"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 12
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "pathlib"
+          ]
+        },
+        {
+          "source": "sys",
+          "specifiers": [
+            "sys"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        }
+      ],
+      "exports": [
+        "float_to_pcm16",
+        "report",
+        "synth_pcm",
+        "run_synth",
+        "run_mic",
+        "run_file",
+        "main"
+      ],
+      "totalLines": 174,
+      "hasStructuralAnalysis": true
+    },
+    "tests/tremor/test_tremor.py": {
+      "filePath": "tests/tremor/test_tremor.py",
+      "contentHash": "0c688c3ee44a464685b4a221dba180c39010e569b3f042def3af4d4c5bf626d2",
+      "functions": [
+        {
+          "name": "test_subtract_hole_in_middle",
+          "params": [],
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "test_subtract_no_overlap",
+          "params": [],
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "test_subtract_hole_covers_whole",
+          "params": [],
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "test_subtract_edges",
+          "params": [],
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "test_subtract_no_holes",
+          "params": [],
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "_analyzer",
+          "params": [
+            "min_silence_sec"
+          ],
+          "returnType": "TremorAnalyzer",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "_voiced",
+          "params": [
+            "*runs"
+          ],
+          "returnType": "np.ndarray",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "test_speaking_spans_continuous",
+          "params": [],
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "test_speaking_spans_short_gap_bridged",
+          "params": [],
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "test_speaking_spans_long_gap_splits",
+          "params": [],
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "test_speaking_spans_leading_silence_excluded",
+          "params": [],
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "_overlap",
+          "params": [
+            "a",
+            "b"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "test_analyze_flat_tone_no_tremor_one_good_span",
+          "params": [],
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "test_analyze_tremor_bursts_detected_and_excluded",
+          "params": [],
+          "exported": true,
+          "lineCount": 8
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "numpy",
+          "specifiers": [
+            "np"
+          ]
+        },
+        {
+          "source": "app.services.tremor",
+          "specifiers": [
+            "TremorAnalyzer",
+            "TremorConfig"
+          ]
+        },
+        {
+          "source": "tests.tremor.manual_tremor_check",
+          "specifiers": [
+            "synth_pcm"
+          ]
+        }
+      ],
+      "exports": [
+        "test_subtract_hole_in_middle",
+        "test_subtract_no_overlap",
+        "test_subtract_hole_covers_whole",
+        "test_subtract_edges",
+        "test_subtract_no_holes",
+        "_analyzer",
+        "_voiced",
+        "test_speaking_spans_continuous",
+        "test_speaking_spans_short_gap_bridged",
+        "test_speaking_spans_long_gap_splits",
+        "test_speaking_spans_leading_silence_excluded",
+        "_overlap",
+        "test_analyze_flat_tone_no_tremor_one_good_span",
+        "test_analyze_tremor_bursts_detected_and_excluded"
+      ],
+      "totalLines": 88,
+      "hasStructuralAnalysis": true
+    },
+    "tests/tts/__init__.py": {
+      "filePath": "tests/tts/__init__.py",
+      "contentHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 1,
+      "hasStructuralAnalysis": true
+    },
+    "tests/tts/manual_tts_check.py": {
+      "filePath": "tests/tts/manual_tts_check.py",
+      "contentHash": "c8bdc6aadd2a785456448991da4cab1028185e7d656c5dca2cebe9adc9bf8e85",
+      "functions": [
+        {
+          "name": "text_once",
+          "params": [
+            "text"
+          ],
+          "returnType": "AsyncIterator[str]",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "synth_and_play",
+          "params": [
+            "client",
+            "text",
+            "emotion"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 24
+        },
+        {
+          "name": "main",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 16
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "asyncio",
+          "specifiers": [
+            "asyncio"
+          ]
+        },
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "collections.abc",
+          "specifiers": [
+            "AsyncIterator"
+          ]
+        },
+        {
+          "source": "numpy",
+          "specifiers": [
+            "np"
+          ]
+        },
+        {
+          "source": "sounddevice",
+          "specifiers": [
+            "sd"
+          ]
+        },
+        {
+          "source": "app.core.config",
+          "specifiers": [
+            "get_settings"
+          ]
+        },
+        {
+          "source": "app.schemas.llm",
+          "specifiers": [
+            "AiEmotion"
+          ]
+        },
+        {
+          "source": "app.services.tts",
+          "specifiers": [
+            "ElevenLabsTTSClient"
+          ]
+        }
+      ],
+      "exports": [
+        "text_once",
+        "synth_and_play",
+        "main"
+      ],
+      "totalLines": 80,
+      "hasStructuralAnalysis": true
+    },
+    "tests/tts/stream_check.py": {
+      "filePath": "tests/tts/stream_check.py",
+      "contentHash": "bbc096f363c27449e2ef0ca48d1c5b736763ba96fa0c9696f004cebafb0c1f43",
+      "functions": [
+        {
+          "name": "text_once",
+          "params": [
+            "text"
+          ],
+          "returnType": "AsyncIterator[str]",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "write_wav",
+          "params": [
+            "pcm",
+            "path"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "main",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 48
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "asyncio",
+          "specifiers": [
+            "asyncio"
+          ]
+        },
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "wave",
+          "specifiers": [
+            "wave"
+          ]
+        },
+        {
+          "source": "collections.abc",
+          "specifiers": [
+            "AsyncIterator"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "app.core.config",
+          "specifiers": [
+            "get_settings"
+          ]
+        },
+        {
+          "source": "app.services.tts",
+          "specifiers": [
+            "ElevenLabsTTSClient"
+          ]
+        }
+      ],
+      "exports": [
+        "text_once",
+        "write_wav",
+        "main"
+      ],
+      "totalLines": 88,
+      "hasStructuralAnalysis": true
+    },
+    "tests/unit/__init__.py": {
+      "filePath": "tests/unit/__init__.py",
+      "contentHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 1,
+      "hasStructuralAnalysis": true
+    },
+    "tests/unit/test_internal_context.py": {
+      "filePath": "tests/unit/test_internal_context.py",
+      "contentHash": "56787ca288d8996482ef3e93074846c0ee660d897c7864f568fae2b9e0aa7ed5",
+      "functions": [
+        {
+          "name": "_make_app",
+          "params": [
+            "db_row"
+          ],
+          "returnType": "FastAPI",
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "_get",
+          "params": [
+            "app",
+            "path"
+          ],
+          "returnType": "httpx.Response",
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "test_preset_context_returns_camelcase_with_script",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "test_custom_context_returns_stored_script",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 17
+        },
+        {
+          "name": "test_custom_context_without_script_is_empty",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "test_unknown_scenario_returns_404",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "test_require_internal_secret_rejects_wrong",
+          "params": [
+            "monkeypatch"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "test_require_internal_secret_accepts_match",
+          "params": [
+            "monkeypatch"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 5
+        }
+      ],
+      "classes": [
+        {
+          "name": "_FakeSession",
+          "methods": [
+            "__init__",
+            "get"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 8
+        }
+      ],
+      "imports": [
+        {
+          "source": "types",
+          "specifiers": [
+            "SimpleNamespace"
+          ]
+        },
+        {
+          "source": "httpx",
+          "specifiers": [
+            "httpx"
+          ]
+        },
+        {
+          "source": "pytest",
+          "specifiers": [
+            "pytest"
+          ]
+        },
+        {
+          "source": "fastapi",
+          "specifiers": [
+            "FastAPI",
+            "HTTPException"
+          ]
+        },
+        {
+          "source": "app.api.v1",
+          "specifiers": [
+            "internal"
+          ]
+        },
+        {
+          "source": "app.core",
+          "specifiers": [
+            "security"
+          ]
+        },
+        {
+          "source": "app.core.security",
+          "specifiers": [
+            "require_internal_secret"
+          ]
+        },
+        {
+          "source": "app.deps.db",
+          "specifiers": [
+            "get_db"
+          ]
+        }
+      ],
+      "exports": [
+        "_FakeSession",
+        "_make_app",
+        "_get",
+        "test_preset_context_returns_camelcase_with_script",
+        "test_custom_context_returns_stored_script",
+        "test_custom_context_without_script_is_empty",
+        "test_unknown_scenario_returns_404",
+        "test_require_internal_secret_rejects_wrong",
+        "test_require_internal_secret_accepts_match"
+      ],
+      "totalLines": 102,
+      "hasStructuralAnalysis": true
+    },
+    "tests/unit/test_llm_parsing.py": {
+      "filePath": "tests/unit/test_llm_parsing.py",
+      "contentHash": "c5b759f598e0c2e4ae69cb2024c0db6200944ee0237ece8db6285fcb9cb3cbca",
+      "functions": [
+        {
+          "name": "test_find_first_tag_none_when_absent",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "test_find_first_tag_returns_earliest",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "test_trailing_partial_len_holds_incomplete_tag",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "test_trailing_partial_len_zero_for_plain_text",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "test_trailing_partial_len_zero_when_bracket_not_tag_prefix",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "test_drain_pending_plain_text_passthrough",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "test_drain_pending_extracts_control_tag",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "test_drain_pending_holds_partial_trailing_tag",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "test_drain_pending_reassembles_split_tag",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "test_drain_pending_two_tags_in_order",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "test_emit_emotion_head_parses_known_emotion",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "test_emit_emotion_head_unknown_falls_back_to_neutral",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "test_emit_emotion_head_none_when_no_tag",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "test_emit_emotion_head_case_insensitive",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "test_looks_like_partial_head_true_for_incomplete",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "test_looks_like_partial_head_false_when_closed",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "test_looks_like_partial_head_false_for_plain_text",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 2
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "app.schemas.llm",
+          "specifiers": [
+            "AiEmotion",
+            "LLMEventType"
+          ]
+        },
+        {
+          "source": "app.services.llm",
+          "specifiers": [
+            "LLMClient",
+            "_drain_pending",
+            "_find_first_tag",
+            "_trailing_partial_len"
+          ]
+        }
+      ],
+      "exports": [
+        "test_find_first_tag_none_when_absent",
+        "test_find_first_tag_returns_earliest",
+        "test_trailing_partial_len_holds_incomplete_tag",
+        "test_trailing_partial_len_zero_for_plain_text",
+        "test_trailing_partial_len_zero_when_bracket_not_tag_prefix",
+        "test_drain_pending_plain_text_passthrough",
+        "test_drain_pending_extracts_control_tag",
+        "test_drain_pending_holds_partial_trailing_tag",
+        "test_drain_pending_reassembles_split_tag",
+        "test_drain_pending_two_tags_in_order",
+        "test_emit_emotion_head_parses_known_emotion",
+        "test_emit_emotion_head_unknown_falls_back_to_neutral",
+        "test_emit_emotion_head_none_when_no_tag",
+        "test_emit_emotion_head_case_insensitive",
+        "test_looks_like_partial_head_true_for_incomplete",
+        "test_looks_like_partial_head_false_when_closed",
+        "test_looks_like_partial_head_false_for_plain_text"
+      ],
+      "totalLines": 94,
+      "hasStructuralAnalysis": true
+    },
+    "tests/unit/test_metrics.py": {
+      "filePath": "tests/unit/test_metrics.py",
+      "contentHash": "f0d5b1e6f6964f48c2e245e04959de5233fad0edb4a3c6f4114f0467ae527ed6",
+      "functions": [
+        {
+          "name": "test_now_ms_is_monotonic_nondecreasing",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "test_stopwatch_elapsed_nonnegative",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "test_stopwatch_between_marks",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "test_stopwatch_missing_mark_returns_none",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "test_log_metric_emits_record_with_fields",
+          "params": [
+            "caplog"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 12
+        },
+        {
+          "name": "test_log_metric_swallows_logger_exceptions",
+          "params": [
+            "monkeypatch"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "_full_timings",
+          "params": [],
+          "returnType": "_TurnTimings",
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "test_turn_timings_full_metrics",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "test_turn_timings_partial_turn_yields_none",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 12
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "app.core.metrics",
+          "specifiers": [
+            "metrics"
+          ]
+        },
+        {
+          "source": "app.core.metrics",
+          "specifiers": [
+            "Stopwatch",
+            "log_metric",
+            "now_ms"
+          ]
+        },
+        {
+          "source": "app.services.pipeline",
+          "specifiers": [
+            "_TurnTimings"
+          ]
+        }
+      ],
+      "exports": [
+        "test_now_ms_is_monotonic_nondecreasing",
+        "test_stopwatch_elapsed_nonnegative",
+        "test_stopwatch_between_marks",
+        "test_stopwatch_missing_mark_returns_none",
+        "test_log_metric_emits_record_with_fields",
+        "test_log_metric_swallows_logger_exceptions",
+        "_full_timings",
+        "test_turn_timings_full_metrics",
+        "test_turn_timings_partial_turn_yields_none"
+      ],
+      "totalLines": 91,
+      "hasStructuralAnalysis": true
+    },
+    "tests/unit/test_pipeline_send_json.py": {
+      "filePath": "tests/unit/test_pipeline_send_json.py",
+      "contentHash": "ad433b8b92783bdcae0f4da184dc8256ce49ebbc041cf52b46f90bde000ad84a",
+      "functions": [
+        {
+          "name": "_make_pipeline",
+          "params": [
+            "ws"
+          ],
+          "returnType": "VoicePipeline",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "test_send_json_disconnect_is_quiet",
+          "params": [
+            "caplog"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "test_send_json_runtime_error_is_quiet",
+          "params": [
+            "caplog"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "test_send_json_unexpected_keeps_traceback",
+          "params": [
+            "caplog"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "test_send_json_noop_when_already_dead",
+          "params": [
+            "caplog"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 9
+        }
+      ],
+      "classes": [
+        {
+          "name": "_RaisingWS",
+          "methods": [
+            "__init__",
+            "send_json"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 6
+        }
+      ],
+      "imports": [
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "pytest",
+          "specifiers": [
+            "pytest"
+          ]
+        },
+        {
+          "source": "fastapi",
+          "specifiers": [
+            "WebSocketDisconnect"
+          ]
+        },
+        {
+          "source": "app.services.pipeline",
+          "specifiers": [
+            "VoicePipeline"
+          ]
+        }
+      ],
+      "exports": [
+        "_make_pipeline",
+        "_RaisingWS",
+        "test_send_json_disconnect_is_quiet",
+        "test_send_json_runtime_error_is_quiet",
+        "test_send_json_unexpected_keeps_traceback",
+        "test_send_json_noop_when_already_dead"
+      ],
+      "totalLines": 76,
+      "hasStructuralAnalysis": true
+    },
+    "tests/unit/test_session.py": {
+      "filePath": "tests/unit/test_session.py",
+      "contentHash": "130eb4328a405a28c1a01e3d55f6e8631bc90d6dc9fae6641fbf051cf36a8c47",
+      "functions": [
+        {
+          "name": "test_owner_match_int",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "test_owner_match_when_stored_as_str",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "test_owner_mismatch",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "test_owner_missing_field",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "test_owner_unparsable_type",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "test_parse_script_sorts_by_step",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "test_parse_script_skips_malformed_items",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "test_parse_script_non_list_returns_empty",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "test_parse_script_hint_defaults_empty",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "_session",
+          "params": [],
+          "returnType": "dict",
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "test_build_turn_context_maps_fields",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 13
+        },
+        {
+          "name": "test_build_turn_context_unknown_personality_falls_back_normal",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "test_build_turn_context_missing_scenario_is_safe",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "test_build_turn_context_non_dict_scenario_is_safe",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 5
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "app.schemas.llm",
+          "specifiers": [
+            "AiPersonality"
+          ]
+        },
+        {
+          "source": "app.services.session",
+          "specifiers": [
+            "_parse_script",
+            "build_turn_context",
+            "is_session_owner"
+          ]
+        }
+      ],
+      "exports": [
+        "test_owner_match_int",
+        "test_owner_match_when_stored_as_str",
+        "test_owner_mismatch",
+        "test_owner_missing_field",
+        "test_owner_unparsable_type",
+        "test_parse_script_sorts_by_step",
+        "test_parse_script_skips_malformed_items",
+        "test_parse_script_non_list_returns_empty",
+        "test_parse_script_hint_defaults_empty",
+        "_session",
+        "test_build_turn_context_maps_fields",
+        "test_build_turn_context_unknown_personality_falls_back_normal",
+        "test_build_turn_context_missing_scenario_is_safe",
+        "test_build_turn_context_non_dict_scenario_is_safe"
+      ],
+      "totalLines": 99,
+      "hasStructuralAnalysis": true
+    },
+    "tests/unit/test_stt_idle_timeout.py": {
+      "filePath": "tests/unit/test_stt_idle_timeout.py",
+      "contentHash": "dac579c0b1300ee9c9a9e31a5c945ef3dfa0b79dfa234174c2a219e43f73b75f",
+      "functions": [
+        {
+          "name": "_make_stt_client",
+          "params": [],
+          "returnType": "GoogleSTTClient",
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "_drain",
+          "params": [
+            "client"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "test_idle_timeout_converted_to_stt_idle_timeout",
+          "params": [
+            "caplog"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "test_other_out_of_range_is_reraised",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "test_unavailable_is_reraised",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "_make_pipeline",
+          "params": [],
+          "returnType": "tuple[VoicePipeline, list[EndReason]]",
+          "exported": true,
+          "lineCount": 13
+        },
+        {
+          "name": "test_consumer_idle_timeout_closes_no_audio",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "test_consumer_api_error_closes_error",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 9
+        }
+      ],
+      "classes": [
+        {
+          "name": "_RaisingResponses",
+          "methods": [
+            "__init__",
+            "__aiter__",
+            "__anext__"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "_FakeSpeechClient",
+          "methods": [
+            "__init__",
+            "streaming_recognize"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 6
+        }
+      ],
+      "imports": [
+        {
+          "source": "asyncio",
+          "specifiers": [
+            "asyncio"
+          ]
+        },
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "unittest.mock",
+          "specifiers": [
+            "patch"
+          ]
+        },
+        {
+          "source": "pytest",
+          "specifiers": [
+            "pytest"
+          ]
+        },
+        {
+          "source": "google.api_core.exceptions",
+          "specifiers": [
+            "OutOfRange",
+            "ServiceUnavailable"
+          ]
+        },
+        {
+          "source": "app.schemas.frames",
+          "specifiers": [
+            "EndReason"
+          ]
+        },
+        {
+          "source": "app.services.pipeline",
+          "specifiers": [
+            "VoicePipeline"
+          ]
+        },
+        {
+          "source": "app.services.stt",
+          "specifiers": [
+            "GoogleSTTClient",
+            "STTIdleTimeoutError"
+          ]
+        }
+      ],
+      "exports": [
+        "_make_stt_client",
+        "_RaisingResponses",
+        "_FakeSpeechClient",
+        "_drain",
+        "test_idle_timeout_converted_to_stt_idle_timeout",
+        "test_other_out_of_range_is_reraised",
+        "test_unavailable_is_reraised",
+        "_make_pipeline",
+        "test_consumer_idle_timeout_closes_no_audio",
+        "test_consumer_api_error_closes_error"
+      ],
+      "totalLines": 120,
+      "hasStructuralAnalysis": true
+    }
+  }
+}
