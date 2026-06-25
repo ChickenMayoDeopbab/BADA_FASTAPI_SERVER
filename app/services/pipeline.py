@@ -43,6 +43,11 @@ _STT_RECYCLE_SECONDS = 240.0
 _SAFETY_FALLBACK = "죄송해요, 그 부분은 지금 답하기 어렵네요."
 
 
+def _clip(text: str, limit: int = 120) -> str:
+    """진단 로그용 텍스트 길이 상한"""
+    return text if len(text) <= limit else text[:limit] + "…"
+
+
 class _State(StrEnum):
     LISTENING = "LISTENING" # 듣는중
     THINKING = "THINKING" # 생각중
@@ -249,6 +254,14 @@ class VoicePipeline:
                 await self._barge_in()
         elif event.type == STTEventType.FINAL:
             text = event.text.strip()
+            logger.info(
+                "STT FINAL 수신",
+                extra={
+                    "session_id": self._session_id,
+                    "state": self._state.value,
+                    "text": _clip(text),
+                },
+            )
             if text and self._state == _State.LISTENING and not self._time_up:
                 self._start_turn(text, final_at=now_ms())
         elif event.type == STTEventType.SPEECH_BEGIN and (
@@ -400,6 +413,15 @@ class VoicePipeline:
             **timings.as_metrics(),
         )
         ai_text = "".join(ai_parts).strip()
+        logger.info(
+            "턴 완료",
+            extra={
+                "session_id": self._session_id,
+                "step": self._current_step,
+                "user_utterance": _clip(user_utterance),
+                "ai_text": _clip(ai_text),
+            },
+        )
         self._history.append({"role": "user", "text": user_utterance})
         if ai_text:
             self._history.append({"role": "assistant", "text": ai_text})
