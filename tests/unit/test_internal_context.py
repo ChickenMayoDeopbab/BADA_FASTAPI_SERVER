@@ -45,6 +45,7 @@ async def test_preset_context_returns_camelcase_with_script() -> None:
     body = resp.json()
     assert body["title"]
     assert body["aiRole"]
+    assert body["aiPrompt"]
     assert len(body["script"]) > 0
     first = body["script"][0]
     assert set(first.keys()) == {"step", "aiGoal", "hint"}
@@ -55,6 +56,8 @@ async def test_custom_context_returns_stored_script() -> None:
     row = SimpleNamespace(
         title="구청 민원 문의",
         call_target="구청 민원실 직원",
+        ai_prompt="You are a district office civil affairs clerk.",
+        is_custom=True,
         script=[
             {"step": 2, "ai_goal": "필요 서류를 안내한다", "hint": "어떤 서류가 필요한지 물어보세요"},
             {"step": 1, "ai_goal": "전화를 응대하고 용건을 확인한다", "hint": "민원을 문의한다고 말하세요"},
@@ -66,12 +69,39 @@ async def test_custom_context_returns_stored_script() -> None:
     body = resp.json()
     assert body["title"] == "구청 민원 문의"
     assert body["aiRole"] == "구청 민원실 직원"
+    assert body["aiPrompt"] == "You are a district office civil affairs clerk."
     assert len(body["script"]) == 2
     assert set(body["script"][0].keys()) == {"step", "aiGoal", "hint"}
 
 
+async def test_custom_context_wins_when_id_overlaps_preset() -> None:
+    row = SimpleNamespace(
+        title="병원 예약 변경",
+        call_target="병원 접수 직원",
+        ai_prompt="You are a hospital receptionist handling appointment changes.",
+        is_custom=True,
+        script=[
+            {"step": 1, "ai_goal": "병원 이름을 밝히고 용건을 확인한다", "hint": "예약 변경을 말하세요"},
+        ],
+    )
+    resp = await _get(_make_app(db_row=row), "/internal/v1/scenarios/1/context")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["title"] == "병원 예약 변경"
+    assert body["aiRole"] == "병원 접수 직원"
+    assert body["aiPrompt"] == "You are a hospital receptionist handling appointment changes."
+    assert "레스토랑" not in body["aiRole"]
+
+
 async def test_custom_context_without_script_is_empty() -> None:
-    row = SimpleNamespace(title="커스텀 시나리오", call_target="구청 민원실 직원", script=None)
+    row = SimpleNamespace(
+        title="커스텀 시나리오",
+        call_target="구청 민원실 직원",
+        ai_prompt="You are a district office civil affairs clerk.",
+        is_custom=True,
+        script=None,
+    )
     resp = await _get(_make_app(db_row=row), "/internal/v1/scenarios/9999/context")
 
     assert resp.status_code == 200

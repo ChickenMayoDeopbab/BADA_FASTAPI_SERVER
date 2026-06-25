@@ -70,6 +70,6 @@ def _custom_context(row: ScenarioORM) -> ScenarioContextResponse:
     return ScenarioContextResponse(
         title=row.title,
         ai_role=row.call_target,
-        ai_prompt=row.ai_prompt,
+        ai_prompt=getattr(row, "ai_prompt", ""),
         script=script,
     )
