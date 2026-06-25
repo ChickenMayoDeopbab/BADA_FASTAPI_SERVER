@@ -56,6 +56,12 @@ class Settings(BaseSettings):
     # Internal callback
     spring_boot_internal_url: str
 
+    # S3 recordings
+    aws_access_key: str | None = None
+    aws_secret_key: str | None = None
+    aws_region: str = "ap-northeast-2"
+    s3_bucket: str | None = None
+
     # DB
     database_url: str
 
