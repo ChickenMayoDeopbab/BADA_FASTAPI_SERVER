@@ -48,3 +48,5 @@ CLAUDE.md
 
 .understand-anything/intermediate/
 .understand-anything/diff-overlay.json
+.understand-anything/.trash-*/
+.understand-anything/tmp/
