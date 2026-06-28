@@ -143,6 +143,7 @@ class VoicePipeline:
 
     async def run(self) -> None:
         """진입점"""
+        warmup_task = asyncio.create_task(self._llm.warmup())
         tasks: list[asyncio.Task] = [
             asyncio.create_task(self._recv_loop()),
             asyncio.create_task(self._stt_consumer()),
@@ -171,7 +172,7 @@ class VoicePipeline:
             closing.cancel()
             with suppress(asyncio.CancelledError):
                 await closing
-            await self._teardown(*tasks)
+            await self._teardown(*tasks, warmup_task)
 
     async def _recv_loop(self) -> None:
         # 수신
