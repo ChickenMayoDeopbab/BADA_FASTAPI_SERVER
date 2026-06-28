@@ -124,6 +124,24 @@ class LLMClient:
             return _EMOTION_PREFIX.startswith(head)
         return head.startswith(_EMOTION_PREFIX) and "]" not in head
 
+    async def warmup(self) -> None:
+        """첫 턴 콜드 TTFT 완화용"""
+        try:
+            stream = await self._client.aio.models.generate_content_stream(
+                model=self._model,
+                contents="안녕",
+                config=types.GenerateContentConfig(
+                    max_output_tokens=1,
+                    thinking_config=types.ThinkingConfig(thinking_budget=0),
+                ),
+            )
+            async for _ in stream:
+                break
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.debug("LLM 워밍업 실패(무시)", exc_info=True)
+
     async def stream(self, ctx: TurnContext):
         """진입점임 async for로 LLMEvent를 yield"""
         system_prompt = build_system_prompt(ctx)
