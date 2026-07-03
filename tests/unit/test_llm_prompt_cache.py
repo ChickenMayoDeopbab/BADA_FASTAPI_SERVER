@@ -55,6 +55,13 @@ def test_contents_tail_carries_current_step() -> None:
     assert "여보세요" in text
 
 
+def test_contents_tail_starts_with_raw_utterance() -> None:
+    contents = build_contents(_ctx(step=2))
+    text = contents[-1]["parts"][0]["text"]
+    assert text.startswith("여보세요")
+    assert text.endswith("(지금 단계: 2)")
+
+
 def test_contents_history_stays_raw() -> None:
     history = [
         {"role": "user", "text": "여보세요"},
