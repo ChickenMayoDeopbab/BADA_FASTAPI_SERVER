@@ -300,6 +300,7 @@ class VoicePipeline:
         emotion_ready = asyncio.Event()
         ai_parts: list[str] = []
         flags = {"step_done": False, "end_call": False, "error": False}
+        usage: dict[str, int | None] = {"prompt": None, "cached": None}
         box: dict[str, TTSSession | None] = {"tts": None}
 
         async def ensure_tts(emotion: AiEmotion) -> None:
@@ -324,6 +325,9 @@ class VoicePipeline:
                         timings.last_token_at = now_ms()
                         ai_parts.append(ev.text)
                         await text_q.put(ev.text)
+                    elif ev.type == LLMEventType.TURN_END:
+                        usage["prompt"] = ev.prompt_tokens
+                        usage["cached"] = ev.cached_tokens
                     elif ev.type == LLMEventType.STEP_DONE:
                         flags["step_done"] = True
                     elif ev.type == LLMEventType.END_CALL:
@@ -375,7 +379,7 @@ class VoicePipeline:
         finally:
             await self._cleanup_turn_tts(connect_task, box["tts"])
 
-        await self._finalize_turn(user_utterance, ai_parts, flags, timings)
+        await self._finalize_turn(user_utterance, ai_parts, flags, timings, usage)
 
     async def _cleanup_turn_tts(
         self, connect_task: asyncio.Task, used: TTSSession | None
@@ -401,12 +405,15 @@ class VoicePipeline:
         ai_parts: list[str],
         flags: dict,
         timings: _TurnTimings,
+        usage: dict[str, int | None],
     ) -> None:
         log_metric(
             "voice_turn",
             session_id=self._session_id,
             step=self._current_step,
             error=flags["error"],
+            llm_prompt_tokens=usage["prompt"],
+            llm_cached_tokens=usage["cached"],
             **timings.as_metrics(),
         )
         ai_text = "".join(ai_parts).strip()

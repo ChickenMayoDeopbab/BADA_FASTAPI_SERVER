@@ -40,6 +40,8 @@ class LLMEvent:
     type: LLMEventType
     text: str = ""
     emotion: AiEmotion | None = None
+    prompt_tokens: int | None = None
+    cached_tokens: int | None = None
 
 @dataclass
 class ScenarioTurn:
