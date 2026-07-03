@@ -93,7 +93,8 @@ def test_build_system_prompt_includes_scenario_prompt() -> None:
     assert "병원 예약" in prompt
     assert "접수원" in prompt
     assert "You are a hospital receptionist." in prompt
-    assert "용건 확인 <- 지금 이 단계" in prompt
+    assert "용건 확인" in prompt
+    assert "지금 이 단계" not in prompt
 
 def test_build_turn_context_unknown_personality_falls_back_normal() -> None:
     session = _session()
