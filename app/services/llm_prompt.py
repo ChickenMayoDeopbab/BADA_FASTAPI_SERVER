@@ -68,8 +68,8 @@ _STYLE_RULE = (
 )
 
 _CURRENT_STEP_NOTE = (
-    "현재 진행 중인 단계 번호는 사용자 발화 앞에 '(지금 단계: N)' 형식으로 매번 "
-    "제공된다. 반드시 그 단계의 목표에 맞춰 응답한다."
+    "현재 진행 중인 단계 번호는 사용자 발화의 마지막 줄에 '(지금 단계: N)' 형식으로 "
+    "매번 제공된다. 반드시 그 단계의 목표에 맞춰 응답한다."
 )
 
 
@@ -111,6 +111,6 @@ def build_contents(ctx: TurnContext) -> list[dict]:
     for msg in ctx.history:
         role = "model" if msg["role"] == "assistant" else "user"
         contents.append({"role": role, "parts": [{"text": msg["text"]}]})
-    tail = f"(지금 단계: {ctx.current_step})\n{ctx.user_utterance}"
+    tail = f"{ctx.user_utterance}\n(지금 단계: {ctx.current_step})"
     contents.append({"role": "user", "parts": [{"text": tail}]})
     return contents
