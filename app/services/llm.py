@@ -151,6 +151,7 @@ class LLMClient:
         head_buffer = ""
         emotion_resolved = False
         pending = ""
+        usage = None
 
         try:
             stream = await self._client.aio.models.generate_content_stream(
@@ -159,6 +160,9 @@ class LLMClient:
                 config=config,
             )
             async for chunk in stream:
+                chunk_usage = getattr(chunk, "usage_metadata", None)
+                if chunk_usage is not None:
+                    usage = chunk_usage
                 if self._is_blocked(chunk):
                     logger.warning("LLM 응답 차단됨 (session role=%s)", ctx.scenario_role)
                     yield LLMEvent(type=LLMEventType.SAFETY_BLOCK)
@@ -216,7 +220,14 @@ class LLMClient:
                 else:
                     yield LLMEvent(type=LLMEventType.TEXT_DELTA, text=pending)
 
-            yield LLMEvent(type=LLMEventType.TURN_END)
+            if usage is not None:
+                yield LLMEvent(
+                    type=LLMEventType.TURN_END,
+                    prompt_tokens=getattr(usage, "prompt_token_count", None),
+                    cached_tokens=getattr(usage, "cached_content_token_count", None) or 0,
+                )
+            else:
+                yield LLMEvent(type=LLMEventType.TURN_END)
 
         except asyncio.CancelledError:
             logger.debug("LLM 스트림 취소(barge-in 등)")
