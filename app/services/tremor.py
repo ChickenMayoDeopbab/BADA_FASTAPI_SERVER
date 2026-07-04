@@ -69,7 +69,7 @@ class TremorAnalyzer:
 
     def _pcm_to_float(self, pcm: bytes) -> np.ndarray:
         if len(pcm) % 2 != 0:
-            pcm = pcm[:1]
+            pcm = pcm[:-1]
         x = np.frombuffer(pcm, dtype=self.config.pcm_dtype).astype(np.float32)
         return x / np.iinfo(self.config.pcm_dtype).max
 

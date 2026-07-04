@@ -71,6 +71,11 @@ def create_app() -> FastAPI:
             allow_headers=["*"],
         )
 
+    @app.get("/health", tags=["health"])
+    async def health() -> dict:
+        """공개 헬스체크"""
+        return {"status": "ok"}
+
     app.include_router(websocket.router, prefix="/ws", tags=["websocket"])
     app.include_router(internal.router, prefix="/internal/v1", tags=["internal"])
     app.include_router(scenario_router)

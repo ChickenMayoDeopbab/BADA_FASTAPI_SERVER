@@ -41,6 +41,8 @@ _BARGE_IN_ENABLED = False
 _BARGE_IN_MIN_CHARS = 2
 _STT_RECYCLE_SECONDS = 240.0
 _SAFETY_FALLBACK = "죄송해요, 그 부분은 지금 답하기 어렵네요."
+# LLM/TTS 스톨 시 턴 영구 대기 방지. warm 턴 p95(~2.6s)의 10배 이상 여유.
+_TURN_WATCHDOG_SECONDS = 30.0
 
 
 def _clip(text: str, limit: int = 120) -> str:
@@ -370,7 +372,18 @@ class VoicePipeline:
             await self._send_json(speaking_end_frame())
 
         try:
-            await asyncio.gather(produce(), consume())
+            await asyncio.wait_for(
+                asyncio.gather(produce(), consume()),
+                timeout=_TURN_WATCHDOG_SECONDS,
+            )
+        except TimeoutError:
+            flags["watchdog"] = True
+            logger.warning(
+                "AI 응답이 %.0f초 안에 안 와서 이번 턴은 건너뛰고 듣기 상태로 전환",
+                _TURN_WATCHDOG_SECONDS,
+                extra={"session_id": self._session_id},
+            )
+            await self._send_json(speaking_end_frame())
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -412,6 +425,7 @@ class VoicePipeline:
             session_id=self._session_id,
             step=self._current_step,
             error=flags["error"],
+            watchdog=flags.get("watchdog", False),
             llm_prompt_tokens=usage["prompt"],
             llm_cached_tokens=usage["cached"],
             **timings.as_metrics(),
