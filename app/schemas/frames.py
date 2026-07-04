@@ -10,6 +10,7 @@ class FrameType(StrEnum):
     END = "end"                       # 세션 종료
     ERROR = "error"                   # 복구 불가 에러
     TRANSCRIPT = "transcript"         # 대화 스크립트 한 줄(나 혹은 상대)
+    SCRIPT_HINT = "script_hint"       # 사용자 다음 발화 힌트, 1은 추천 문장, 2는 조언
 
 
 class TranscriptRole(StrEnum):
@@ -52,3 +53,7 @@ def error_frame(code: str) -> dict:
 
 def transcript_frame(role: TranscriptRole, text: str) -> dict:
     return {"type": FrameType.TRANSCRIPT.value, "role": role.value, "text": text}
+
+
+def script_hint_frame(level: int, text: str) -> dict:
+    return {"type": FrameType.SCRIPT_HINT.value, "level": level, "text": text}

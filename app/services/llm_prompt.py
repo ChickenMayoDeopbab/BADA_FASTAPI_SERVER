@@ -72,6 +72,19 @@ _CURRENT_STEP_NOTE = (
     "매번 제공된다. 반드시 그 단계의 목표에 맞춰 응답한다."
 )
 
+_HINT_INSTRUCTION_L1 = (
+    "모든 대사와 제어 태그를 끝낸 뒤, 응답의 맨 마지막 줄에 [SUGGEST] 와 함께 "
+    "사용자가 다음 차례에 그대로 말하면 되는 문장 1개를 사용자 입장(1인칭)으로 출력한다. "
+    "방금 네 대사에 자연스럽게 이어지는 응답이어야 한다. "
+    "예: [SUGGEST] 그러면 불고기 피자로 주문하겠습니다."
+)
+_HINT_INSTRUCTION_L2 = (
+    "모든 대사와 제어 태그를 끝낸 뒤, 응답의 맨 마지막 줄에 [SUGGEST] 와 함께 "
+    "사용자가 다음 발화의 방향을 잡도록 돕는 짧은 조언 1문장을 권유형으로 출력한다. "
+    "정답 문장을 그대로 알려주지는 않는다. "
+    "예: [SUGGEST] 상대방의 마음을 헤아리며 대답해볼까요?"
+)
+
 
 def _format_script(script: list[ScenarioTurn]) -> str:
     return "\n".join(f" {turn.step}. {turn.ai_goal}" for turn in script)
@@ -87,6 +100,13 @@ def build_system_prompt(ctx: TurnContext) -> str:
         else ""
     )
 
+    if ctx.script_level == 1:
+        hint_block = f"\n\n[힌트 지시]\n{_HINT_INSTRUCTION_L1}"
+    elif ctx.script_level == 2:
+        hint_block = f"\n\n[힌트 지시]\n{_HINT_INSTRUCTION_L2}"
+    else:
+        hint_block = ""
+
     return (
         f"너는 전화 통화 연습 앱에서 '{ctx.scenario_role}' 역할을 연기하는 AI다.\n"
         f"상황: {ctx.scenario_title}\n\n"
@@ -100,6 +120,7 @@ def build_system_prompt(ctx: TurnContext) -> str:
         f"[출력 형식]\n{_EMOTION_INSTRUCTION}\n\n"
         f"[진행/종료 제어]\n{_CONTROL_TAG_INSTRUCTION}\n\n"
         f"[표현 규칙]\n{_NUMBER_RULE}\n{_STYLE_RULE}"
+        f"{hint_block}"
     )
 
 def build_contents(ctx: TurnContext) -> list[dict]:

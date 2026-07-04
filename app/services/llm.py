@@ -19,11 +19,14 @@ _CONTROL_TAGS: dict[str, LLMEventType] = {
     "[END_CALL]": LLMEventType.END_CALL,
 }
 
+_SUGGEST_TAG = "[SUGGEST]"
+_ALL_TAGS = (*_CONTROL_TAGS, _SUGGEST_TAG)
+
 
 def _find_first_tag(buffer: str) -> tuple[int, str] | None:
     best_idx: int | None = None
     best_tag = ""
-    for tag in _CONTROL_TAGS:
+    for tag in _ALL_TAGS:
         idx = buffer.find(tag)
         if idx != -1 and (best_idx is None or idx < best_idx):
             best_idx, best_tag = idx, tag
@@ -34,7 +37,7 @@ def _find_first_tag(buffer: str) -> tuple[int, str] | None:
 
 def _trailing_partial_len(buffer: str) -> int:
     max_hold = 0
-    for tag in _CONTROL_TAGS:
+    for tag in _ALL_TAGS:
         limit = min(len(buffer), len(tag) - 1)
         for k in range(limit, 0, -1):
             if tag.startswith(buffer[-k:]):
@@ -43,7 +46,7 @@ def _trailing_partial_len(buffer: str) -> int:
     return max_hold
 
 
-def _drain_pending(pending: str) -> tuple[str, list[LLMEventType], str]:
+def _drain_pending(pending: str) -> tuple[str, list[LLMEventType], str, bool]:
     emit_parts: list[str] = []
     controls: list[LLMEventType] = []
 
@@ -54,8 +57,10 @@ def _drain_pending(pending: str) -> tuple[str, list[LLMEventType], str]:
         idx, tag = found
         if idx > 0:
             emit_parts.append(pending[:idx])
-        controls.append(_CONTROL_TAGS[tag])
         pending = pending[idx + len(tag):]
+        if tag == _SUGGEST_TAG:
+            return "".join(emit_parts), controls, pending, True
+        controls.append(_CONTROL_TAGS[tag])
 
     hold = _trailing_partial_len(pending)
     if hold:
@@ -64,7 +69,7 @@ def _drain_pending(pending: str) -> tuple[str, list[LLMEventType], str]:
     else:
         emit_parts.append(pending)
         pending = ""
-    return "".join(emit_parts), controls, pending
+    return "".join(emit_parts), controls, pending, False
 
 # 혐오, 증오, 성적 표현 막기
 _SAFETY_SETTINGS = [
@@ -152,6 +157,8 @@ class LLMClient:
         emotion_resolved = False
         pending = ""
         usage = None
+        suggest_mode = False
+        suggest_parts: list[str] = []
 
         try:
             stream = await self._client.aio.models.generate_content_stream(
@@ -192,26 +199,35 @@ class LLMClient:
                             type=LLMEventType.EMOTION_RESOLVED, emotion=emotion
                         )
                         pending = remainder
+                elif suggest_mode:
+                    suggest_parts.append(delta)
                 else:
                     pending += delta
 
-                if emotion_resolved:
-                    text, controls, pending = _drain_pending(pending)
+                if emotion_resolved and not suggest_mode:
+                    text, controls, pending, suggest_started = _drain_pending(pending)
                     if text:
                         yield LLMEvent(type=LLMEventType.TEXT_DELTA, text=text)
                     for control in controls:
                         yield LLMEvent(type=control)
+                    if suggest_started:
+                        suggest_mode = True
+                        suggest_parts.append(pending)
+                        pending = ""
 
             if not emotion_resolved:
                 yield LLMEvent(
                     type=LLMEventType.EMOTION_RESOLVED, emotion=AiEmotion.NEUTRAL
                 )
                 if head_buffer and not self._looks_like_partial_head(head_buffer):
-                    text, controls, _ = _drain_pending(head_buffer)
+                    text, controls, rest, suggest_started = _drain_pending(head_buffer)
                     if text:
                         yield LLMEvent(type=LLMEventType.TEXT_DELTA, text=text)
                     for control in controls:
                         yield LLMEvent(type=control)
+                    if suggest_started:
+                        suggest_mode = True
+                        suggest_parts.append(rest)
                 elif head_buffer:
                     logger.warning("미완성 emotion 태그로 응답 종료, 대사 없음: %r", head_buffer)
             elif pending:
@@ -219,6 +235,16 @@ class LLMClient:
                     logger.debug("미완성 제어 태그로 종료, 누락: %r", pending)
                 else:
                     yield LLMEvent(type=LLMEventType.TEXT_DELTA, text=pending)
+
+            if suggest_mode:
+                suggestion = "".join(suggest_parts)
+                for tag, control in _CONTROL_TAGS.items():
+                    if tag in suggestion:
+                        suggestion = suggestion.replace(tag, "")
+                        yield LLMEvent(type=control)
+                suggestion = suggestion.strip()
+                if suggestion:
+                    yield LLMEvent(type=LLMEventType.SUGGESTION, text=suggestion)
 
             if usage is not None:
                 yield LLMEvent(

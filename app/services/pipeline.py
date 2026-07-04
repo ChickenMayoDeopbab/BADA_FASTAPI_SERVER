@@ -19,10 +19,11 @@ from app.schemas.frames import (
     end_frame,
     error_frame,
     interrupt_frame,
+    script_hint_frame,
     speaking_end_frame,
     transcript_frame,
 )
-from app.schemas.llm import AiEmotion, LLMEventType
+from app.schemas.llm import AiEmotion, LLMEventType, TurnContext
 from app.services.llm import LLMClient
 from app.services.session import build_turn_context
 from app.services.spring_client import SpringInternalClient
@@ -307,6 +308,7 @@ class VoicePipeline:
         flags = {"step_done": False, "end_call": False, "error": False}
         usage: dict[str, int | None] = {"prompt": None, "cached": None}
         box: dict[str, TTSSession | None] = {"tts": None}
+        suggestion_box: dict[str, str | None] = {"text": None}
 
         async def ensure_tts(emotion: AiEmotion) -> None:
             if box["tts"] is not None:
@@ -337,6 +339,8 @@ class VoicePipeline:
                         flags["step_done"] = True
                     elif ev.type == LLMEventType.END_CALL:
                         flags["end_call"] = True
+                    elif ev.type == LLMEventType.SUGGESTION:
+                        suggestion_box["text"] = ev.text
                     elif ev.type == LLMEventType.SAFETY_BLOCK:
                         await ensure_tts(AiEmotion.NEUTRAL)
                         ai_parts.append(_SAFETY_FALLBACK)
@@ -405,7 +409,15 @@ class VoicePipeline:
             if flags.get("cancelled"):
                 await self._salvage_cancelled_turn(user_utterance, ai_parts)
 
-        await self._finalize_turn(user_utterance, ai_parts, flags, timings, usage)
+        await self._finalize_turn(
+            user_utterance,
+            ai_parts,
+            flags,
+            timings,
+            usage,
+            ctx=ctx,
+            suggestion=suggestion_box["text"],
+        )
 
     async def _salvage_cancelled_turn(
         self, user_utterance: str, ai_parts: list[str]
@@ -442,6 +454,9 @@ class VoicePipeline:
         flags: dict,
         timings: _TurnTimings,
         usage: dict[str, int | None],
+        *,
+        ctx: TurnContext,
+        suggestion: str | None = None,
     ) -> None:
         log_metric(
             "voice_turn",
@@ -479,10 +494,28 @@ class VoicePipeline:
                 await self._close(EndReason.SCENARIO_DONE)
                 return
 
+        if not flags.get("watchdog"):
+            await self._maybe_send_script_hint(ctx, suggestion)
+
         self._turn_task = None
         self._state = _State.LISTENING
         self._listening_since = time.monotonic()
         self._open_user_turn()
+
+    async def _maybe_send_script_hint(
+        self, ctx: TurnContext, suggestion: str | None
+    ) -> None:
+        if ctx.script_level not in (1, 2):
+            return
+        text = (suggestion or "").strip()
+        if not text:
+            text = next(
+                (t.hint.strip() for t in ctx.script if t.step == self._current_step),
+                "",
+            )
+        if not text:
+            return
+        await self._send_json(script_hint_frame(ctx.script_level, text))
 
     async def _barge_in(self) -> None:
         if self._turn_task and not self._turn_task.done():

@@ -29,6 +29,7 @@ class LLMEventType(StrEnum):
     TEXT_DELTA = "TEXT_DELTA"               # 텍스트 스트리밍
     STEP_DONE = "STEP_DONE"                 # 현재 시나리오 step 완료 신호
     END_CALL = "END_CALL"                   # 통화 종료 신호
+    SUGGESTION = "SUGGESTION"               # 사용자 다음 발화 힌트(TTS 미출력)
     TURN_END = "TURN_END"                   # 응답 완료
     SAFETY_BLOCK = "SAFETY_BLOCK"           # 부적절한 응답
     ERROR = "ERROR"                         # 서버/네트워크 에러
@@ -63,3 +64,4 @@ class TurnContext:
     history: list[dict]         # 나눴던 대화
     user_utterance: str         # 사용자가 말한 내용
     scenario_prompt: str = ""   # 시나리오별 역할 지시
+    script_level: int | None = None  # 힌트 레벨
