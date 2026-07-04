@@ -28,37 +28,41 @@ def test_trailing_partial_len_zero_when_bracket_not_tag_prefix() -> None:
 
 
 def test_drain_pending_plain_text_passthrough() -> None:
-    emit, controls, pending = _drain_pending("순수 대사")
+    emit, controls, pending, suggest = _drain_pending("순수 대사")
     assert emit == "순수 대사"
     assert controls == []
     assert pending == ""
+    assert suggest is False
 
 def test_drain_pending_extracts_control_tag() -> None:
-    emit, controls, pending = _drain_pending("대사 끝[STEP_DONE]")
+    emit, controls, pending, suggest = _drain_pending("대사 끝[STEP_DONE]")
     assert emit == "대사 끝"
     assert controls == [LLMEventType.STEP_DONE]
     assert pending == ""
+    assert suggest is False
 
 def test_drain_pending_holds_partial_trailing_tag() -> None:
-    emit, controls, pending = _drain_pending("말하는중 [END")
+    emit, controls, pending, suggest = _drain_pending("말하는중 [END")
     assert emit == "말하는중 "
     assert controls == []
     assert pending == "[END"
+    assert suggest is False
 
 def test_drain_pending_reassembles_split_tag() -> None:
-    emit1, controls1, pending1 = _drain_pending("좋아요 [STEP_")
+    emit1, controls1, pending1, _ = _drain_pending("좋아요 [STEP_")
     assert controls1 == []
     assert pending1 == "[STEP_"
-    emit2, controls2, pending2 = _drain_pending(pending1 + "DONE] 뒷말")
+    emit2, controls2, pending2, _ = _drain_pending(pending1 + "DONE] 뒷말")
     assert controls2 == [LLMEventType.STEP_DONE]
     assert pending2 == ""
     assert (emit1 + emit2).strip() == "좋아요  뒷말".strip()
 
 def test_drain_pending_two_tags_in_order() -> None:
-    emit, controls, pending = _drain_pending("마무리[STEP_DONE][END_CALL]")
+    emit, controls, pending, suggest = _drain_pending("마무리[STEP_DONE][END_CALL]")
     assert emit == "마무리"
     assert controls == [LLMEventType.STEP_DONE, LLMEventType.END_CALL]
     assert pending == ""
+    assert suggest is False
 
 
 def test_emit_emotion_head_parses_known_emotion() -> None:
