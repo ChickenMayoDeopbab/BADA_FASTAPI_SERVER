@@ -196,3 +196,25 @@ async def test_watchdog_turn_still_sends_partial_ai_transcript(monkeypatch) -> N
         {"type": "transcript", "role": "ai", "text": "잠시"}
     ]
     assert p._history[-1] == {"role": "assistant", "text": "잠시"}
+
+
+@pytest.mark.asyncio
+async def test_cancelled_turn_salvages_history_and_partial_transcript() -> None:
+    """턴 취소 시에도 나눈 대화는 히스토리에 남기기"""
+    p = _make_pipeline(_StallAfterTextLLM(), _FakeTTSClient())
+    p._state = _State.THINKING
+
+    task = asyncio.create_task(p._run_turn("여보세요", _TurnTimings(final_at=0.0)))
+    await asyncio.sleep(0.05)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert p._history == [
+        {"role": "user", "text": "여보세요"},
+        {"role": "assistant", "text": "잠시"},
+    ]
+    assert _transcripts(p._ws) == [
+        {"type": "transcript", "role": "ai", "text": "잠시"}
+    ]
+    assert p._state != _State.LISTENING
