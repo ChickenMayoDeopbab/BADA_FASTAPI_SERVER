@@ -25,7 +25,8 @@ from app.schemas.scenario import (
 
 async def get_scenarios(
         db: AsyncSession,
-        category: ScenarioCategory | None) -> ScenarioListResponse:
+        category: ScenarioCategory | None,
+        user_id: int) -> ScenarioListResponse:
     stmt = select(ScenarioORM)
     result = await db.execute(stmt)
     rows = result.scalars().all()
@@ -39,6 +40,10 @@ async def get_scenarios(
     infos = []
     for row in rows:
         if row.is_custom:
+            if row.is_warmup:
+                continue
+            if row.user_id != user_id:
+                continue
             if category and category != ScenarioCategory.CUSTOM:
                 continue
             infos.append(ScenarioInfo(
@@ -160,6 +165,7 @@ async def create_custom_scenario(
         call_purpose=request.call_purpose,
         user_id=user_id,
         is_custom=True,
+        is_warmup=request.is_warmup,
         script=script,
         created_at=now,
     )

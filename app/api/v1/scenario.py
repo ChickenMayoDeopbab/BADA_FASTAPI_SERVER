@@ -23,13 +23,14 @@ router = APIRouter(prefix="/api/v1/scenario", tags=["scenario"])
     "/scenarios",
     response_model=ScenarioListResponse,
     summary="훈련 시나리오 목록 조회",
-    description="카테고리, 난이도 선택 가능",
+    description="카테고리, 난이도 선택 가능. 커스텀 시나리오는 본인이 만든 것만 노출된다.",
 )
 async def list_scenarios(
     db: AsyncSession = Depends(get_db),
     category:   ScenarioCategory | None = Query(None, description="카테고리 선택"),
+    user_id: int = Depends(get_current_user_id),
 ) -> ScenarioListResponse:
-    return await svc_get_scenarios(db, category)
+    return await svc_get_scenarios(db, category, user_id)
 
 @router.post(
     "/custom",

@@ -46,6 +46,7 @@ class CustomSessionRequest(BaseModel):
     call_purpose: str = Field(..., min_length=5, max_length=200)
     personality: AiPersonality = AiPersonality.NORMAL
     difficulty: Difficulty = Difficulty.MEDIUM
+    is_warmup: bool = False  # 실전 워밍업용
 
 class GenerateDetailScenario(BaseModel):
     scenario_id: int
