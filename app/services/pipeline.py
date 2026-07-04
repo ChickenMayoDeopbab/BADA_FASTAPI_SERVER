@@ -390,6 +390,7 @@ class VoicePipeline:
             )
             await self._send_json(speaking_end_frame())
         except asyncio.CancelledError:
+            flags["cancelled"] = True
             raise
         except Exception:
             logger.exception("턴 실행 중 예외", extra={"session_id": self._session_id})
@@ -401,8 +402,20 @@ class VoicePipeline:
                     with suppress(asyncio.CancelledError, Exception):
                         await task
             await self._cleanup_turn_tts(connect_task, box["tts"])
+            if flags.get("cancelled"):
+                await self._salvage_cancelled_turn(user_utterance, ai_parts)
 
         await self._finalize_turn(user_utterance, ai_parts, flags, timings, usage)
+
+    async def _salvage_cancelled_turn(
+        self, user_utterance: str, ai_parts: list[str]
+    ) -> None:
+        """취소된 턴(세션 종료/barge-in)도 나눈 대화는 히스토리에 남김"""
+        self._history.append({"role": "user", "text": user_utterance})
+        ai_text = "".join(ai_parts).strip()
+        if ai_text:
+            self._history.append({"role": "assistant", "text": ai_text})
+            await self._send_json(transcript_frame(TranscriptRole.AI, ai_text))
 
     async def _cleanup_turn_tts(
         self, connect_task: asyncio.Task, used: TTSSession | None
