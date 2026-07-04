@@ -14,11 +14,13 @@ from app.core.enums import SessionType
 from app.core.metrics import log_metric, now_ms
 from app.schemas.frames import (
     EndReason,
+    TranscriptRole,
     emotion_frame,
     end_frame,
     error_frame,
     interrupt_frame,
     speaking_end_frame,
+    transcript_frame,
 )
 from app.schemas.llm import AiEmotion, LLMEventType
 from app.services.llm import LLMClient
@@ -264,6 +266,7 @@ class VoicePipeline:
                 extra={"session_id": self._session_id},
             )
             if text and self._state == _State.LISTENING and not self._time_up:
+                await self._send_json(transcript_frame(TranscriptRole.USER, text))
                 self._start_turn(text, final_at=now_ms())
         elif event.type == STTEventType.SPEECH_BEGIN and (
                 self._listening_since is not None and
@@ -448,6 +451,7 @@ class VoicePipeline:
         self._history.append({"role": "user", "text": user_utterance})
         if ai_text:
             self._history.append({"role": "assistant", "text": ai_text})
+            await self._send_json(transcript_frame(TranscriptRole.AI, ai_text))
 
         if flags["error"]:
             await self._close(EndReason.ERROR)

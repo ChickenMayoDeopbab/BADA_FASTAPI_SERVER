@@ -9,6 +9,12 @@ class FrameType(StrEnum):
     INTERRUPT = "interrupt"           # 클라 재생 버퍼 비우기
     END = "end"                       # 세션 종료
     ERROR = "error"                   # 복구 불가 에러
+    TRANSCRIPT = "transcript"         # 대화 스크립트 한 줄(나 혹은 상대)
+
+
+class TranscriptRole(StrEnum):
+    USER = "user"                     # 사용자
+    AI = "ai"                         # AI
 
 
 class EndReason(StrEnum):
@@ -42,3 +48,7 @@ def end_frame(reason: EndReason, feedback: dict | None = None) -> dict:
 
 def error_frame(code: str) -> dict:
     return {"type": FrameType.ERROR.value, "code": code}
+
+
+def transcript_frame(role: TranscriptRole, text: str) -> dict:
+    return {"type": FrameType.TRANSCRIPT.value, "role": role.value, "text": text}
