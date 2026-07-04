@@ -14,11 +14,13 @@ from app.core.enums import SessionType
 from app.core.metrics import log_metric, now_ms
 from app.schemas.frames import (
     EndReason,
+    TranscriptRole,
     emotion_frame,
     end_frame,
     error_frame,
     interrupt_frame,
     speaking_end_frame,
+    transcript_frame,
 )
 from app.schemas.llm import AiEmotion, LLMEventType
 from app.services.llm import LLMClient
@@ -264,6 +266,7 @@ class VoicePipeline:
                 extra={"session_id": self._session_id},
             )
             if text and self._state == _State.LISTENING and not self._time_up:
+                await self._send_json(transcript_frame(TranscriptRole.USER, text))
                 self._start_turn(text, final_at=now_ms())
         elif event.type == STTEventType.SPEECH_BEGIN and (
                 self._listening_since is not None and
@@ -387,6 +390,7 @@ class VoicePipeline:
             )
             await self._send_json(speaking_end_frame())
         except asyncio.CancelledError:
+            flags["cancelled"] = True
             raise
         except Exception:
             logger.exception("턴 실행 중 예외", extra={"session_id": self._session_id})
@@ -398,8 +402,20 @@ class VoicePipeline:
                     with suppress(asyncio.CancelledError, Exception):
                         await task
             await self._cleanup_turn_tts(connect_task, box["tts"])
+            if flags.get("cancelled"):
+                await self._salvage_cancelled_turn(user_utterance, ai_parts)
 
         await self._finalize_turn(user_utterance, ai_parts, flags, timings, usage)
+
+    async def _salvage_cancelled_turn(
+        self, user_utterance: str, ai_parts: list[str]
+    ) -> None:
+        """취소된 턴(세션 종료/barge-in)도 나눈 대화는 히스토리에 남김"""
+        self._history.append({"role": "user", "text": user_utterance})
+        ai_text = "".join(ai_parts).strip()
+        if ai_text:
+            self._history.append({"role": "assistant", "text": ai_text})
+            await self._send_json(transcript_frame(TranscriptRole.AI, ai_text))
 
     async def _cleanup_turn_tts(
         self, connect_task: asyncio.Task, used: TTSSession | None
@@ -448,6 +464,7 @@ class VoicePipeline:
         self._history.append({"role": "user", "text": user_utterance})
         if ai_text:
             self._history.append({"role": "assistant", "text": ai_text})
+            await self._send_json(transcript_frame(TranscriptRole.AI, ai_text))
 
         if flags["error"]:
             await self._close(EndReason.ERROR)
