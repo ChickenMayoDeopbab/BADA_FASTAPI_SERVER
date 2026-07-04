@@ -371,9 +371,11 @@ class VoicePipeline:
                 timings.last_pcm_at = now_ms()
             await self._send_json(speaking_end_frame())
 
+        produce_task = asyncio.create_task(produce())
+        consume_task = asyncio.create_task(consume())
         try:
             await asyncio.wait_for(
-                asyncio.gather(produce(), consume()),
+                asyncio.gather(produce_task, consume_task),
                 timeout=_TURN_WATCHDOG_SECONDS,
             )
         except TimeoutError:
@@ -390,6 +392,11 @@ class VoicePipeline:
             logger.exception("턴 실행 중 예외", extra={"session_id": self._session_id})
             flags["error"] = True
         finally:
+            for task in (produce_task, consume_task):
+                if not task.done():
+                    task.cancel()
+                    with suppress(asyncio.CancelledError, Exception):
+                        await task
             await self._cleanup_turn_tts(connect_task, box["tts"])
 
         await self._finalize_turn(user_utterance, ai_parts, flags, timings, usage)
