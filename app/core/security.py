@@ -1,3 +1,5 @@
+import hmac
+
 import jwt
 from fastapi import Header, HTTPException, WebSocket, status
 
@@ -8,7 +10,9 @@ async def require_internal_secret(
     x_internal_secret: str | None = Header(default=None),
 ) -> None:
     expected = get_settings().internal_secret
-    if not x_internal_secret or x_internal_secret != expected:
+    if not x_internal_secret or not hmac.compare_digest(
+        x_internal_secret.encode(), expected.encode()
+    ):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
 
 def decode_access_token(token: str) -> dict:
