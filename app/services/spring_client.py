@@ -31,6 +31,7 @@ class SpringInternalClient:
         silence_total: float,
         shake_count: int = 0,
         good_segments: list[dict] | None = None,
+        recording_url: str | None = None,
         session_type: str | None = None,
     ) -> None:
         url = f"{self._base_url}/internal/v1/sessions/{session_id}/closed"
@@ -41,6 +42,7 @@ class SpringInternalClient:
             "silence_total": silence_total,
             "shake_count": shake_count,
             "good_segments": good_segments,
+            "recording_url": recording_url,
         }
 
         last_error: httpx.HTTPError | None = None

@@ -69,6 +69,7 @@ async def test_notify_session_closed_sends_correct_request() -> None:
             ],
             silence_total=3.5,
             shake_count=2,
+            recording_url="https://bucket.s3.ap-northeast-2.amazonaws.com/recordings/sess-123.wav",
             good_segments=[{"start": 1.0, "end": 4.0, "good_point": "잘 이야기했어요"}],
             session_type="SCENARIO",
         )
@@ -86,6 +87,7 @@ async def test_notify_session_closed_sends_correct_request() -> None:
             ],
             "silence_total": 3.5,
             "shake_count": 2,
+            "recording_url": "https://bucket.s3.ap-northeast-2.amazonaws.com/recordings/sess-123.wav",
             "good_segments": [
                 {"start": 1.0, "end": 4.0, "good_point": "잘 이야기했어요"}
             ],
@@ -99,6 +101,7 @@ async def test_trailing_slash_in_base_url_is_normalized() -> None:
             "abc", reason=EndReason.USER_END, transcript=[], silence_total=0
         )
         assert spring.captured["path"] == "/internal/v1/sessions/abc/closed"
+        assert spring.captured["body"]["recording_url"] is None
 
 
 async def test_server_error_is_swallowed() -> None:

@@ -25,6 +25,7 @@ from app.schemas.frames import (
 )
 from app.schemas.llm import AiEmotion, LLMEventType, TurnContext
 from app.services.llm import LLMClient
+from app.services.recording_storage import RecordingStorageService
 from app.services.session import build_turn_context
 from app.services.spring_client import SpringInternalClient
 from app.services.stt import (
@@ -117,6 +118,7 @@ class VoicePipeline:
         )
         self._llm = LLMClient()
         self._tts = ElevenLabsTTSClient(settings)
+        self._recording_storage = RecordingStorageService(settings)
 
         self._audio_queue: asyncio.Queue[bytes | None] = asyncio.Queue()
         self._state = _State.LISTENING
@@ -580,10 +582,25 @@ class VoicePipeline:
 
         shake_count = 0
         good_segments: list[dict] = []
+        recording_url: str | None = None
         if self._tremor_buf:
+            recording_pcm = bytes(self._tremor_buf)
+            try:
+                recording_url = await asyncio.to_thread(
+                    self._recording_storage.upload_pcm,
+                    self._session_id,
+                    recording_pcm,
+                )
+            except Exception:
+                logger.warning(
+                    "녹음본 업로드 실패",
+                    extra={"session_id": self._session_id},
+                    exc_info=True,
+                )
+
             try:
                 result = await asyncio.to_thread(
-                    self._tremor.analyze, bytes(self._tremor_buf)
+                    self._tremor.analyze, recording_pcm
                 )
                 shake_count = result.shake_count
                 good_segments = self._pick_good_segments(result.good_candidates)
@@ -631,6 +648,7 @@ class VoicePipeline:
             silence_total=self._silence_total,
             shake_count=shake_count,
             good_segments=good_segments,
+            recording_url=recording_url,
             session_type=self._session.get("type"),
         )
 
