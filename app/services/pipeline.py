@@ -612,12 +612,17 @@ class VoicePipeline:
 
         # 종료 프레임 전송 후에 생성 → 사용자 체감 지연 없음. Spring 콜백에만 실린다.
         if good_segments:
-            utterances = [
-                self._utterance_for(seg["start"], seg["end"]) for seg in good_segments
-            ]
-            praises = await self._llm.praise_segments(utterances)
-            for seg, praise in zip(good_segments, praises, strict=True):
-                seg["good_point"] = praise or _DEFAULT_GOOD_POINT
+            try:
+                utterances = [
+                    self._utterance_for(seg["start"], seg["end"]) for seg in good_segments
+                ]
+                praises = await self._llm.praise_segments(utterances)
+                for seg, praise in zip(good_segments, praises, strict=True):
+                    seg["good_point"] = praise or _DEFAULT_GOOD_POINT
+            except asyncio.CancelledError:
+                logger.warning("잘한 점 칭찬 생성 중 취소됨")
+            except Exception:
+                logger.warning("잘한 점 생성 중 오류 발생")
 
         await self._spring.notify_session_closed(
             self._session_id,

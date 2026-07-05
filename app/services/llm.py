@@ -148,16 +148,14 @@ class LLMClient:
             logger.debug("LLM 워밍업 실패(무시)", exc_info=True)
 
     async def praise_segments(self, utterances: list[str]) -> list[str]:
-        """잘한 구간별 발화에 대해 '~를 잘했어요' 한 줄 칭찬을 순서대로 반환.
-
-        입력 발화 리스트와 같은 길이의 리스트를 돌려준다(각 구간에 1:1 대응).
-        발화 '내용'에만 근거하고 음성(떨림/발음)은 쓰지 않는다.
-        실패하면 세션 종료를 막지 않도록 빈 문자열로 채운 리스트를 반환한다.
-        """
         if not utterances:
             return []
 
-        numbered = "\n".join(f"{i + 1}. {u}" for i, u in enumerate(utterances))
+        non_empty_indices = [i for i, u in enumerate(utterances) if u.strip()]
+        if not non_empty_indices:
+            return [""] * len(utterances)
+        non_empty = [utterances[i] for i in non_empty_indices]
+        numbered = "\n".join(f"{i + 1}. {u}" for i, u in enumerate(non_empty))
         system_prompt = (
             "너는 대화 훈련 코치야. 아래 번호가 매겨진 각 발화에 대해 "
             "그 발화에서 잘한 점을 '~를 잘했어요' 또는 '~점이 좋았어요' 형태의 "
@@ -186,7 +184,11 @@ class LLMClient:
             logger.warning("잘한 점 칭찬 생성 실패", exc_info=True)
             return [""] * len(utterances)
 
-        return self._parse_numbered(resp.text or "", len(utterances))
+        parsed = self._parse_numbered(resp.text or "", len(non_empty_indices))
+        result = [""] * len(utterances)
+        for orig_idx, praise in zip(non_empty_indices, parsed, strict=True):
+            result[orig_idx] = praise
+        return result
 
     @staticmethod
     def _parse_numbered(raw: str, n: int) -> list[str]:
