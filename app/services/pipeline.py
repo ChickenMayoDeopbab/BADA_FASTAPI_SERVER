@@ -616,7 +616,7 @@ class VoicePipeline:
                 self._utterance_for(seg["start"], seg["end"]) for seg in good_segments
             ]
             praises = await self._llm.praise_segments(utterances)
-            for seg, praise in zip(good_segments, praises):
+            for seg, praise in zip(good_segments, praises, strict=True):
                 seg["good_point"] = praise or _DEFAULT_GOOD_POINT
 
         await self._spring.notify_session_closed(
@@ -665,7 +665,9 @@ class VoicePipeline:
     def _utterance_for(self, start: float, end: float) -> str:
         """[start, end] 구간과 가장 많이 겹치는 사용자 발화 텍스트를 찾는다."""
         best_text, best_overlap = "", 0.0
-        for (s, e), text in zip(self._user_turn_intervals, self._user_turn_texts):
+        for (s, e), text in zip(
+            self._user_turn_intervals, self._user_turn_texts, strict=True
+        ):
             overlap = min(end, e) - max(start, s)
             if overlap > best_overlap:
                 best_overlap, best_text = overlap, text
