@@ -46,6 +46,8 @@ _STT_RECYCLE_SECONDS = 240.0
 _SAFETY_FALLBACK = "죄송해요, 그 부분은 지금 답하기 어렵네요."
 # LLM/TTS 스톨 시 턴 영구 대기 방지. warm 턴 p95(~2.6s)의 10배 이상 여유.
 _TURN_WATCHDOG_SECONDS = 30.0
+# 칭찬 생성 실패 시 good_point 기본 문구
+_DEFAULT_GOOD_POINT = "잘 이야기했어요"
 
 
 def _clip(text: str, limit: int = 120) -> str:
@@ -135,6 +137,7 @@ class VoicePipeline:
         self._tremor_buf = bytearray()
 
         self._user_turn_intervals: list[tuple[float, float]] = []
+        self._user_turn_texts: list[str] = []
         self._turn_open_at: float | None = 0.0
 
         max_duration = session.get("maxDurationSeconds")
@@ -278,7 +281,7 @@ class VoicePipeline:
 
     def _start_turn(self, user_utterance: str, *, final_at: float) -> None:
         """LLM -> TTS"""
-        self._close_user_turn()
+        self._close_user_turn(user_utterance)
         self._state = _State.THINKING
         timings = _TurnTimings(final_at=final_at, last_audio_at=self._last_audio_at)
         self._turn_task = asyncio.create_task(self._run_turn(user_utterance, timings))
@@ -607,6 +610,15 @@ class VoicePipeline:
             with suppress(Exception):
                 await self._ws.close()
 
+        # 종료 프레임 전송 후에 생성 → 사용자 체감 지연 없음. Spring 콜백에만 실린다.
+        if good_segments:
+            utterances = [
+                self._utterance_for(seg["start"], seg["end"]) for seg in good_segments
+            ]
+            praises = await self._llm.praise_segments(utterances)
+            for seg, praise in zip(good_segments, praises):
+                seg["good_point"] = praise or _DEFAULT_GOOD_POINT
+
         await self._spring.notify_session_closed(
             self._session_id,
             reason=reason,
@@ -614,6 +626,7 @@ class VoicePipeline:
             silence_total=self._silence_total,
             shake_count=shake_count,
             good_segments=good_segments,
+            session_type=self._session.get("type"),
         )
 
     async def _send_json(self, payload: dict) -> None:
@@ -643,10 +656,20 @@ class VoicePipeline:
     def _open_user_turn(self) -> None:
         self._turn_open_at = self._buf_sec()
 
-    def _close_user_turn(self) -> None:
+    def _close_user_turn(self, text: str = "") -> None:
         if self._turn_open_at is not None:
             self._user_turn_intervals.append((self._turn_open_at, self._buf_sec()))
+            self._user_turn_texts.append(text)
             self._turn_open_at = None
+
+    def _utterance_for(self, start: float, end: float) -> str:
+        """[start, end] 구간과 가장 많이 겹치는 사용자 발화 텍스트를 찾는다."""
+        best_text, best_overlap = "", 0.0
+        for (s, e), text in zip(self._user_turn_intervals, self._user_turn_texts):
+            overlap = min(end, e) - max(start, s)
+            if overlap > best_overlap:
+                best_overlap, best_text = overlap, text
+        return best_text
 
     @staticmethod
     def _intersect(a, b):

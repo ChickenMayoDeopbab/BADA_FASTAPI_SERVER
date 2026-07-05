@@ -31,9 +31,11 @@ class SpringInternalClient:
         silence_total: float,
         shake_count: int = 0,
         good_segments: list[dict] | None = None,
+        session_type: str | None = None,
     ) -> None:
         url = f"{self._base_url}/internal/v1/sessions/{session_id}/closed"
         payload = {
+            "type": session_type,
             "reason": reason.value,
             "transcript": transcript,
             "silence_total": silence_total,

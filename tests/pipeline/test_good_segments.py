@@ -1,13 +1,14 @@
-"""VoicePipeline 잘한 구간 선택 로직 테스트 (_intersect, _pick_good_segments)."""
+"""VoicePipeline 잘한 구간 선택 로직 테스트 (_intersect, _pick_good_segments, _utterance_for)."""
 from __future__ import annotations
 
 from app.services.pipeline import VoicePipeline
 
 
-def _pipeline_with_turns(turns) -> VoicePipeline:
+def _pipeline_with_turns(turns, texts=None) -> VoicePipeline:
     """무거운 __init__ 없이 선택 로직만 테스트하기 위한 최소 객체."""
     obj = VoicePipeline.__new__(VoicePipeline)
     obj._user_turn_intervals = turns
+    obj._user_turn_texts = texts if texts is not None else [""] * len(turns)
     return obj
 
 
@@ -54,3 +55,28 @@ def test_pick_drops_short_fragments():
 def test_pick_empty_when_no_overlap():
     p = _pipeline_with_turns([(50, 60)])
     assert p._pick_good_segments([(0, 10)]) == []
+
+
+# ----------------------------- _utterance_for -----------------------------
+
+def test_utterance_for_picks_containing_turn():
+    # 구간 (12, 15)는 두 번째 턴(10~20) 안에 있음 → 그 턴의 발화
+    p = _pipeline_with_turns(
+        [(0, 5), (10, 20), (30, 40)],
+        texts=["안녕하세요", "저는 학생입니다", "감사합니다"],
+    )
+    assert p._utterance_for(12, 15) == "저는 학생입니다"
+
+
+def test_utterance_for_picks_max_overlap_when_spanning():
+    # 구간 (3, 14)는 턴1과 2초, 턴2와 4초 겹침 → 더 많이 겹치는 턴2
+    p = _pipeline_with_turns(
+        [(0, 5), (10, 20)],
+        texts=["안녕하세요", "저는 학생입니다"],
+    )
+    assert p._utterance_for(3, 14) == "저는 학생입니다"
+
+
+def test_utterance_for_no_overlap_returns_empty():
+    p = _pipeline_with_turns([(0, 5)], texts=["안녕하세요"])
+    assert p._utterance_for(50, 60) == ""
