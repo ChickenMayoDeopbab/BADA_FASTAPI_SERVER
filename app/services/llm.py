@@ -147,6 +147,62 @@ class LLMClient:
         except Exception:
             logger.debug("LLM 워밍업 실패(무시)", exc_info=True)
 
+    async def praise_segments(self, utterances: list[str]) -> list[str]:
+        if not utterances:
+            return []
+
+        non_empty_indices = [i for i, u in enumerate(utterances) if u.strip()]
+        if not non_empty_indices:
+            return [""] * len(utterances)
+        non_empty = [utterances[i] for i in non_empty_indices]
+        numbered = "\n".join(f"{i + 1}. {u}" for i, u in enumerate(non_empty))
+        system_prompt = (
+            "너는 대화 훈련 코치야. 아래 번호가 매겨진 각 발화에 대해 "
+            "그 발화에서 잘한 점을 '~를 잘했어요' 또는 '~점이 좋았어요' 형태의 "
+            "짧은 칭찬 한 문장으로 써. 발화 '내용'에만 근거하고, "
+            "목소리 떨림·발음 같은 음성 정보는 언급하지 마. "
+            "어려운 한자어나 전문 용어 없이 초등학생도 이해할 수 있는 "
+            "쉬운 단어만 써. "
+            "반드시 입력과 같은 번호를 붙여 '1. 칭찬' 형식으로 한 줄에 하나씩, "
+            "발화 개수만큼만 출력해. 한국어 존댓말."
+        )
+        try:
+            resp = await self._client.aio.models.generate_content(
+                model=self._model,
+                contents=numbered,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_prompt,
+                    safety_settings=_SAFETY_SETTINGS,
+                    temperature=0.7,
+                    max_output_tokens=256,
+                    thinking_config=types.ThinkingConfig(thinking_budget=0),
+                ),
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.warning("잘한 점 칭찬 생성 실패", exc_info=True)
+            return [""] * len(utterances)
+
+        parsed = self._parse_numbered(resp.text or "", len(non_empty_indices))
+        result = [""] * len(utterances)
+        for orig_idx, praise in zip(non_empty_indices, parsed, strict=True):
+            result[orig_idx] = praise
+        return result
+
+    @staticmethod
+    def _parse_numbered(raw: str, n: int) -> list[str]:
+        """'1. 칭찬' 형식 응답을 파싱해 길이 n 리스트로 정렬(부족분은 빈 문자열)."""
+        items: list[str] = []
+        for line in raw.splitlines():
+            s = line.strip().lstrip("-*• ").strip()
+            s = re.sub(r"^\d+\s*[.)]\s*", "", s).strip().strip('"“”')
+            if s:
+                items.append(s)
+        items = items[:n]
+        items.extend([""] * (n - len(items)))
+        return items
+
     async def stream(self, ctx: TurnContext):
         """진입점임 async for로 LLMEvent를 yield"""
         system_prompt = build_system_prompt(ctx)
