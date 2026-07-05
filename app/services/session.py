@@ -103,6 +103,37 @@ def _parse_script(raw_script: Any) -> list[ScenarioTurn]:
     return sorted(turns, key=lambda t: t.step)
 
 
+def _parse_script_level(raw: Any) -> int | None:
+    """Spring 이 넣은 scriptLevel 없거나 이상값이면 None"""
+    try:
+        level = int(raw)
+    except (TypeError, ValueError):
+        if raw is not None:
+            logger.debug("scriptLevel 파싱 불가, 힌트 비활성: %r", raw)
+        return None
+    if level in (1, 2, 3):
+        return level
+    logger.debug("scriptLevel 범위 밖, 힌트 비활성: %r", raw)
+    return None
+
+
+# LLM 에 보낼 히스토리 상한
+_HISTORY_MAX_MESSAGES = 40
+_HISTORY_DROP_CHUNK = 20
+
+
+def _cap_history(history: list[dict]) -> list[dict]:
+    n = len(history)
+    if n <= _HISTORY_MAX_MESSAGES:
+        return history
+    over = n - _HISTORY_MAX_MESSAGES
+    cut = -(-over // _HISTORY_DROP_CHUNK) * _HISTORY_DROP_CHUNK
+    kept = history[cut:]
+    if kept and kept[0].get("role") == "assistant":
+        kept = kept[1:]
+    return kept
+
+
 def build_turn_context(
     session: dict[str, Any],
     *,
@@ -127,7 +158,8 @@ def build_turn_context(
         scenario_role=str(scenario.get("aiRole", "")),
         script=_parse_script(scenario.get("script")),
         current_step=current_step,
-        history=history,
+        history=_cap_history(history),
         user_utterance=user_utterance,
         scenario_prompt=str(scenario.get("aiPrompt", "")),
+        script_level=_parse_script_level(session.get("scriptLevel")),
     )

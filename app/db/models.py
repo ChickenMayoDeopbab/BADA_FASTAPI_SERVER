@@ -17,6 +17,7 @@ class ScenarioORM(Base):
     ai_prompt: Mapped[str] = mapped_column(Text, nullable=False)
     user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     is_custom: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_warmup: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     call_target: Mapped[str] = mapped_column(String(100), nullable=False)
     call_purpose: Mapped[str] = mapped_column(String(200), nullable=False)
     script: Mapped[list | None] = mapped_column(JSON, nullable=True) # [{"step", "ai_goal", "hint"}]

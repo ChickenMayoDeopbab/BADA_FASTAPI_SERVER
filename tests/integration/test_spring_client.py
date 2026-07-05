@@ -69,8 +69,9 @@ async def test_notify_session_closed_sends_correct_request() -> None:
             ],
             silence_total=3.5,
             shake_count=2,
-            good_segments=[{"start": 1.0, "end": 4.0}],
             recording_url="https://bucket.s3.ap-northeast-2.amazonaws.com/recordings/sess-123.wav",
+            good_segments=[{"start": 1.0, "end": 4.0, "good_point": "잘 이야기했어요"}],
+            session_type="SCENARIO",
         )
 
         captured = spring.captured
@@ -78,6 +79,7 @@ async def test_notify_session_closed_sends_correct_request() -> None:
         assert captured["path"] == "/internal/v1/sessions/sess-123/closed"
         assert captured["headers"].get("X-Internal-Secret") == _SECRET
         assert captured["body"] == {
+            "type": "SCENARIO",
             "reason": "SCENARIO_DONE",
             "transcript": [
                 {"role": "user", "text": "여보세요"},
@@ -85,8 +87,10 @@ async def test_notify_session_closed_sends_correct_request() -> None:
             ],
             "silence_total": 3.5,
             "shake_count": 2,
-            "good_segments": [{"start": 1.0, "end": 4.0}],
             "recording_url": "https://bucket.s3.ap-northeast-2.amazonaws.com/recordings/sess-123.wav",
+            "good_segments": [
+                {"start": 1.0, "end": 4.0, "good_point": "잘 이야기했어요"}
+            ],
         }
 
 

@@ -67,17 +67,32 @@ _STYLE_RULE = (
     "이모지나 괄호 안 행동 묘사(예: (웃음))를 쓰지 않는다."
 )
 
-def _format_script(script: list[ScenarioTurn], current_step: int) -> str:
-    lines = []
-    for turn in script:
-        marker = " <- 지금 이 단계" if turn.step == current_step else ""
-        lines.append(f" {turn.step}. {turn.ai_goal}{marker}")
-    return "\n".join(lines)
+_CURRENT_STEP_NOTE = (
+    "현재 진행 중인 단계 번호는 사용자 발화의 마지막 줄에 '(지금 단계: N)' 형식으로 "
+    "매번 제공된다. 반드시 그 단계의 목표에 맞춰 응답한다."
+)
+
+_HINT_INSTRUCTION_L1 = (
+    "모든 대사와 제어 태그를 끝낸 뒤, 응답의 맨 마지막 줄에 [SUGGEST] 와 함께 "
+    "사용자가 다음 차례에 그대로 말하면 되는 문장 1개를 사용자 입장(1인칭)으로 출력한다. "
+    "방금 네 대사에 자연스럽게 이어지는 응답이어야 한다. "
+    "예: [SUGGEST] 그러면 불고기 피자로 주문하겠습니다."
+)
+_HINT_INSTRUCTION_L2 = (
+    "모든 대사와 제어 태그를 끝낸 뒤, 응답의 맨 마지막 줄에 [SUGGEST] 와 함께 "
+    "사용자가 다음 발화의 방향을 잡도록 돕는 짧은 조언 1문장을 권유형으로 출력한다. "
+    "정답 문장을 그대로 알려주지는 않는다. "
+    "예: [SUGGEST] 상대방의 마음을 헤아리며 대답해볼까요?"
+)
+
+
+def _format_script(script: list[ScenarioTurn]) -> str:
+    return "\n".join(f" {turn.step}. {turn.ai_goal}" for turn in script)
 
 def build_system_prompt(ctx: TurnContext) -> str:
     """시스템 프롬프트 조립"""
     persona = _PERSONALITY_SPEC[ctx.personality]
-    script_block = _format_script(ctx.script, ctx.current_step)
+    script_block = _format_script(ctx.script)
     scenario_prompt = ctx.scenario_prompt.strip()
     prompt_block = (
         f"[시나리오 역할 지시]\n{scenario_prompt}\n\n"
@@ -85,18 +100,27 @@ def build_system_prompt(ctx: TurnContext) -> str:
         else ""
     )
 
+    if ctx.script_level == 1:
+        hint_block = f"\n\n[힌트 지시]\n{_HINT_INSTRUCTION_L1}"
+    elif ctx.script_level == 2:
+        hint_block = f"\n\n[힌트 지시]\n{_HINT_INSTRUCTION_L2}"
+    else:
+        hint_block = ""
+
     return (
         f"너는 전화 통화 연습 앱에서 '{ctx.scenario_role}' 역할을 연기하는 AI다.\n"
         f"상황: {ctx.scenario_title}\n\n"
         f"{prompt_block}"
         f"[성격 설정]\n{persona}\n\n"
         f"[대화 진행 스크립트] (이 순서를 따라가되 표현은 사용자 발화에 맞춰 자연스럽게 변형)\n"
-        f"{script_block}\n\n"
+        f"{script_block}\n"
+        f"{_CURRENT_STEP_NOTE}\n\n"
         f"[의료/윤리]\n{_MEDICAL_GUARD}\n\n"
         f"[{_SAFETY_BOUNDARY}]\n\n"
         f"[출력 형식]\n{_EMOTION_INSTRUCTION}\n\n"
         f"[진행/종료 제어]\n{_CONTROL_TAG_INSTRUCTION}\n\n"
         f"[표현 규칙]\n{_NUMBER_RULE}\n{_STYLE_RULE}"
+        f"{hint_block}"
     )
 
 def build_contents(ctx: TurnContext) -> list[dict]:
@@ -108,5 +132,6 @@ def build_contents(ctx: TurnContext) -> list[dict]:
     for msg in ctx.history:
         role = "model" if msg["role"] == "assistant" else "user"
         contents.append({"role": role, "parts": [{"text": msg["text"]}]})
-    contents.append({"role": "user", "parts": [{"text": ctx.user_utterance}]})
+    tail = f"{ctx.user_utterance}\n(지금 단계: {ctx.current_step})"
+    contents.append({"role": "user", "parts": [{"text": tail}]})
     return contents

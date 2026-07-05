@@ -19,11 +19,14 @@ _CONTROL_TAGS: dict[str, LLMEventType] = {
     "[END_CALL]": LLMEventType.END_CALL,
 }
 
+_SUGGEST_TAG = "[SUGGEST]"
+_ALL_TAGS = (*_CONTROL_TAGS, _SUGGEST_TAG)
+
 
 def _find_first_tag(buffer: str) -> tuple[int, str] | None:
     best_idx: int | None = None
     best_tag = ""
-    for tag in _CONTROL_TAGS:
+    for tag in _ALL_TAGS:
         idx = buffer.find(tag)
         if idx != -1 and (best_idx is None or idx < best_idx):
             best_idx, best_tag = idx, tag
@@ -34,7 +37,7 @@ def _find_first_tag(buffer: str) -> tuple[int, str] | None:
 
 def _trailing_partial_len(buffer: str) -> int:
     max_hold = 0
-    for tag in _CONTROL_TAGS:
+    for tag in _ALL_TAGS:
         limit = min(len(buffer), len(tag) - 1)
         for k in range(limit, 0, -1):
             if tag.startswith(buffer[-k:]):
@@ -43,7 +46,7 @@ def _trailing_partial_len(buffer: str) -> int:
     return max_hold
 
 
-def _drain_pending(pending: str) -> tuple[str, list[LLMEventType], str]:
+def _drain_pending(pending: str) -> tuple[str, list[LLMEventType], str, bool]:
     emit_parts: list[str] = []
     controls: list[LLMEventType] = []
 
@@ -54,8 +57,10 @@ def _drain_pending(pending: str) -> tuple[str, list[LLMEventType], str]:
         idx, tag = found
         if idx > 0:
             emit_parts.append(pending[:idx])
-        controls.append(_CONTROL_TAGS[tag])
         pending = pending[idx + len(tag):]
+        if tag == _SUGGEST_TAG:
+            return "".join(emit_parts), controls, pending, True
+        controls.append(_CONTROL_TAGS[tag])
 
     hold = _trailing_partial_len(pending)
     if hold:
@@ -64,7 +69,7 @@ def _drain_pending(pending: str) -> tuple[str, list[LLMEventType], str]:
     else:
         emit_parts.append(pending)
         pending = ""
-    return "".join(emit_parts), controls, pending
+    return "".join(emit_parts), controls, pending, False
 
 # 혐오, 증오, 성적 표현 막기
 _SAFETY_SETTINGS = [
@@ -142,6 +147,62 @@ class LLMClient:
         except Exception:
             logger.debug("LLM 워밍업 실패(무시)", exc_info=True)
 
+    async def praise_segments(self, utterances: list[str]) -> list[str]:
+        if not utterances:
+            return []
+
+        non_empty_indices = [i for i, u in enumerate(utterances) if u.strip()]
+        if not non_empty_indices:
+            return [""] * len(utterances)
+        non_empty = [utterances[i] for i in non_empty_indices]
+        numbered = "\n".join(f"{i + 1}. {u}" for i, u in enumerate(non_empty))
+        system_prompt = (
+            "너는 대화 훈련 코치야. 아래 번호가 매겨진 각 발화에 대해 "
+            "그 발화에서 잘한 점을 '~를 잘했어요' 또는 '~점이 좋았어요' 형태의 "
+            "짧은 칭찬 한 문장으로 써. 발화 '내용'에만 근거하고, "
+            "목소리 떨림·발음 같은 음성 정보는 언급하지 마. "
+            "어려운 한자어나 전문 용어 없이 초등학생도 이해할 수 있는 "
+            "쉬운 단어만 써. "
+            "반드시 입력과 같은 번호를 붙여 '1. 칭찬' 형식으로 한 줄에 하나씩, "
+            "발화 개수만큼만 출력해. 한국어 존댓말."
+        )
+        try:
+            resp = await self._client.aio.models.generate_content(
+                model=self._model,
+                contents=numbered,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_prompt,
+                    safety_settings=_SAFETY_SETTINGS,
+                    temperature=0.7,
+                    max_output_tokens=256,
+                    thinking_config=types.ThinkingConfig(thinking_budget=0),
+                ),
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.warning("잘한 점 칭찬 생성 실패", exc_info=True)
+            return [""] * len(utterances)
+
+        parsed = self._parse_numbered(resp.text or "", len(non_empty_indices))
+        result = [""] * len(utterances)
+        for orig_idx, praise in zip(non_empty_indices, parsed, strict=True):
+            result[orig_idx] = praise
+        return result
+
+    @staticmethod
+    def _parse_numbered(raw: str, n: int) -> list[str]:
+        """'1. 칭찬' 형식 응답을 파싱해 길이 n 리스트로 정렬(부족분은 빈 문자열)."""
+        items: list[str] = []
+        for line in raw.splitlines():
+            s = line.strip().lstrip("-*• ").strip()
+            s = re.sub(r"^\d+\s*[.)]\s*", "", s).strip().strip('"“”')
+            if s:
+                items.append(s)
+        items = items[:n]
+        items.extend([""] * (n - len(items)))
+        return items
+
     async def stream(self, ctx: TurnContext):
         """진입점임 async for로 LLMEvent를 yield"""
         system_prompt = build_system_prompt(ctx)
@@ -151,6 +212,9 @@ class LLMClient:
         head_buffer = ""
         emotion_resolved = False
         pending = ""
+        usage = None
+        suggest_mode = False
+        suggest_parts: list[str] = []
 
         try:
             stream = await self._client.aio.models.generate_content_stream(
@@ -159,6 +223,9 @@ class LLMClient:
                 config=config,
             )
             async for chunk in stream:
+                chunk_usage = getattr(chunk, "usage_metadata", None)
+                if chunk_usage is not None:
+                    usage = chunk_usage
                 if self._is_blocked(chunk):
                     logger.warning("LLM 응답 차단됨 (session role=%s)", ctx.scenario_role)
                     yield LLMEvent(type=LLMEventType.SAFETY_BLOCK)
@@ -188,26 +255,35 @@ class LLMClient:
                             type=LLMEventType.EMOTION_RESOLVED, emotion=emotion
                         )
                         pending = remainder
+                elif suggest_mode:
+                    suggest_parts.append(delta)
                 else:
                     pending += delta
 
-                if emotion_resolved:
-                    text, controls, pending = _drain_pending(pending)
+                if emotion_resolved and not suggest_mode:
+                    text, controls, pending, suggest_started = _drain_pending(pending)
                     if text:
                         yield LLMEvent(type=LLMEventType.TEXT_DELTA, text=text)
                     for control in controls:
                         yield LLMEvent(type=control)
+                    if suggest_started:
+                        suggest_mode = True
+                        suggest_parts.append(pending)
+                        pending = ""
 
             if not emotion_resolved:
                 yield LLMEvent(
                     type=LLMEventType.EMOTION_RESOLVED, emotion=AiEmotion.NEUTRAL
                 )
                 if head_buffer and not self._looks_like_partial_head(head_buffer):
-                    text, controls, _ = _drain_pending(head_buffer)
+                    text, controls, rest, suggest_started = _drain_pending(head_buffer)
                     if text:
                         yield LLMEvent(type=LLMEventType.TEXT_DELTA, text=text)
                     for control in controls:
                         yield LLMEvent(type=control)
+                    if suggest_started:
+                        suggest_mode = True
+                        suggest_parts.append(rest)
                 elif head_buffer:
                     logger.warning("미완성 emotion 태그로 응답 종료, 대사 없음: %r", head_buffer)
             elif pending:
@@ -216,7 +292,24 @@ class LLMClient:
                 else:
                     yield LLMEvent(type=LLMEventType.TEXT_DELTA, text=pending)
 
-            yield LLMEvent(type=LLMEventType.TURN_END)
+            if suggest_mode:
+                suggestion = "".join(suggest_parts)
+                for tag, control in _CONTROL_TAGS.items():
+                    if tag in suggestion:
+                        suggestion = suggestion.replace(tag, "")
+                        yield LLMEvent(type=control)
+                suggestion = suggestion.strip()
+                if suggestion:
+                    yield LLMEvent(type=LLMEventType.SUGGESTION, text=suggestion)
+
+            if usage is not None:
+                yield LLMEvent(
+                    type=LLMEventType.TURN_END,
+                    prompt_tokens=getattr(usage, "prompt_token_count", None),
+                    cached_tokens=getattr(usage, "cached_content_token_count", None) or 0,
+                )
+            else:
+                yield LLMEvent(type=LLMEventType.TURN_END)
 
         except asyncio.CancelledError:
             logger.debug("LLM 스트림 취소(barge-in 등)")

@@ -14,13 +14,16 @@ from app.core.enums import SessionType
 from app.core.metrics import log_metric, now_ms
 from app.schemas.frames import (
     EndReason,
+    TranscriptRole,
     emotion_frame,
     end_frame,
     error_frame,
     interrupt_frame,
+    script_hint_frame,
     speaking_end_frame,
+    transcript_frame,
 )
-from app.schemas.llm import AiEmotion, LLMEventType
+from app.schemas.llm import AiEmotion, LLMEventType, TurnContext
 from app.services.llm import LLMClient
 from app.services.recording_storage import RecordingStorageService
 from app.services.session import build_turn_context
@@ -42,6 +45,10 @@ _BARGE_IN_ENABLED = False
 _BARGE_IN_MIN_CHARS = 2
 _STT_RECYCLE_SECONDS = 240.0
 _SAFETY_FALLBACK = "죄송해요, 그 부분은 지금 답하기 어렵네요."
+# LLM/TTS 스톨 시 턴 영구 대기 방지. warm 턴 p95(~2.6s)의 10배 이상 여유.
+_TURN_WATCHDOG_SECONDS = 30.0
+# 칭찬 생성 실패 시 good_point 기본 문구
+_DEFAULT_GOOD_POINT = "잘 이야기했어요"
 
 
 def _clip(text: str, limit: int = 120) -> str:
@@ -132,6 +139,7 @@ class VoicePipeline:
         self._tremor_buf = bytearray()
 
         self._user_turn_intervals: list[tuple[float, float]] = []
+        self._user_turn_texts: list[str] = []
         self._turn_open_at: float | None = 0.0
 
         max_duration = session.get("maxDurationSeconds")
@@ -264,6 +272,7 @@ class VoicePipeline:
                 extra={"session_id": self._session_id},
             )
             if text and self._state == _State.LISTENING and not self._time_up:
+                await self._send_json(transcript_frame(TranscriptRole.USER, text))
                 self._start_turn(text, final_at=now_ms())
         elif event.type == STTEventType.SPEECH_BEGIN and (
                 self._listening_since is not None and
@@ -274,7 +283,7 @@ class VoicePipeline:
 
     def _start_turn(self, user_utterance: str, *, final_at: float) -> None:
         """LLM -> TTS"""
-        self._close_user_turn()
+        self._close_user_turn(user_utterance)
         self._state = _State.THINKING
         timings = _TurnTimings(final_at=final_at, last_audio_at=self._last_audio_at)
         self._turn_task = asyncio.create_task(self._run_turn(user_utterance, timings))
@@ -302,7 +311,9 @@ class VoicePipeline:
         emotion_ready = asyncio.Event()
         ai_parts: list[str] = []
         flags = {"step_done": False, "end_call": False, "error": False}
+        usage: dict[str, int | None] = {"prompt": None, "cached": None}
         box: dict[str, TTSSession | None] = {"tts": None}
+        suggestion_box: dict[str, str | None] = {"text": None}
 
         async def ensure_tts(emotion: AiEmotion) -> None:
             if box["tts"] is not None:
@@ -326,10 +337,15 @@ class VoicePipeline:
                         timings.last_token_at = now_ms()
                         ai_parts.append(ev.text)
                         await text_q.put(ev.text)
+                    elif ev.type == LLMEventType.TURN_END:
+                        usage["prompt"] = ev.prompt_tokens
+                        usage["cached"] = ev.cached_tokens
                     elif ev.type == LLMEventType.STEP_DONE:
                         flags["step_done"] = True
                     elif ev.type == LLMEventType.END_CALL:
                         flags["end_call"] = True
+                    elif ev.type == LLMEventType.SUGGESTION:
+                        suggestion_box["text"] = ev.text
                     elif ev.type == LLMEventType.SAFETY_BLOCK:
                         await ensure_tts(AiEmotion.NEUTRAL)
                         ai_parts.append(_SAFETY_FALLBACK)
@@ -367,17 +383,56 @@ class VoicePipeline:
                 timings.last_pcm_at = now_ms()
             await self._send_json(speaking_end_frame())
 
+        produce_task = asyncio.create_task(produce())
+        consume_task = asyncio.create_task(consume())
         try:
-            await asyncio.gather(produce(), consume())
+            await asyncio.wait_for(
+                asyncio.gather(produce_task, consume_task),
+                timeout=_TURN_WATCHDOG_SECONDS,
+            )
+        except TimeoutError:
+            flags["watchdog"] = True
+            logger.warning(
+                "AI 응답이 %.0f초 안에 안 와서 이번 턴은 건너뛰고 듣기 상태로 전환",
+                _TURN_WATCHDOG_SECONDS,
+                extra={"session_id": self._session_id},
+            )
+            await self._send_json(speaking_end_frame())
         except asyncio.CancelledError:
+            flags["cancelled"] = True
             raise
         except Exception:
             logger.exception("턴 실행 중 예외", extra={"session_id": self._session_id})
             flags["error"] = True
         finally:
+            for task in (produce_task, consume_task):
+                if not task.done():
+                    task.cancel()
+                    with suppress(asyncio.CancelledError, Exception):
+                        await task
             await self._cleanup_turn_tts(connect_task, box["tts"])
+            if flags.get("cancelled"):
+                await self._salvage_cancelled_turn(user_utterance, ai_parts)
 
-        await self._finalize_turn(user_utterance, ai_parts, flags, timings)
+        await self._finalize_turn(
+            user_utterance,
+            ai_parts,
+            flags,
+            timings,
+            usage,
+            ctx=ctx,
+            suggestion=suggestion_box["text"],
+        )
+
+    async def _salvage_cancelled_turn(
+        self, user_utterance: str, ai_parts: list[str]
+    ) -> None:
+        """취소된 턴(세션 종료/barge-in)도 나눈 대화는 히스토리에 남김"""
+        self._history.append({"role": "user", "text": user_utterance})
+        ai_text = "".join(ai_parts).strip()
+        if ai_text:
+            self._history.append({"role": "assistant", "text": ai_text})
+            await self._send_json(transcript_frame(TranscriptRole.AI, ai_text))
 
     async def _cleanup_turn_tts(
         self, connect_task: asyncio.Task, used: TTSSession | None
@@ -403,12 +458,19 @@ class VoicePipeline:
         ai_parts: list[str],
         flags: dict,
         timings: _TurnTimings,
+        usage: dict[str, int | None],
+        *,
+        ctx: TurnContext,
+        suggestion: str | None = None,
     ) -> None:
         log_metric(
             "voice_turn",
             session_id=self._session_id,
             step=self._current_step,
             error=flags["error"],
+            watchdog=flags.get("watchdog", False),
+            llm_prompt_tokens=usage["prompt"],
+            llm_cached_tokens=usage["cached"],
             **timings.as_metrics(),
         )
         ai_text = "".join(ai_parts).strip()
@@ -422,6 +484,7 @@ class VoicePipeline:
         self._history.append({"role": "user", "text": user_utterance})
         if ai_text:
             self._history.append({"role": "assistant", "text": ai_text})
+            await self._send_json(transcript_frame(TranscriptRole.AI, ai_text))
 
         if flags["error"]:
             await self._close(EndReason.ERROR)
@@ -436,10 +499,28 @@ class VoicePipeline:
                 await self._close(EndReason.SCENARIO_DONE)
                 return
 
+        if not flags.get("watchdog"):
+            await self._maybe_send_script_hint(ctx, suggestion)
+
         self._turn_task = None
         self._state = _State.LISTENING
         self._listening_since = time.monotonic()
         self._open_user_turn()
+
+    async def _maybe_send_script_hint(
+        self, ctx: TurnContext, suggestion: str | None
+    ) -> None:
+        if ctx.script_level not in (1, 2):
+            return
+        text = (suggestion or "").strip()
+        if not text:
+            text = next(
+                (t.hint.strip() for t in ctx.script if t.step == self._current_step),
+                "",
+            )
+        if not text:
+            return
+        await self._send_json(script_hint_frame(ctx.script_level, text))
 
     async def _barge_in(self) -> None:
         if self._turn_task and not self._turn_task.done():
@@ -546,6 +627,20 @@ class VoicePipeline:
             with suppress(Exception):
                 await self._ws.close()
 
+        # 종료 프레임 전송 후에 생성 → 사용자 체감 지연 없음. Spring 콜백에만 실린다.
+        if good_segments:
+            try:
+                utterances = [
+                    self._utterance_for(seg["start"], seg["end"]) for seg in good_segments
+                ]
+                praises = await self._llm.praise_segments(utterances)
+                for seg, praise in zip(good_segments, praises, strict=True):
+                    seg["good_point"] = praise or _DEFAULT_GOOD_POINT
+            except asyncio.CancelledError:
+                logger.warning("잘한 점 칭찬 생성 중 취소됨")
+            except Exception:
+                logger.warning("잘한 점 생성 중 오류 발생")
+
         await self._spring.notify_session_closed(
             self._session_id,
             reason=reason,
@@ -554,6 +649,7 @@ class VoicePipeline:
             shake_count=shake_count,
             good_segments=good_segments,
             recording_url=recording_url,
+            session_type=self._session.get("type"),
         )
 
     async def _send_json(self, payload: dict) -> None:
@@ -583,10 +679,22 @@ class VoicePipeline:
     def _open_user_turn(self) -> None:
         self._turn_open_at = self._buf_sec()
 
-    def _close_user_turn(self) -> None:
+    def _close_user_turn(self, text: str = "") -> None:
         if self._turn_open_at is not None:
             self._user_turn_intervals.append((self._turn_open_at, self._buf_sec()))
+            self._user_turn_texts.append(text)
             self._turn_open_at = None
+
+    def _utterance_for(self, start: float, end: float) -> str:
+        """[start, end] 구간과 가장 많이 겹치는 사용자 발화 텍스트를 찾는다."""
+        best_text, best_overlap = "", 0.0
+        for (s, e), text in zip(
+            self._user_turn_intervals, self._user_turn_texts, strict=True
+        ):
+            overlap = min(end, e) - max(start, s)
+            if overlap > best_overlap:
+                best_overlap, best_text = overlap, text
+        return best_text
 
     @staticmethod
     def _intersect(a, b):
