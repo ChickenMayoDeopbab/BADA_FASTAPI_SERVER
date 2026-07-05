@@ -20,9 +20,14 @@ AsyncSessionLocal = async_sessionmaker(
 class Base(DeclarativeBase):
     pass
 
+
 async def init_db() -> None:
     """FastAPI 소유 테이블 공유 DB에 생성"""
     from app.db import models  # noqa: F401  (ScenarioORM/FeedbackORM 을 metadata 에 등록)
+    from app.db.seed import seed_preset_scenarios
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+    async with AsyncSessionLocal() as session:
+        await seed_preset_scenarios(session)

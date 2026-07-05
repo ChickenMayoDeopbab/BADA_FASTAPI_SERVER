@@ -37,35 +37,33 @@ async def get_scenarios(
             result_list = [s for s in result_list if s["category"] == category]
         return ScenarioListResponse(scenarios=[scenario_to_info(s) for s in result_list])
 
-    infos = []
+    preset_rows: list[tuple[ScenarioORM, dict]] = []
+    custom_rows: list[ScenarioORM] = []
     for row in rows:
         if row.is_custom:
             if row.is_warmup:
                 continue
             if row.user_id != user_id:
                 continue
-            if category and category != ScenarioCategory.CUSTOM:
+            if category not in (None, ScenarioCategory.CUSTOM):
                 continue
-            infos.append(ScenarioInfo(
-                scenario_id=row.scenario_id,
-                title=row.title,
-                content=row.content,
-                category=ScenarioCategory.CUSTOM,
-                difficulties=ALL_DIFFICULTIES,
-                personalities=ALL_PERSONALITIES,
-                scenario_image=row.scenario_image,
-                tts_voice_id=row.tts_voice_id,
-                ai_prompt=row.ai_prompt,
-                is_custom=row.is_custom,
-            ))
+            custom_rows.append(row)
             continue
 
+        if category == ScenarioCategory.CUSTOM:
+            continue
         seed = PRESET_MAP.get(row.scenario_id)
         if seed is None:
             continue
         if category and seed["category"] != category:
             continue
-        infos.append(ScenarioInfo(
+        preset_rows.append((row, seed))
+
+    preset_rows.sort(key=lambda item: item[0].scenario_id)
+    custom_rows.sort(key=lambda row: (getattr(row, "created_at", datetime.min), row.scenario_id))
+
+    infos = [
+        ScenarioInfo(
             scenario_id=row.scenario_id,
             title=row.title,
             content=row.content,
@@ -76,7 +74,24 @@ async def get_scenarios(
             tts_voice_id=row.tts_voice_id,
             ai_prompt=row.ai_prompt,
             is_custom=row.is_custom,
-        ))
+        )
+        for row, seed in preset_rows
+    ]
+    infos.extend(
+        ScenarioInfo(
+            scenario_id=row.scenario_id,
+            title=row.title,
+            content=row.content,
+            category=ScenarioCategory.CUSTOM,
+            difficulties=ALL_DIFFICULTIES,
+            personalities=ALL_PERSONALITIES,
+            scenario_image=row.scenario_image,
+            tts_voice_id=row.tts_voice_id,
+            ai_prompt=row.ai_prompt,
+            is_custom=row.is_custom,
+        )
+        for row in custom_rows
+    )
     return ScenarioListResponse(scenarios=infos)
 
 
