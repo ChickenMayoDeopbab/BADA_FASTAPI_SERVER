@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import weakref
 from collections.abc import AsyncIterator
 
 from anthropic import AsyncAnthropic
@@ -23,8 +24,10 @@ logger = logging.getLogger(__name__)
 _SAMPLE_RATE = 16_000
 _TURN_GAP_MS = 400
 _TURN_GAP_PCM = b"\x00" * (_SAMPLE_RATE * _TURN_GAP_MS // 1000 * 2)
+_TTS_MAX_CONCURRENCY = 3  # ElevenLabs 플랜별 동시 연결 한도 보호
 
-_generation_locks: dict[int, asyncio.Lock] = {}
+# 사용 중인 요청(지역변수)만 락을 강참조 → 요청이 끝나면 GC가 엔트리를 자동 제거
+_generation_locks: weakref.WeakValueDictionary[int, asyncio.Lock] = weakref.WeakValueDictionary()
 
 
 class ScenarioNotFoundError(Exception):
@@ -114,10 +117,14 @@ async def _synthesize(
     ai_voice: str,
     user_voice: str,
 ) -> bytes:
-    parts: list[bytes] = []
-    for turn in dialogue:
+    semaphore = asyncio.Semaphore(_TTS_MAX_CONCURRENCY)
+
+    async def _synth_limited(turn: dict) -> bytes:
         voice = ai_voice if turn["speaker"] == "ai" else user_voice
-        parts.append(await _synth_turn(tts_client, voice, turn["text"]))
+        async with semaphore:
+            return await _synth_turn(tts_client, voice, turn["text"])
+
+    parts = await asyncio.gather(*(_synth_limited(turn) for turn in dialogue))
     return _TURN_GAP_PCM.join(parts)
 
 
