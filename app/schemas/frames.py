@@ -11,6 +11,7 @@ class FrameType(StrEnum):
     ERROR = "error"                   # 복구 불가 에러
     TRANSCRIPT = "transcript"         # 대화 스크립트 한 줄(나 혹은 상대)
     SCRIPT_HINT = "script_hint"       # 사용자 다음 발화 힌트, 1은 추천 문장, 2는 조언
+    SCENARIO_INFO = "scenario_info"   # AI 역할
 
 
 class TranscriptRole(StrEnum):
@@ -57,3 +58,7 @@ def transcript_frame(role: TranscriptRole, text: str) -> dict:
 
 def script_hint_frame(level: int, text: str) -> dict:
     return {"type": FrameType.SCRIPT_HINT.value, "level": level, "text": text}
+
+
+def scenario_info_frame(ai_role: str) -> dict:
+    return {"type": FrameType.SCENARIO_INFO.value, "aiRole": ai_role}
