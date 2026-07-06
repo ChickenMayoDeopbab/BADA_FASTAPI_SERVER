@@ -3,6 +3,7 @@ from app.services.llm import (
     LLMClient,
     _drain_pending,
     _find_first_tag,
+    _sanitize_speech,
     _strip_step_echo,
     _trailing_partial_len,
 )
@@ -97,6 +98,33 @@ def test_drain_pending_keeps_normal_parentheses() -> None:
     emit, _, pending, _ = _drain_pending("3시 30분에 2명 (창가 자리) 맞으시죠?")
     assert emit == "3시 30분에 2명 (창가 자리) 맞으시죠?"
     assert pending == ""
+
+def test_drain_pending_strips_stage_direction_sigh() -> None:
+    emit, controls, pending, suggest = _drain_pending("하... (길게 한숨) 그러니까 뭐가 문제야.")
+    assert emit == "하... 그러니까 뭐가 문제야."
+    assert controls == []
+    assert pending == ""
+    assert suggest is False
+
+def test_drain_pending_strips_stage_direction_variants() -> None:
+    assert _drain_pending("알았어. (한숨)")[0].rstrip() == "알았어."
+    assert _drain_pending("(웃으며) 어서오세요.")[0].strip() == "어서오세요."
+    assert _drain_pending("그래. (잠시 침묵) 알았어.")[0] == "그래. 알았어."
+    assert _drain_pending("뭐? (어이없다는 목소리로) 다시 말해봐.")[0] == "뭐? 다시 말해봐."
+
+def test_drain_pending_holds_and_strips_split_stage_direction() -> None:
+    emit1, controls1, pending1, _ = _drain_pending("하... (길게 한")
+    assert emit1 == "하... "
+    assert controls1 == []
+    assert pending1 == "(길게 한"
+    emit2, _, pending2, _ = _drain_pending(pending1 + "숨) 그러니까.")
+    assert emit2.strip() == "그러니까."
+    assert pending2 == ""
+
+def test_sanitize_speech_removes_stage_direction_and_step_echo() -> None:
+    assert _sanitize_speech("네. (한숨) (지금 단계: 2)") == "네."
+    assert _sanitize_speech("알겠습니다. (창가 자리) 예약할게요.") == "알겠습니다. (창가 자리) 예약할게요."
+
 
 def test_strip_step_echo_spacing_variants() -> None:
     assert _strip_step_echo("네.(지금단계:2)") == "네."
