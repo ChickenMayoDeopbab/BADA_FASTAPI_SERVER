@@ -49,12 +49,23 @@ class _SentenceBuffer:
         return emit + " " if emit else None
 
     def _last_boundary(self) -> int | None:
-        idx = max(self._buf.rfind(ch) for ch in _SENTENCE_BOUNDARIES)
-        if idx < 0:
-            return None
-        while idx + 1 < len(self._buf) and self._buf[idx + 1] in _CLOSING_AFTER_BOUNDARY:
-            idx += 1
-        return idx
+        for i in range(len(self._buf) - 1, -1, -1):
+            if self._buf[i] not in _SENTENCE_BOUNDARIES:
+                continue
+            if not self._is_sentence_end(i):
+                continue
+            idx = i
+            while idx + 1 < len(self._buf) and self._buf[idx + 1] in _CLOSING_AFTER_BOUNDARY:
+                idx += 1
+            return idx
+        return None
+
+    def _is_sentence_end(self, idx: int) -> bool:
+        if self._buf[idx] != "." or idx == 0 or not self._buf[idx - 1].isdigit():
+            return True
+        if idx + 1 == len(self._buf):
+            return False
+        return not self._buf[idx + 1].isdigit()
 
     def _cut(self, n: int) -> str | None:
         emit = self._buf[:n].rstrip()
