@@ -44,6 +44,7 @@ async def get_scenario_context(
                 )
                 for turn in preset["script"]
             ],
+            tts_voice_id=preset["tts_voice_id"],
         )
 
     if row is None:
@@ -72,4 +73,5 @@ def _custom_context(row: ScenarioORM) -> ScenarioContextResponse:
         ai_role=row.call_target,
         ai_prompt=getattr(row, "ai_prompt", ""),
         script=script,
+        tts_voice_id=getattr(row, "tts_voice_id", None),
     )

@@ -151,6 +151,11 @@ class VoicePipeline:
         script = scenario.get("script") if isinstance(scenario, dict) else None
         self._script_len = len(script) if isinstance(script, list) else 0
 
+        raw_voice = scenario.get("ttsVoiceId") if isinstance(scenario, dict) else None
+        self._voice_id_override = (
+            raw_voice if isinstance(raw_voice, str) and raw_voice.strip() else None
+        )
+
     async def run(self) -> None:
         """진입점"""
         warmup_task = asyncio.create_task(self._llm.warmup())
@@ -306,7 +311,7 @@ class VoicePipeline:
             extra={"session_id": self._session_id},
         )
 
-        connect_task = asyncio.create_task(self._tts.open())
+        connect_task = asyncio.create_task(self._open_tts())
         text_q: asyncio.Queue[str | None] = asyncio.Queue()
         emotion_ready = asyncio.Event()
         ai_parts: list[str] = []
@@ -433,6 +438,20 @@ class VoicePipeline:
         if ai_text:
             self._history.append({"role": "assistant", "text": ai_text})
             await self._send_json(transcript_frame(TranscriptRole.AI, ai_text))
+
+    async def _open_tts(self) -> TTSSession:
+        """시나리오 보이스로 연결함 실패 시 기본 보이스로"""
+        voice_id_override = getattr(self, "_voice_id_override", None)
+        if voice_id_override is None:
+            return await self._tts.open()
+        try:
+            return await self._tts.open(voice_id_override)
+        except Exception:
+            logger.warning(
+                "시나리오 보이스 연결 실패, 기본 보이스 폴백: %s",
+                voice_id_override,
+            )
+            return await self._tts.open()
 
     async def _cleanup_turn_tts(
         self, connect_task: asyncio.Task, used: TTSSession | None
