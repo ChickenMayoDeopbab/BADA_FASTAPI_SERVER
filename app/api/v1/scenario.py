@@ -1,6 +1,7 @@
 from anthropic import APIError
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
+from websockets.exceptions import WebSocketException
 
 from app.core.enums import ScenarioCategory
 from app.deps.auth import get_current_user_id
@@ -8,7 +9,14 @@ from app.deps.db import get_db
 from app.schemas.scenario import (
     CustomScenarioResponse,
     CustomSessionRequest,
+    ExampleConversationResponse,
     ScenarioListResponse,
+)
+from app.services.example_service import (
+    ScenarioNotFoundError,
+)
+from app.services.example_service import (
+    get_example_conversation as svc_get_example_conversation,
 )
 from app.services.scenario_service import (
     create_custom_scenario as svc_create_custom_scenario,
@@ -31,6 +39,44 @@ async def list_scenarios(
     user_id: int = Depends(get_current_user_id),
 ) -> ScenarioListResponse:
     return await svc_get_scenarios(db, category, user_id)
+
+@router.get(
+    "/{scenario_id}/example",
+    response_model=ExampleConversationResponse,
+    summary="시나리오 예시 대화 들어보기",
+    description=(
+        "시나리오별 모범 예시 대화(대본 및 두 화자 TTS 오디오 URL)를 반환합니다. "
+        "오디오는 최초 요청 시 생성돼 캐시되며, 커스텀 시나리오는 본인 것만 조회할 수 있습니다."
+    ),
+)
+async def get_example_conversation(
+        scenario_id: int,
+        db: AsyncSession = Depends(get_db),
+        user_id: int = Depends(get_current_user_id),
+) -> ExampleConversationResponse:
+    try:
+        return await svc_get_example_conversation(db, scenario_id, user_id)
+    except ScenarioNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="시나리오를 찾을 수 없습니다.",
+        ) from e
+    except APIError as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"AI 예시 대화 생성 실패: {e.message}",
+        ) from e
+    except WebSocketException as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"TTS 오디오 생성 실패: {e}",
+        ) from e
+    except (ValueError, KeyError) as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"응답 파싱 오류: {str(e)}",
+        ) from e
+
 
 @router.post(
     "/custom",
