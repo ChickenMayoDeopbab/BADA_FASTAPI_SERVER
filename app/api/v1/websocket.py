@@ -7,7 +7,7 @@ from redis.asyncio import Redis
 from app.core.config import get_settings
 from app.core.security import authenticate_ws
 from app.deps.redis import get_redis
-from app.schemas.frames import error_frame
+from app.schemas.frames import error_frame, scenario_info_frame
 from app.services.pipeline import VoicePipeline
 from app.services.session import authenticate_session
 from app.services.spring_client import SpringInternalClient
@@ -60,6 +60,14 @@ async def voice_stream(
             await ws.send_json(error_frame("PIPELINE_INIT_FAILED"))
         with suppress(Exception):
             await ws.close(code=status.WS_1011_INTERNAL_ERROR)
+        return
+
+    scenario = session.get("scenario") or {}
+    if not isinstance(scenario, dict):
+        scenario = {}
+    try:
+        await ws.send_json(scenario_info_frame(str(scenario.get("aiRole", ""))))
+    except (WebSocketDisconnect, RuntimeError):
         return
 
     try:

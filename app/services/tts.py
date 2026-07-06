@@ -22,6 +22,56 @@ _EMOTION_VOICE_OVERRIDES: dict[AiEmotion, dict] = {
     AiEmotion.APOLOGETIC: {"stability": 0.60, "style": 0.10, "speed": 0.96},
 }
 
+_SENTENCE_BOUNDARIES = ".?!…\n"
+_CLOSING_AFTER_BOUNDARY = "\"'」』)"
+
+
+class _SentenceBuffer:
+    """LLM이 준거 문장 단위로 짜름"""
+
+    def __init__(self, max_chars: int = 80) -> None:
+        self._max_chars = max_chars
+        self._buf = ""
+
+    def feed(self, chunk: str) -> str | None:
+        self._buf += chunk
+        boundary = self._last_boundary()
+        if boundary is not None:
+            return self._cut(boundary + 1)
+        if len(self._buf) > self._max_chars:
+            ws = self._buf.rfind(" ")
+            return self._cut(ws if ws > 0 else len(self._buf))
+        return None
+
+    def flush(self) -> str | None:
+        emit = self._buf.strip()
+        self._buf = ""
+        return emit + " " if emit else None
+
+    def _last_boundary(self) -> int | None:
+        for i in range(len(self._buf) - 1, -1, -1):
+            if self._buf[i] not in _SENTENCE_BOUNDARIES:
+                continue
+            if not self._is_sentence_end(i):
+                continue
+            idx = i
+            while idx + 1 < len(self._buf) and self._buf[idx + 1] in _CLOSING_AFTER_BOUNDARY:
+                idx += 1
+            return idx
+        return None
+
+    def _is_sentence_end(self, idx: int) -> bool:
+        if self._buf[idx] != "." or idx == 0 or not self._buf[idx - 1].isdigit():
+            return True
+        if idx + 1 == len(self._buf):
+            return False
+        return not self._buf[idx + 1].isdigit()
+
+    def _cut(self, n: int) -> str | None:
+        emit = self._buf[:n].rstrip()
+        self._buf = self._buf[n:].lstrip()
+        return emit + " " if emit else None
+
 
 class TTSSession:
     """턴 1번마다 ElevenLabs ws 연결"""
@@ -46,11 +96,16 @@ class TTSSession:
         self._inited = True
 
     async def _send_text(self, text_source: AsyncIterator[str]) -> None:
+        buf = _SentenceBuffer()
         async for chunk in text_source:
             if not chunk:
                 continue
-            payload = chunk if chunk.endswith(" ") else chunk + " "
-            await self._ws.send(json.dumps({"text": payload}))
+            payload = buf.feed(chunk)
+            if payload:
+                await self._ws.send(json.dumps({"text": payload}))
+        rest = buf.flush()
+        if rest:
+            await self._ws.send(json.dumps({"text": rest}))
         await self._ws.send(json.dumps({"text": ""}))
 
     async def stream(self, text_source: AsyncIterator[str]) -> AsyncIterator[bytes]:

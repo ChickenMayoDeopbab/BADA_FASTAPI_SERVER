@@ -24,14 +24,25 @@ _ALL_TAGS = (*_CONTROL_TAGS, _SUGGEST_TAG)
 
 # 사용자 발화 꼬리표 '(지금 단계: N)'를 모델이 따라 말하면 TTS 전에 제거
 _STEP_ECHO_PATTERN = re.compile(r"\s*\(\s*지금\s*단계\s*:?\s*\d+\s*\)")
-# 청크 경계에 걸쳐 쓰다 만 형태(예: '...(지금 단'). 완성될 때까지 방출 보류
-_STEP_ECHO_PARTIAL = re.compile(
-    r"\(\s*(?:지|지금|지금\s*단|지금\s*단계(?:\s*:?\s*\d*)?)?\s*$"
+# 지시문 없애기
+# 발화성 괄호(예: (창가 자리))는 유지해야 하므로 지문 어휘 기반으로 선별한다.
+_STAGE_DIRECTION_PATTERN = re.compile(
+    r"\s*\([^()]*(?:한숨|웃음|웃으|피식|킥킥|침묵|콧방귀|헛기침|하품|흐느|훌쩍|울먹|"
+    r"중얼|속삭|잠시|한참|멈칫|멈추|목소리|말투|어이없|짜증|빈정|비웃|숨을|숨소리|"
+    r"혀를 차|딴청|톤)[^()]*\)"
+    r"|\s*\([^()]{0,20}[며듯]\)"
 )
+# 청크 경계에 걸쳐 쓰다 만 괄호(스텝 에코·지문 공통, 예: '...(길게 한'). 닫힐 때까지 방출 보류
+_OPEN_PAREN_TAIL = re.compile(r"\([^()]*$")
 
 
 def _strip_step_echo(text: str) -> str:
     return _STEP_ECHO_PATTERN.sub("", text)
+
+
+def _sanitize_speech(text: str) -> str:
+    """TTS로 새면 안 되는 비발화 텍스트(스텝 에코·지문성 괄호) 제거"""
+    return _STAGE_DIRECTION_PATTERN.sub("", _strip_step_echo(text))
 
 
 def _find_first_tag(buffer: str) -> tuple[int, str] | None:
@@ -70,11 +81,11 @@ def _drain_pending(pending: str) -> tuple[str, list[LLMEventType], str, bool]:
             emit_parts.append(pending[:idx])
         pending = pending[idx + len(tag):]
         if tag == _SUGGEST_TAG:
-            return _strip_step_echo("".join(emit_parts)), controls, pending, True
+            return _sanitize_speech("".join(emit_parts)), controls, pending, True
         controls.append(_CONTROL_TAGS[tag])
 
     hold = _trailing_partial_len(pending)
-    partial = _STEP_ECHO_PARTIAL.search(pending)
+    partial = _OPEN_PAREN_TAIL.search(pending)
     if partial is not None:
         hold = max(hold, len(pending) - partial.start())
     if hold:
@@ -83,7 +94,7 @@ def _drain_pending(pending: str) -> tuple[str, list[LLMEventType], str, bool]:
     else:
         emit_parts.append(pending)
         pending = ""
-    return _strip_step_echo("".join(emit_parts)), controls, pending, False
+    return _sanitize_speech("".join(emit_parts)), controls, pending, False
 
 # 혐오, 증오, 성적 표현 막기
 _SAFETY_SETTINGS = [
@@ -304,8 +315,7 @@ class LLMClient:
                 if _trailing_partial_len(pending) == len(pending):
                     logger.debug("미완성 제어 태그로 종료, 누락: %r", pending)
                 else:
-                    # 스트림이 끝났으니 쓰다 만 에코 꼬리도 완성될 가망 없음 → 함께 제거
-                    text = _STEP_ECHO_PARTIAL.sub("", _strip_step_echo(pending))
+                    text = _OPEN_PAREN_TAIL.sub("", _sanitize_speech(pending))
                     if text:
                         yield LLMEvent(type=LLMEventType.TEXT_DELTA, text=text)
 
