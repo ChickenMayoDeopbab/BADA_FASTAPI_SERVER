@@ -22,6 +22,17 @@ _CONTROL_TAGS: dict[str, LLMEventType] = {
 _SUGGEST_TAG = "[SUGGEST]"
 _ALL_TAGS = (*_CONTROL_TAGS, _SUGGEST_TAG)
 
+# 사용자 발화 꼬리표 '(지금 단계: N)'를 모델이 따라 말하면 TTS 전에 제거
+_STEP_ECHO_PATTERN = re.compile(r"\s*\(\s*지금\s*단계\s*:?\s*\d+\s*\)")
+# 청크 경계에 걸쳐 쓰다 만 형태(예: '...(지금 단'). 완성될 때까지 방출 보류
+_STEP_ECHO_PARTIAL = re.compile(
+    r"\(\s*(?:지|지금|지금\s*단|지금\s*단계(?:\s*:?\s*\d*)?)?\s*$"
+)
+
+
+def _strip_step_echo(text: str) -> str:
+    return _STEP_ECHO_PATTERN.sub("", text)
+
 
 def _find_first_tag(buffer: str) -> tuple[int, str] | None:
     best_idx: int | None = None
@@ -59,17 +70,20 @@ def _drain_pending(pending: str) -> tuple[str, list[LLMEventType], str, bool]:
             emit_parts.append(pending[:idx])
         pending = pending[idx + len(tag):]
         if tag == _SUGGEST_TAG:
-            return "".join(emit_parts), controls, pending, True
+            return _strip_step_echo("".join(emit_parts)), controls, pending, True
         controls.append(_CONTROL_TAGS[tag])
 
     hold = _trailing_partial_len(pending)
+    partial = _STEP_ECHO_PARTIAL.search(pending)
+    if partial is not None:
+        hold = max(hold, len(pending) - partial.start())
     if hold:
         emit_parts.append(pending[:-hold])
         pending = pending[-hold:]
     else:
         emit_parts.append(pending)
         pending = ""
-    return "".join(emit_parts), controls, pending, False
+    return _strip_step_echo("".join(emit_parts)), controls, pending, False
 
 # 혐오, 증오, 성적 표현 막기
 _SAFETY_SETTINGS = [
@@ -290,7 +304,10 @@ class LLMClient:
                 if _trailing_partial_len(pending) == len(pending):
                     logger.debug("미완성 제어 태그로 종료, 누락: %r", pending)
                 else:
-                    yield LLMEvent(type=LLMEventType.TEXT_DELTA, text=pending)
+                    # 스트림이 끝났으니 쓰다 만 에코 꼬리도 완성될 가망 없음 → 함께 제거
+                    text = _STEP_ECHO_PARTIAL.sub("", _strip_step_echo(pending))
+                    if text:
+                        yield LLMEvent(type=LLMEventType.TEXT_DELTA, text=text)
 
             if suggest_mode:
                 suggestion = "".join(suggest_parts)
