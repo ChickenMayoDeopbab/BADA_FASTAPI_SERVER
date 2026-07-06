@@ -100,9 +100,10 @@ class ElevenLabsTTSClient:
             "speed": settings.elevenlabs_speed,
         }
 
-    def _build_uri(self) -> str:
+    def _build_uri(self, voice_id: str | None = None) -> str:
+        vid = voice_id or self._voice_id
         return (
-            f"{self._ws_host}/v1/text-to-speech/{self._voice_id}/stream-input"
+            f"{self._ws_host}/v1/text-to-speech/{vid}/stream-input"
             f"?model_id={self._model}"
             f"&output_format={self._output_format}"
             f"&language_code={self._language}"
@@ -110,11 +111,11 @@ class ElevenLabsTTSClient:
             f"&apply_text_normalization={self._text_normalization}"
         )
 
-    async def open(self) -> TTSSession:
+    async def open(self, voice_id: str | None = None) -> TTSSession:
         """ws 연결"""
         try:
             ws = await websockets.connect(
-                self._build_uri(),
+                self._build_uri(voice_id),
                 additional_headers={"xi-api-key": self._api_key},
             )
         except WebSocketException:

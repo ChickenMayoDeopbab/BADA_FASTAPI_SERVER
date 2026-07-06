@@ -12,6 +12,7 @@ from app.core.config import get_settings
 from app.core.enums import ALL_DIFFICULTIES, ALL_PERSONALITIES, ScenarioCategory
 from app.core.preset_scenarios import PRESET_MAP, PRESET_SCENARIOS, scenario_to_info
 from app.core.prompt_matrix import PERSONALITY_BASE
+from app.core.tts_voices import parse_speaker, pick_voice_id
 from app.db.models import ScenarioORM
 from app.schemas.scenario import (
     CustomScenarioResponse,
@@ -108,10 +109,14 @@ excluding personality or difficulty instructions)",
   "script": [
     {"step": 1, "ai_goal": "이 단계에서 상대역(AI)이 달성할 목표 (Korean)", \
 "hint": "사용자가 무엇을 말해야 하는지 힌트 (Korean)"}
-  ]
+  ],
+  "speaker": {"gender": "male|female", "age": "young|middle|old", "tone": "soft|neutral|rough"}
 }
 Create 3 to 5 steps ordered from the call opening to the closing, matching the call purpose.
 Higher difficulty means the AI gives less guidance and demands more from the user.
+"speaker" is the voice profile of the AI character answering the phone: gender/age inferred
+from the call target (e.g. hospital desk staff -> female/middle), tone from the role,
+personality and difficulty combined (e.g. rude complaint handler -> rough).
 """
 
 
@@ -167,6 +172,9 @@ async def create_custom_scenario(
             raw = raw[4:]
     data: dict = json.loads(raw.strip())
 
+    gender, age, tone = parse_speaker(data.get("speaker"))
+    voice_id = pick_voice_id(gender, age, tone)
+
     script = _normalize_script(data.get("script"))
     now = datetime.now(UTC).replace(tzinfo=None)
 
@@ -174,7 +182,7 @@ async def create_custom_scenario(
         title=request.title,
         content=data["content"],
         scenario_image=None,
-        tts_voice_id=None,
+        tts_voice_id=voice_id,
         ai_prompt=data["ai_prompt"],
         call_target=request.call_target,
         call_purpose=request.call_purpose,
@@ -194,7 +202,7 @@ async def create_custom_scenario(
             title=request.title,
             content=data["content"],
             ai_prompt=data["ai_prompt"],
-            tts_voice_id=None,
+            tts_voice_id=voice_id,
             script=[ScriptTurnContext(**turn) for turn in script],
         ),
         created_at=now,

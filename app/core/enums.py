@@ -34,3 +34,17 @@ ALL_PERSONALITIES: list[AiPersonality] = [
     AiPersonality.TOUGH,
     AiPersonality.RUDE,
 ]
+
+class SpeakerGender(StrEnum):
+    MALE = "male"
+    FEMALE = "female"
+
+class SpeakerAge(StrEnum):
+    YOUNG = "young"
+    MIDDLE = "middle"
+    OLD = "old"
+
+class SpeakerTone(StrEnum):
+    SOFT = "soft"
+    NEUTRAL = "neutral"
+    ROUGH = "rough"

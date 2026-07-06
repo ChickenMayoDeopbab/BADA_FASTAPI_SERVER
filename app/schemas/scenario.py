@@ -37,6 +37,7 @@ class ScenarioContextResponse(BaseModel):
     ai_role: str = Field(serialization_alias="aiRole")
     ai_prompt: str = Field(serialization_alias="aiPrompt")
     script: list[ScriptTurnContext]
+    tts_voice_id: str | None = Field(default=None, serialization_alias="ttsVoiceId")
     model_config = ConfigDict(populate_by_name=True)
 
 class CustomSessionRequest(BaseModel):
