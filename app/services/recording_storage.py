@@ -28,7 +28,7 @@ class RecordingStorageService:
                 self._client = boto3.client("s3", region_name=settings.aws_region)
 
     def upload_pcm(self, session_id: str, pcm: bytes) -> str | None:
-        return self.upload_wav(f"recordings/{session_id}.wav", pcm)
+        return self.upload_wav(f"recordings/{session_id}/{uuid.uuid4()}.wav", pcm)
 
     def upload_wav(self, key: str, pcm: bytes) -> str | None:
         if not self._bucket or not pcm:
@@ -37,7 +37,6 @@ class RecordingStorageService:
         if self._client is None:
             return None
 
-        key = f"recordings/{session_id}/{uuid.uuid4()}.wav"
         wav_bytes = self._to_wav(pcm)
         self._client.put_object(
             Bucket=self._bucket,
