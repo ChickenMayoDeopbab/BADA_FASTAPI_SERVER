@@ -1,3 +1,4 @@
+import asyncio
 import json
 from types import SimpleNamespace
 
@@ -273,3 +274,113 @@ async def test_unknown_scenario_not_found(monkeypatch) -> None:
 
     with pytest.raises(ScenarioNotFoundError):
         await get_example_conversation(_FakeDB(None), 555, user_id=7)
+
+
+# --- 리소스: 락 정리 / TTS 병렬화 ---
+
+
+async def test_generation_lock_not_retained_after_request(monkeypatch) -> None:
+    """요청이 끝나면 scenario_id별 락이 딕셔너리에 남지 않는다(메모리 누수 방지)."""
+    _wire(monkeypatch)
+
+    await get_example_conversation(_FakeDB(_preset_row()), 1, user_id=7)
+
+    assert 1 not in example_service._generation_locks
+
+
+class _TrackingSession:
+    def __init__(self, client: "_ConcurrencyTrackingTTSClient") -> None:
+        self._client = client
+
+    async def begin(self, emotion=None) -> None:
+        pass
+
+    async def stream(self, text_source):
+        async for _ in text_source:
+            pass
+        self._client.active += 1
+        self._client.peak = max(self._client.peak, self._client.active)
+        await asyncio.sleep(0.01)
+        self._client.active -= 1
+        yield b"\x00\x00"
+
+    async def aclose(self) -> None:
+        pass
+
+
+class _ConcurrencyTrackingTTSClient:
+    def __init__(self) -> None:
+        self.active = 0
+        self.peak = 0
+
+    async def open(self, voice_id: str | None = None) -> _TrackingSession:
+        return _TrackingSession(self)
+
+
+def _long_dialogue(n: int = 6) -> list[dict]:
+    return [
+        {"speaker": "ai" if i % 2 == 0 else "user", "text": f"{i}번째 대사입니다."}
+        for i in range(n)
+    ]
+
+
+async def test_turns_synthesized_concurrently_but_bounded(monkeypatch) -> None:
+    """턴 합성은 병렬로 하되, ElevenLabs 동시 연결 한도 때문에 3개로 제한한다."""
+    tts = _ConcurrencyTrackingTTSClient()
+    storage = _FakeStorage()
+    monkeypatch.setattr(example_service, "get_settings", lambda: _settings())
+    monkeypatch.setattr(example_service, "ElevenLabsTTSClient", lambda _s: tts)
+    monkeypatch.setattr(example_service, "RecordingStorageService", lambda _s: storage)
+    monkeypatch.setattr(example_service, "PRESET_MAP", {1: {"example_dialogue": _long_dialogue(6)}})
+
+    await get_example_conversation(_FakeDB(_preset_row()), 1, user_id=7)
+
+    assert tts.peak >= 2, "턴 합성이 병렬로 실행되지 않음"
+    assert tts.peak <= 3, "동시 TTS 연결이 한도(3)를 초과함"
+
+
+class _EchoSession:
+    def __init__(self, delay: float) -> None:
+        self._delay = delay
+
+    async def begin(self, emotion=None) -> None:
+        pass
+
+    async def stream(self, text_source):
+        text = ""
+        async for chunk in text_source:
+            text += chunk
+        await asyncio.sleep(self._delay)
+        yield text.encode()
+
+    async def aclose(self) -> None:
+        pass
+
+
+class _EchoTTSClient:
+    """앞 턴일수록 느리게 완성돼, 완료 순서로 이어붙이면 순서가 뒤집힌다."""
+
+    def __init__(self, total_turns: int) -> None:
+        self._remaining = total_turns
+
+    async def open(self, voice_id: str | None = None) -> _EchoSession:
+        delay = self._remaining * 0.005
+        self._remaining -= 1
+        return _EchoSession(delay)
+
+
+async def test_parallel_synthesis_preserves_turn_order(monkeypatch) -> None:
+    dialogue = _long_dialogue(4)
+    tts = _EchoTTSClient(total_turns=4)
+    storage = _FakeStorage()
+    monkeypatch.setattr(example_service, "get_settings", lambda: _settings())
+    monkeypatch.setattr(example_service, "ElevenLabsTTSClient", lambda _s: tts)
+    monkeypatch.setattr(example_service, "RecordingStorageService", lambda _s: storage)
+    monkeypatch.setattr(example_service, "PRESET_MAP", {1: {"example_dialogue": dialogue}})
+
+    await get_example_conversation(_FakeDB(_preset_row()), 1, user_id=7)
+
+    _key, pcm = storage.uploads[0]
+    gap = b"\x00" * (int(16_000 * 0.4) * 2)
+    expected = gap.join(turn["text"].encode() for turn in dialogue)
+    assert pcm == expected
