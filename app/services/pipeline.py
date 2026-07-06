@@ -33,6 +33,7 @@ from app.services.stt import (
     GoogleSTTClient,
     STTEventType,
     STTIdleTimeoutError,
+    STTStreamAbortedError,
 )
 from app.services.tremor import TremorAnalyzer
 from app.services.tts import ElevenLabsTTSClient, TTSSession
@@ -44,6 +45,9 @@ logger = logging.getLogger(__name__)
 _BARGE_IN_ENABLED = False
 _BARGE_IN_MIN_CHARS = 2
 _STT_RECYCLE_SECONDS = 240.0
+# 첫 오디오 청크 대기 상한. 초과 시 NO_AUDIO 정상 종료 (Google 의존이던 무오디오 감지를 서버 주도로 대체).
+# 긴 TTS 재생(~20s) 중 클라 mute 를 견디도록 여유 있게 잡음. 최후 방어는 세션 최대시간 타이머.
+_STT_NO_AUDIO_TIMEOUT = 60.0
 _SAFETY_FALLBACK = "죄송해요, 그 부분은 지금 답하기 어렵네요."
 # LLM/TTS 스톨 시 턴 영구 대기 방지. warm 턴 p95(~2.6s)의 10배 이상 여유.
 _TURN_WATCHDOG_SECONDS = 30.0
@@ -228,7 +232,14 @@ class VoicePipeline:
         """stt 소비 발화마다 스트림 재오픈함"""
         try:
             while not self._closing.is_set():
-                await self._consume_one_stream(self._audio_queue)
+                try:
+                    await self._consume_one_stream(self._audio_queue)
+                except STTStreamAbortedError:
+                    # 무요청 ABORTED는 복구 가능 — 세션 유지, 스트림만 재오픈
+                    logger.info(
+                        "STT 무요청 ABORTED — 스트림 재오픈",
+                        extra={"session_id": self._session_id},
+                    )
         except STTIdleTimeoutError:
             logger.info(
                 "오디오 미수신으로 STT 스트림 종료",
@@ -242,9 +253,16 @@ class VoicePipeline:
             raise
 
     async def _consume_one_stream(self, queue: "asyncio.Queue[bytes | None]") -> None:
-        """한 스트림을 FINAL까지 소비하고 닫음"""
+        """한 스트림을 FINAL까지 소비하고 닫음. 첫 오디오 도착 전엔 gRPC 스트림을 열지 않는다(지연 오픈)."""
+        try:
+            first_chunk = await asyncio.wait_for(queue.get(), _STT_NO_AUDIO_TIMEOUT)
+        except TimeoutError:
+            raise STTIdleTimeoutError from None
+        if first_chunk is AUDIO_EOS:
+            return
+
         recycle_at = time.monotonic() + _STT_RECYCLE_SECONDS
-        stream = self._stt.stream(queue)
+        stream = self._stt.stream(queue, first_chunk=first_chunk)
         try:
             async for event in stream:
                 await self._handle_stt_event(event)
