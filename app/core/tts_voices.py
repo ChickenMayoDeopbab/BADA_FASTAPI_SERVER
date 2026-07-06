@@ -18,6 +18,8 @@ class VoiceProfile:
 # 괜찮은 보이스 찾으면 계속 업데이트 해줘야함
 VOICE_REGISTRY: list[VoiceProfile] = [
     # VoiceProfile("<voice_id>", SpeakerGender.FEMALE, SpeakerAge.MIDDLE, SpeakerTone.SOFT, "차분한 중년 여성"),
+    VoiceProfile("uyVNoMrnUku1dZyVEXwD", SpeakerGender.FEMALE, SpeakerAge.YOUNG, SpeakerTone.SOFT, "차분한 젊은 여성"),
+    VoiceProfile("4JJwo477JUAx3HV0T7n7", SpeakerGender.MALE, SpeakerAge.YOUNG, SpeakerTone.NEUTRAL, "평범한 젊은 남자")
 ]
 
 
