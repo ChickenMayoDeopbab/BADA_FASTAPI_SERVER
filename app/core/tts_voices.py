@@ -22,7 +22,8 @@ VOICE_REGISTRY: list[VoiceProfile] = [
     VoiceProfile("ETPP7D0aZVdEj12Aa7ho", SpeakerGender.FEMALE, SpeakerAge.MIDDLE, SpeakerTone.SOFT, "차분한 중년 여성"),
     VoiceProfile("fNmw8sukfGuvWVOp33Ge", SpeakerGender.FEMALE, SpeakerAge.OLD, SpeakerTone.SOFT, "차분한 노년 여성"),
     VoiceProfile("yUhh6u2RvOjeCsWPEaEg", SpeakerGender.FEMALE, SpeakerAge.YOUNG, SpeakerTone.SOFT, "차분한 젊은 남성"),
-    VoiceProfile("4JJwo477JUAx3HV0T7n7", SpeakerGender.MALE, SpeakerAge.YOUNG, SpeakerTone.NEUTRAL, "평범한 젊은 남자"),
+    VoiceProfile("4JJwo477JUAx3HV0T7n7", SpeakerGender.MALE, SpeakerAge.YOUNG, SpeakerTone.NEUTRAL, "평범한 젊은 남성"),
+    VoiceProfile("Ctl3Pjfp5c2p3ThSA8Hn", SpeakerGender.MALE, SpeakerAge.MIDDLE, SpeakerTone.SOFT, "차분한 중년 남성"),
 ]
 
 
