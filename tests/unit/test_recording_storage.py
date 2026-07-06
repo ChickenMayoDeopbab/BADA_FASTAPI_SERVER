@@ -31,17 +31,19 @@ def _settings() -> Settings:
     )
 
 
-def test_upload_pcm_wraps_wav_and_returns_url() -> None:
+def test_upload_pcm_wraps_wav_and_returns_key() -> None:
     s3 = _S3Client()
     storage = RecordingStorageService(_settings(), client=s3)
 
-    url = storage.upload_pcm("sess-123", b"\x01\x00\x02\x00")
+    key = storage.upload_pcm("sess-123", b"\x01\x00\x02\x00")
 
-    assert url == "https://bucket.s3.ap-northeast-2.amazonaws.com/recordings/sess-123.wav"
+    assert key is not None
+    assert key.startswith("recordings/sess-123/")
+    assert key.endswith(".wav")
     assert len(s3.calls) == 1
     call = s3.calls[0]
     assert call["Bucket"] == "bucket"
-    assert call["Key"] == "recordings/sess-123.wav"
+    assert call["Key"] == key
     assert call["ContentType"] == "audio/wav"
 
     with wave.open(BytesIO(call["Body"]), "rb") as wav:

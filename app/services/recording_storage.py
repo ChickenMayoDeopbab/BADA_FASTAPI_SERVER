@@ -1,4 +1,5 @@
 import io
+import uuid
 import wave
 from typing import Any
 
@@ -12,7 +13,6 @@ _SAMPLE_WIDTH_BYTES = 2
 class RecordingStorageService:
     def __init__(self, settings: Settings, client: Any | None = None) -> None:
         self._bucket = settings.s3_bucket
-        self._region = settings.aws_region
         self._client = client
         if self._bucket and self._client is None:
             import boto3
@@ -34,7 +34,7 @@ class RecordingStorageService:
         if self._client is None:
             return None
 
-        key = f"recordings/{session_id}.wav"
+        key = f"recordings/{session_id}/{uuid.uuid4()}.wav"
         wav_bytes = self._to_wav(pcm)
         self._client.put_object(
             Bucket=self._bucket,
@@ -42,7 +42,7 @@ class RecordingStorageService:
             Body=wav_bytes,
             ContentType="audio/wav",
         )
-        return f"https://{self._bucket}.s3.{self._region}.amazonaws.com/{key}"
+        return key
 
     @staticmethod
     def _to_wav(pcm: bytes) -> bytes:
