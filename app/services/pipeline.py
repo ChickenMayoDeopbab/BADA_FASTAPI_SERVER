@@ -601,11 +601,11 @@ class VoicePipeline:
 
         shake_count = 0
         good_segments: list[dict] = []
-        recording_url: str | None = None
+        recording_key: str | None = None
         if self._tremor_buf:
             recording_pcm = bytes(self._tremor_buf)
             try:
-                recording_url = await asyncio.to_thread(
+                recording_key = await asyncio.to_thread(
                     self._recording_storage.upload_pcm,
                     self._session_id,
                     recording_pcm,
@@ -669,7 +669,7 @@ class VoicePipeline:
             silence_total=self._silence_total,
             shake_count=shake_count,
             good_segments=good_segments,
-            recording_url=recording_url,
+            recording_key=recording_key,
             session_type=self._session.get("type"),
         )
 
