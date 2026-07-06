@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -21,6 +22,17 @@ class ScenarioInfo(BaseModel):
 
 class ScenarioListResponse(BaseModel):
     scenarios: list[ScenarioInfo]
+
+
+class ExampleTurn(BaseModel):
+    speaker: Literal["ai", "user"]
+    text: str
+
+
+class ExampleConversationResponse(BaseModel):
+    scenario_id: int
+    dialogue: list[ExampleTurn]
+    audio_url: str | None = None
 
 
 # --- 내부용: Spring이 세션 생성 시 가져가는 시나리오 컨텍스트 ---

@@ -27,6 +27,20 @@ VOICE_REGISTRY: list[VoiceProfile] = [
 ]
 
 
+# 예시 대화에서 '나(사용자 역할)' 대사에 쓰는 고정 보이스
+EXAMPLE_USER_VOICE_ID = "4JJwo477JUAx3HV0T7n7"  # 평범한 젊은 남성
+
+
+def pick_example_user_voice(ai_voice_id: str | None) -> str:
+    """예시 대화 user 턴 보이스"""
+    if ai_voice_id != EXAMPLE_USER_VOICE_ID:
+        return EXAMPLE_USER_VOICE_ID
+    for profile in VOICE_REGISTRY:
+        if profile.voice_id != ai_voice_id:
+            return profile.voice_id
+    return EXAMPLE_USER_VOICE_ID
+
+
 def parse_speaker(
     raw: object,
 ) -> tuple[SpeakerGender | None, SpeakerAge | None, SpeakerTone | None]:

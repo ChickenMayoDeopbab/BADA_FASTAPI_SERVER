@@ -21,6 +21,8 @@ class ScenarioORM(Base):
     call_target: Mapped[str] = mapped_column(String(100), nullable=False)
     call_purpose: Mapped[str] = mapped_column(String(200), nullable=False)
     script: Mapped[list | None] = mapped_column(JSON, nullable=True) # [{"step", "ai_goal", "hint"}]
+    example_dialogue: Mapped[list | None] = mapped_column(JSON, nullable=True) # 커스텀 전용 [{"speaker", "text"}]
+    example_audio_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
 class FeedbackORM(Base):
