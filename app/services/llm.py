@@ -26,7 +26,7 @@ _ALL_TAGS = (*_CONTROL_TAGS, _SUGGEST_TAG)
 _STEP_ECHO_PATTERN = re.compile(r"\s*\(\s*지금\s*단계\s*:?\s*\d+\s*\)")
 # 청크 경계에 걸쳐 쓰다 만 형태(예: '...(지금 단'). 완성될 때까지 방출 보류
 _STEP_ECHO_PARTIAL = re.compile(
-    r"\(\s*(?:지(?:금(?:\s*단(?:계(?:\s*:?(?:\s*\d*)?)?)?)?)?)?$"
+    r"\(\s*(?:지|지금|지금\s*단|지금\s*단계(?:\s*:?\s*\d*)?)?\s*$"
 )
 
 
