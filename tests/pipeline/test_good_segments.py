@@ -46,14 +46,44 @@ def test_pick_top3_longest_chronological():
     ]
 
 
-def test_pick_drops_short_fragments():
-    # 0.5s 조각은 min_good(1.0s) 미만 → 탈락
+def test_pick_prefers_long_over_short_fragments():
+    # 1초 이상 구간이 3개 있으면 0.5s 조각은 탈락
     p = _pipeline_with_turns([(0, 90)])
-    assert p._pick_good_segments([(0, 0.5), (10, 13)]) == [{"start": 10, "end": 13}]
+    cands = [(0, 0.5), (10, 13), (20, 25), (30, 36)]
+    assert p._pick_good_segments(cands) == [
+        {"start": 10, "end": 13},
+        {"start": 20, "end": 25},
+        {"start": 30, "end": 36},
+    ]
 
 
-def test_pick_empty_when_no_overlap():
+def test_pick_fills_with_short_fragments_when_scarce():
+    # 1초 이상 구간이 부족하면 1초 미만 조각으로 보충
+    p = _pipeline_with_turns([(0, 90)])
+    assert p._pick_good_segments([(0, 0.5), (10, 13)]) == [
+        {"start": 0, "end": 0.5},
+        {"start": 10, "end": 13},
+    ]
+
+
+def test_pick_fills_with_user_turns_when_scarce():
+    # 후보가 1개뿐이면 겹치지 않는 사용자 턴으로 3개를 채움
+    p = _pipeline_with_turns([(0, 10), (20, 30), (40, 50)])
+    assert p._pick_good_segments([(2, 5)]) == [
+        {"start": 2, "end": 5},
+        {"start": 20, "end": 30},
+        {"start": 40, "end": 50},
+    ]
+
+
+def test_pick_falls_back_to_turns_when_no_overlap():
+    # 후보와 턴이 안 겹쳐도 사용자 턴 자체를 반환
     p = _pipeline_with_turns([(50, 60)])
+    assert p._pick_good_segments([(0, 10)]) == [{"start": 50, "end": 60}]
+
+
+def test_pick_empty_when_no_turns():
+    p = _pipeline_with_turns([])
     assert p._pick_good_segments([(0, 10)]) == []
 
 
