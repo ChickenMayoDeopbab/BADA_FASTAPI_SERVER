@@ -3,6 +3,7 @@ from app.services.llm import (
     LLMClient,
     _drain_pending,
     _find_first_tag,
+    _strip_step_echo,
     _trailing_partial_len,
 )
 
@@ -63,6 +64,44 @@ def test_drain_pending_two_tags_in_order() -> None:
     assert controls == [LLMEventType.STEP_DONE, LLMEventType.END_CALL]
     assert pending == ""
     assert suggest is False
+
+
+def test_drain_pending_strips_complete_step_echo() -> None:
+    emit, controls, pending, suggest = _drain_pending("네, 예약 도와드릴게요.\n(지금 단계: 1)")
+    assert emit == "네, 예약 도와드릴게요."
+    assert controls == []
+    assert pending == ""
+    assert suggest is False
+
+def test_drain_pending_holds_partial_step_echo() -> None:
+    emit, controls, pending, _ = _drain_pending("확인했습니다. (지금 단")
+    assert emit == "확인했습니다. "
+    assert controls == []
+    assert pending == "(지금 단"
+
+def test_drain_pending_reassembles_split_step_echo() -> None:
+    emit1, _, pending1, _ = _drain_pending("확인했습니다. (지금 단")
+    assert pending1 == "(지금 단"
+    emit2, _, pending2, _ = _drain_pending(pending1 + "계: 2)")
+    assert emit2 == ""
+    assert pending2 == ""
+    assert (emit1 + emit2).rstrip() == "확인했습니다."
+
+def test_drain_pending_strips_step_echo_before_control_tag() -> None:
+    emit, controls, pending, _ = _drain_pending("예약 완료됐습니다. (지금 단계: 3)\n[STEP_DONE]")
+    assert emit.strip() == "예약 완료됐습니다."
+    assert controls == [LLMEventType.STEP_DONE]
+    assert pending == ""
+
+def test_drain_pending_keeps_normal_parentheses() -> None:
+    emit, _, pending, _ = _drain_pending("3시 30분에 2명 (창가 자리) 맞으시죠?")
+    assert emit == "3시 30분에 2명 (창가 자리) 맞으시죠?"
+    assert pending == ""
+
+def test_strip_step_echo_spacing_variants() -> None:
+    assert _strip_step_echo("네.(지금단계:2)") == "네."
+    assert _strip_step_echo("네. ( 지금 단계 3 )") == "네."
+    assert _strip_step_echo("(지금 단계: 1) 어서오세요").strip() == "어서오세요"
 
 
 def test_emit_emotion_head_parses_known_emotion() -> None:
