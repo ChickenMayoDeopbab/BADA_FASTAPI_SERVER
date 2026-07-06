@@ -610,6 +610,8 @@ class VoicePipeline:
                     extra={"session_id": self._session_id},
                     exc_info=True,
                 )
+                # 분석 실패 시에도 사용자 턴으로 잘한 구간 3개를 보충
+                good_segments = self._pick_good_segments([])
             finally:
                 self._tremor_buf.clear()
 
@@ -708,10 +710,24 @@ class VoicePipeline:
         return out
 
     def _pick_good_segments(self, candidates) -> list[dict]:
-        """잘한 구간 후보(발화−떨림) ∩ 사용자 턴 → 가장 긴 3개 (시간순)."""
-        good = self._intersect(candidates, self._user_turn_intervals)
-        good = [(s, e) for s, e in good if e - s >= 1.0]   # min_good_sec
-        good.sort(key=lambda se: se[1] - se[0], reverse=True)
-        good = good[:3]
+        overlap = self._intersect(candidates, self._user_turn_intervals)
+        overlap.sort(key=lambda se: se[1] - se[0], reverse=True)
+        long_enough = [se for se in overlap if se[1] - se[0] >= 1.0]  # min_good_sec
+        fragments = [se for se in overlap if se[1] - se[0] < 1.0]
+        turns = sorted(
+            self._user_turn_intervals, key=lambda se: se[1] - se[0], reverse=True
+        )
+
+        good: list[tuple[float, float]] = []
+        for pool in (long_enough, fragments, turns):
+            for s, e in pool:
+                if len(good) == 3:
+                    break
+                if e - s <= 0:
+                    continue
+                if any(min(e, ge) > max(s, gs) for gs, ge in good):
+                    continue
+                good.append((s, e))
+
         good.sort(key=lambda se: se[0])
         return [{"start": round(s, 2), "end": round(e, 2)} for s, e in good]
