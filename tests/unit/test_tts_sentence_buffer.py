@@ -69,6 +69,32 @@ def test_boundary_at_end_of_chunk() -> None:
     assert buf.flush() is None
 
 
+def test_decimal_point_is_not_a_boundary() -> None:
+    buf = _SentenceBuffer()
+    assert buf.feed("무게는 3.5킬로예요") is None
+    assert buf.flush() == "무게는 3.5킬로예요 "
+
+
+def test_decimal_in_progress_at_chunk_edge_is_held() -> None:
+    buf = _SentenceBuffer()
+    assert buf.feed("평점은 4.") is None
+    assert buf.feed("5점입니다. 네") == "평점은 4.5점입니다. "
+    assert buf.flush() == "네 "
+
+
+def test_decimal_mid_buffer_does_not_block_later_boundary() -> None:
+    buf = _SentenceBuffer()
+    assert buf.feed("원주율은 3.14입니다. 다음") == "원주율은 3.14입니다. "
+    assert buf.flush() == "다음 "
+
+
+def test_sentence_ending_with_digit_flushes_with_next_sentence() -> None:
+    buf = _SentenceBuffer()
+    assert buf.feed("주문번호는 123.") is None
+    assert buf.feed(" 확인했습니다.") == "주문번호는 123. 확인했습니다. "
+    assert buf.flush() is None
+
+
 class _FakeWS:
     def __init__(self) -> None:
         self.sent: list[dict] = []
