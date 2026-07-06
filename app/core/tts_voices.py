@@ -21,9 +21,24 @@ VOICE_REGISTRY: list[VoiceProfile] = [
     VoiceProfile("uyVNoMrnUku1dZyVEXwD", SpeakerGender.FEMALE, SpeakerAge.YOUNG, SpeakerTone.SOFT, "차분한 젊은 여성"),
     VoiceProfile("ETPP7D0aZVdEj12Aa7ho", SpeakerGender.FEMALE, SpeakerAge.MIDDLE, SpeakerTone.SOFT, "차분한 중년 여성"),
     VoiceProfile("fNmw8sukfGuvWVOp33Ge", SpeakerGender.FEMALE, SpeakerAge.OLD, SpeakerTone.SOFT, "차분한 노년 여성"),
-    VoiceProfile("yUhh6u2RvOjeCsWPEaEg", SpeakerGender.FEMALE, SpeakerAge.YOUNG, SpeakerTone.SOFT, "차분한 젊은 남성"),
-    VoiceProfile("4JJwo477JUAx3HV0T7n7", SpeakerGender.MALE, SpeakerAge.YOUNG, SpeakerTone.NEUTRAL, "평범한 젊은 남자"),
+    VoiceProfile("yUhh6u2RvOjeCsWPEaEg", SpeakerGender.MALE, SpeakerAge.YOUNG, SpeakerTone.SOFT, "차분한 젊은 남성"),
+    VoiceProfile("4JJwo477JUAx3HV0T7n7", SpeakerGender.MALE, SpeakerAge.YOUNG, SpeakerTone.NEUTRAL, "평범한 젊은 남성"),
+    VoiceProfile("Ctl3Pjfp5c2p3ThSA8Hn", SpeakerGender.MALE, SpeakerAge.MIDDLE, SpeakerTone.SOFT, "차분한 중년 남성"),
 ]
+
+
+# 예시 대화에서 '나(사용자 역할)' 대사에 쓰는 고정 보이스
+EXAMPLE_USER_VOICE_ID = "4JJwo477JUAx3HV0T7n7"  # 평범한 젊은 남성
+
+
+def pick_example_user_voice(ai_voice_id: str | None) -> str:
+    """예시 대화 user 턴 보이스"""
+    if ai_voice_id != EXAMPLE_USER_VOICE_ID:
+        return EXAMPLE_USER_VOICE_ID
+    for profile in VOICE_REGISTRY:
+        if profile.voice_id != ai_voice_id:
+            return profile.voice_id
+    return EXAMPLE_USER_VOICE_ID
 
 
 def parse_speaker(

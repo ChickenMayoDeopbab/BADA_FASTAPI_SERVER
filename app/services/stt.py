@@ -6,7 +6,7 @@ from enum import StrEnum
 from typing import Final
 
 from google.api_core.client_options import ClientOptions
-from google.api_core.exceptions import GoogleAPICallError, OutOfRange
+from google.api_core.exceptions import Aborted, GoogleAPICallError, OutOfRange
 from google.cloud.speech_v2 import SpeechAsyncClient
 from google.cloud.speech_v2.types import cloud_speech as cs
 
@@ -20,13 +20,26 @@ STREAM_LIMIT_SECONDS: Final[int] = 5 * 60
 # Google STT v2가 오디오 미수신으로 스트림을 닫을 때 OutOfRange 메시지에 담기는 마커.
 _IDLE_TIMEOUT_MARKER: Final[str] = "Long duration elapsed without audio"
 
+# Google STT v2가 요청(config/오디오) 무수신으로 스트림을 끊을 때 Aborted 메시지에 담기는 마커.
+_ABORTED_NO_REQUESTS_MARKER: Final[str] = (
+    "Stream timed out after receiving no more client requests"
+)
+
 
 class STTIdleTimeoutError(Exception):
     """오디오 미수신으로 STT 스트림이 정상 종료된 경우(장애 아님)."""
 
 
+class STTStreamAbortedError(Exception):
+    """요청 무수신으로 Google이 스트림을 끊은 경우(복구 가능 — 재오픈 대상, 장애 아님)."""
+
+
 def _is_idle_timeout(exc: GoogleAPICallError) -> bool:
     return isinstance(exc, OutOfRange) and _IDLE_TIMEOUT_MARKER in str(exc)
+
+
+def _is_stream_aborted(exc: GoogleAPICallError) -> bool:
+    return isinstance(exc, Aborted) and _ABORTED_NO_REQUESTS_MARKER in str(exc)
 
 class STTEventType(StrEnum):
     INTERIM = "interim"
@@ -93,10 +106,13 @@ class GoogleSTTClient:
 
     async def _request_generator(
             self,
-            audio_queue: "asyncio.Queue[bytes | None]"
+            audio_queue: "asyncio.Queue[bytes | None]",
+            first_chunk: bytes | None = None,
     ) -> AsyncIterator[cs.StreamingRecognizeRequest]:
         """streaming_recognize에 넘길 요청 스트림"""
         yield self._build_config_request()
+        if first_chunk is not None:
+            yield cs.StreamingRecognizeRequest(audio=first_chunk)
 
         while True:
             chunk = await audio_queue.get()
@@ -142,11 +158,12 @@ class GoogleSTTClient:
     async def stream(
             self,
             audio_queue: "asyncio.Queue[bytes | None]",
+            first_chunk: bytes | None = None,
     ) -> AsyncIterator[STTEvent]:
         """메인 진입점"""
         try:
             responses = await self._client.streaming_recognize(
-                requests=self._request_generator(audio_queue)
+                requests=self._request_generator(audio_queue, first_chunk)
             )
             async for response in responses:
                 for event in self._parse_response(response):
@@ -155,6 +172,9 @@ class GoogleSTTClient:
             if _is_idle_timeout(exc):
                 logger.info("STT idle-timeout: 오디오 미수신으로 스트림 종료")
                 raise STTIdleTimeoutError from exc
+            if _is_stream_aborted(exc):
+                logger.info("STT 무요청 ABORTED: 스트림 재오픈 대상")
+                raise STTStreamAbortedError from exc
             logger.exception("STT 스트리밍 API 에러")
             raise
         except asyncio.CancelledError:
