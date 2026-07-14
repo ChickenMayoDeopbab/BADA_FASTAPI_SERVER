@@ -3,6 +3,11 @@ services:
     build: !reset null
     image: ${IMAGE:?IMAGE env (GHCR image ref) is required}
     pull_policy: always
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
     volumes:
       - ./secrets/gcp-adc.json:/secrets/gcp-adc.json:ro
     environment:
