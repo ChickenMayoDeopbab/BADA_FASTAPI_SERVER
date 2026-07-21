@@ -53,10 +53,15 @@ class _FakeTTSClient:
 class _FakeStorage:
     def __init__(self) -> None:
         self.uploads: list[tuple[str, bytes]] = []
+        self.presigned: list[str] = []
 
     def upload_wav(self, key: str, pcm: bytes) -> str | None:
         self.uploads.append((key, pcm))
-        return f"https://bucket.s3.test/{key}"
+        return key
+
+    def presigned_url(self, key: str, expires_in: int = 600) -> str | None:
+        self.presigned.append(key)
+        return f"https://signed.test/{key}"
 
 
 class _FakeDB:
@@ -142,12 +147,12 @@ async def test_preset_first_call_generates_audio(monkeypatch) -> None:
     resp = await get_example_conversation(db, 1, user_id=7)
 
     assert [t.speaker for t in resp.dialogue] == ["ai", "user"]
-    assert resp.audio_url and resp.audio_url.startswith("https://")
     assert tts.open_calls == ["voice-default", pick_example_user_voice("voice-default")]
     assert len(storage.uploads) == 1
     key, _pcm = storage.uploads[0]
     assert key.startswith("examples/1-") and key.endswith(".wav")
-    assert row.example_audio_url == resp.audio_url
+    assert resp.audio_url == f"https://signed.test/{key}"
+    assert row.example_audio_url == key
     assert db.commits >= 1
 
 
@@ -174,6 +179,7 @@ async def test_second_call_hits_cache(monkeypatch) -> None:
     assert second.audio_url == first.audio_url
     assert tts.open_calls == calls_after_first
     assert len(storage.uploads) == 1
+    assert len(storage.presigned) == 2, "캐시 적중이어도 서명은 요청마다 새로 발급한다"
 
 
 async def test_dialogue_change_regenerates(monkeypatch) -> None:
@@ -198,8 +204,21 @@ async def test_preset_without_db_row_still_works(monkeypatch) -> None:
 
     resp = await get_example_conversation(_FakeDB(None), 1, user_id=7)
 
-    assert resp.audio_url
+    assert resp.audio_url and resp.audio_url.startswith("https://signed.test/examples/1-")
     assert [t.speaker for t in resp.dialogue] == ["ai", "user"]
+
+
+async def test_cache_hit_with_legacy_static_url_row(monkeypatch) -> None:
+    tts, storage = _wire(monkeypatch)
+    user_voice = pick_example_user_voice("voice-default")
+    key = example_service._audio_key(1, _DIALOGUE, "voice-default", user_voice)
+    row = _preset_row(example_audio_url=f"https://bucket.s3.ap-northeast-2.amazonaws.com/{key}")
+
+    resp = await get_example_conversation(_FakeDB(row), 1, user_id=7)
+
+    assert resp.audio_url == f"https://signed.test/{key}"
+    assert tts.open_calls == []
+    assert storage.uploads == []
 
 
 async def test_s3_unset_returns_dialogue_without_audio(monkeypatch) -> None:
@@ -211,6 +230,7 @@ async def test_s3_unset_returns_dialogue_without_audio(monkeypatch) -> None:
     assert [t.text for t in resp.dialogue]
     assert tts.open_calls == []
     assert storage.uploads == []
+    assert storage.presigned == []
 
 
 # --- 커스텀: LLM 대본 생성/재사용/소유권 ---
