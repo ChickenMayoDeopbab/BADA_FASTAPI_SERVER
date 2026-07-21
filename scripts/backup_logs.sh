@@ -1,16 +1,17 @@
+#!/usr/bin/env bash
 set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 COMPOSE_DIR=${COMPOSE_DIR:-$(dirname "$SCRIPT_DIR")}
 SERVICE=${SERVICE:-app}
-S3_PREFIX=${S3_PREFIX:-logs/app}
-STATE_FILE=${STATE_FILE:-$HOME/.bada/last_log_backup}
+S3_PREFIX=${S3_PREFIX:-logs/${SERVICE}}
+STATE_FILE=${STATE_FILE:-$HOME/.bada/last_log_backup_${SERVICE}}
 LOCK_DIR=${STATE_FILE}.lock
 
 log() { echo "[backup_logs] $*"; }
 
 ENV_FILE="$COMPOSE_DIR/.env"
-env_val() { sed -n "s/^[[:space:]]*$1=//p" "$ENV_FILE" | tail -1 | tr -d '"' | tr -d "'"; }
+env_val() { sed -n "s/^[[:space:]]*$1=//p" "$ENV_FILE" | tail -1 | tr -d '\r' | tr -d '"' | tr -d "'"; }
 
 if [[ -f "$ENV_FILE" ]]; then
   if [[ -z "${S3_BUCKET:-}" ]]; then
@@ -80,7 +81,7 @@ fi
 gzip -f "$TMP"
 DATE_PATH="${NOW:0:4}/${NOW:5:2}/${NOW:8:2}"
 FROM_LABEL=${SINCE:-container-start}
-KEY="$S3_PREFIX/$DATE_PATH/app_${FROM_LABEL//:/-}_${NOW//:/-}.log.gz"
+KEY="$S3_PREFIX/$DATE_PATH/${SERVICE}_${FROM_LABEL//:/-}_${NOW//:/-}.log.gz"
 
 aws s3 cp "$TMP.gz" "s3://$S3_BUCKET/$KEY" --only-show-errors
 

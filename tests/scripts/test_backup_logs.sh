@@ -110,17 +110,28 @@ grep -q "aws s3 cp" "$C4/stub.log" && fail "case4: 빈 증분인데 업로드함
 [[ "$(cat "$C4/state")" != "$T1" ]] || fail "case4: 상태가 안 전진함"
 ok "빈 증분: 업로드 생략 + 상태 전진"
 
-# --- 5. .env 재사용: S3_BUCKET/AWS 자격증명 매핑 --------------------------------
+# --- 5. .env 재사용: S3_BUCKET/AWS 자격증명 매핑 (+CRLF 개행 제거) ---------------
 C5="$WORK/case5"; mkdir -p "$C5"; : >"$C5/stub.log"
-cat >"$C5/.env" <<'EOF'
-S3_BUCKET=env-bucket
-AWS_ACCESS_KEY=env-key-123
-AWS_SECRET_KEY=env-secret-456
-AWS_REGION=ap-northeast-2
-EOF
+# S3_BUCKET 줄은 일부러 CRLF — \r 이 값에 남으면 s3:// URL 매칭이 깨진다
+printf 'S3_BUCKET=env-bucket\r\nAWS_ACCESS_KEY=env-key-123\nAWS_SECRET_KEY=env-secret-456\nAWS_REGION=ap-northeast-2\n' >"$C5/.env"
 run_backup "$C5" || fail "case5: 스크립트가 실패함 ($(cat "$C5/out.log"))"
-grep -q "s3://env-bucket/" "$C5/stub.log" || fail "case5: .env 의 S3_BUCKET 을 안 씀"
+grep -q "s3://env-bucket/" "$C5/stub.log" || fail "case5: .env 의 S3_BUCKET 을 안 씀 (CRLF 미제거?)"
 grep -q "cred:env-key-123" "$C5/stub.log" || fail "case5: AWS_ACCESS_KEY → AWS_ACCESS_KEY_ID 매핑 안 됨"
-ok ".env 재사용: 버킷 + 자격증명 매핑"
+ok ".env 재사용: 버킷 + 자격증명 매핑 + CRLF 제거"
+
+# --- 6. 서비스별 분리: SERVICE=db → 전용 prefix/파일명/기본 상태 파일 -------------
+C6="$WORK/case6"; mkdir -p "$C6"; : >"$C6/stub.log"
+env -u AWS_ACCESS_KEY_ID -u AWS_SECRET_ACCESS_KEY -u AWS_DEFAULT_REGION \
+  PATH="$STUB_BIN:$PATH" \
+  STUB_LOG="$C6/stub.log" \
+  COMPOSE_DIR="$C6" \
+  HOME="$C6" \
+  S3_BUCKET=test-bucket SERVICE=db \
+  bash "$SCRIPT" >"$C6/out.log" 2>&1 || fail "case6: 스크립트가 실패함 ($(cat "$C6/out.log"))"
+grep -q "compose ps -q db" "$C6/stub.log" || fail "case6: SERVICE=db 로 컨테이너를 안 찾음"
+grep -Eq "s3://test-bucket/logs/db/[0-9]{4}/[0-9]{2}/[0-9]{2}/db_container-start_" "$C6/stub.log" \
+  || fail "case6: 서비스별 prefix/파일명이 아님 ($(grep aws "$C6/stub.log"))"
+[[ -s "$C6/.bada/last_log_backup_db" ]] || fail "case6: 기본 상태 파일에 서비스 접미사가 없음"
+ok "서비스별 분리: prefix/파일명/기본 상태 파일에 SERVICE 반영"
 
 echo "PASS: $PASS/$PASS 시나리오 통과"
