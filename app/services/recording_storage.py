@@ -46,6 +46,15 @@ class RecordingStorageService:
         )
         return key
 
+    def presigned_url(self, key: str, expires_in: int = 600) -> str | None:
+        if not self._bucket or not key or self._client is None:
+            return None
+        return self._client.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": self._bucket, "Key": key},
+            ExpiresIn=expires_in,
+        )
+
     @staticmethod
     def _to_wav(pcm: bytes) -> bytes:
         if len(pcm) % _SAMPLE_WIDTH_BYTES != 0:

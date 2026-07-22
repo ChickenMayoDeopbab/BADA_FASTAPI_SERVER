@@ -178,21 +178,22 @@ async def get_example_conversation(
     ai_voice = (row.tts_voice_id if row is not None else None) or settings.elevenlabs_voice_id
     user_voice = pick_example_user_voice(ai_voice)
     key = _audio_key(scenario_id, dialogue, ai_voice, user_voice)
+    storage = RecordingStorageService(settings)
 
     lock = _generation_locks.setdefault(scenario_id, asyncio.Lock())
     async with lock:
         if row is not None and row.example_audio_url and row.example_audio_url.endswith(key):
             return ExampleConversationResponse(
-                scenario_id=scenario_id, dialogue=turns, audio_url=row.example_audio_url
+                scenario_id=scenario_id, dialogue=turns, audio_url=storage.presigned_url(key)
             )
 
         tts_client = ElevenLabsTTSClient(settings)
         pcm = await _synthesize(tts_client, dialogue, ai_voice, user_voice)
-        storage = RecordingStorageService(settings)
-        audio_url = storage.upload_wav(key, pcm)
+        stored_key = storage.upload_wav(key, pcm)
 
-        if row is not None and audio_url:
-            row.example_audio_url = audio_url
+        if row is not None and stored_key:
+            row.example_audio_url = stored_key
             await db.commit()
 
+    audio_url = storage.presigned_url(stored_key) if stored_key else None
     return ExampleConversationResponse(scenario_id=scenario_id, dialogue=turns, audio_url=audio_url)
