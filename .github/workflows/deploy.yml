@@ -82,7 +82,7 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          source: "docker-compose.yml,docker-compose.prod.yml"
+          source: "docker-compose.yml,docker-compose.prod.yml,scripts/backup_logs.sh"
           target: "~/bada"
 
       - name: Deploy on EC2
@@ -103,6 +103,10 @@ jobs:
             docker network create bada-net 2>/dev/null || true
 
             echo "$GHCR_PAT" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
+
+            if [ -f scripts/backup_logs.sh ]; then
+              COMPOSE_DIR="$HOME/bada" bash scripts/backup_logs.sh || echo "log backup failed (continuing deploy)" >&2
+            fi
 
             export IMAGE
             docker compose -f docker-compose.yml -f docker-compose.prod.yml pull app
