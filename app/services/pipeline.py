@@ -14,11 +14,13 @@ from app.core.enums import SessionType
 from app.core.metrics import log_metric, now_ms
 from app.schemas.frames import (
     EndReason,
+    NoticeCode,
     TranscriptRole,
     emotion_frame,
     end_frame,
     error_frame,
     interrupt_frame,
+    notice_frame,
     script_hint_frame,
     speaking_end_frame,
     transcript_frame,
@@ -48,9 +50,12 @@ _STT_RECYCLE_SECONDS = 240.0
 # 첫 오디오 청크 대기 상한. 초과 시 NO_AUDIO 정상 종료 (Google 의존이던 무오디오 감지를 서버 주도로 대체).
 # 긴 TTS 재생(~20s) 중 클라 mute 를 견디도록 여유 있게 잡음. 최후 방어는 세션 최대시간 타이머.
 _STT_NO_AUDIO_TIMEOUT = 60.0
+_STT_NO_AUDIO_WARNING_LEAD = 30.0
+_NO_AUDIO_WARNING_TEXT = "목소리가 들리지 않아요. 계속 조용하면 통화가 잠시 후 종료돼요."
 _SAFETY_FALLBACK = "죄송해요, 그 부분은 지금 답하기 어렵네요."
-# LLM/TTS 스톨 시 턴 영구 대기 방지. warm 턴 p95(~2.6s)의 10배 이상 여유.
 _TURN_WATCHDOG_SECONDS = 30.0
+_TURN_FALLBACK_TEXT = "죄송해요, 다시 한번 말씀해 주시겠어요?"
+_FALLBACK_TTS_TIMEOUT = 8.0
 # 칭찬 생성 실패 시 good_point 기본 문구
 _DEFAULT_GOOD_POINT = "잘 이야기했어요"
 
@@ -255,7 +260,7 @@ class VoicePipeline:
     async def _consume_one_stream(self, queue: "asyncio.Queue[bytes | None]") -> None:
         """한 스트림을 FINAL까지 소비하고 닫음. 첫 오디오 도착 전엔 gRPC 스트림을 열지 않는다(지연 오픈)."""
         try:
-            first_chunk = await asyncio.wait_for(queue.get(), _STT_NO_AUDIO_TIMEOUT)
+            first_chunk = await self._wait_first_chunk(queue)
         except TimeoutError:
             raise STTIdleTimeoutError from None
         if first_chunk is AUDIO_EOS:
@@ -275,6 +280,23 @@ class VoicePipeline:
                 queue.put_nowait(AUDIO_EOS)
             with suppress(Exception):
                 await stream.aclose()  # 강제 종료
+
+    async def _wait_first_chunk(
+        self, queue: "asyncio.Queue[bytes | None]"
+    ) -> bytes | None:
+        """첫 청크 대기"""
+        warn_after = _STT_NO_AUDIO_TIMEOUT - _STT_NO_AUDIO_WARNING_LEAD
+        if warn_after <= 0:
+            return await asyncio.wait_for(queue.get(), _STT_NO_AUDIO_TIMEOUT)
+        try:
+            return await asyncio.wait_for(queue.get(), warn_after)
+        except TimeoutError:
+            pass
+        if self._state == _State.LISTENING:
+            await self._send_json(
+                notice_frame(NoticeCode.NO_AUDIO_WARNING, _NO_AUDIO_WARNING_TEXT)
+            )
+        return await asyncio.wait_for(queue.get(), _STT_NO_AUDIO_WARNING_LEAD)
 
     async def _handle_stt_event(self, event) -> None:
         if self._state == _State.CLOSING:
@@ -420,7 +442,6 @@ class VoicePipeline:
                 _TURN_WATCHDOG_SECONDS,
                 extra={"session_id": self._session_id},
             )
-            await self._send_json(speaking_end_frame())
         except asyncio.CancelledError:
             flags["cancelled"] = True
             raise
@@ -500,17 +521,25 @@ class VoicePipeline:
         ctx: TurnContext,
         suggestion: str | None = None,
     ) -> None:
+        ai_text = "".join(ai_parts).strip()
+        scenario_finished = bool(
+            flags["step_done"]
+            and self._script_len
+            and self._current_step >= self._script_len
+        )
+        will_close = flags["error"] or flags["end_call"] or scenario_finished
+        fallback = not will_close and (flags.get("watchdog", False) or not ai_text)
         log_metric(
             "voice_turn",
             session_id=self._session_id,
             step=self._current_step,
             error=flags["error"],
             watchdog=flags.get("watchdog", False),
+            fallback=fallback,
             llm_prompt_tokens=usage["prompt"],
             llm_cached_tokens=usage["cached"],
             **timings.as_metrics(),
         )
-        ai_text = "".join(ai_parts).strip()
         logger.info(
             "턴 완료 step=%s user=%r ai=%r",
             self._current_step,
@@ -536,6 +565,8 @@ class VoicePipeline:
                 await self._close(EndReason.SCENARIO_DONE)
                 return
 
+        if fallback:
+            await self._play_turn_fallback()
         if not flags.get("watchdog"):
             await self._maybe_send_script_hint(ctx, suggestion)
 
@@ -543,6 +574,52 @@ class VoicePipeline:
         self._state = _State.LISTENING
         self._listening_since = time.monotonic()
         self._open_user_turn()
+
+    async def _play_turn_fallback(self) -> None:
+        await self._send_json(
+            notice_frame(NoticeCode.TURN_FALLBACK, _TURN_FALLBACK_TEXT)
+        )
+        try:
+            await asyncio.wait_for(self._speak_fallback(), _FALLBACK_TTS_TIMEOUT)
+        except TimeoutError:
+            logger.warning(
+                "폴백 멘트 TTS 시간 초과 — 멘트 없이 진행",
+                extra={"session_id": self._session_id},
+            )
+        except Exception:
+            logger.warning(
+                "폴백 멘트 TTS 실패 — 멘트 없이 진행",
+                exc_info=True,
+                extra={"session_id": self._session_id},
+            )
+        if self._history and self._history[-1]["role"] == "assistant":
+            self._history[-1]["text"] += " " + _TURN_FALLBACK_TEXT
+        else:
+            self._history.append({"role": "assistant", "text": _TURN_FALLBACK_TEXT})
+        await self._send_json(transcript_frame(TranscriptRole.AI, _TURN_FALLBACK_TEXT))
+        await self._send_json(speaking_end_frame())
+
+    async def _speak_fallback(self) -> None:
+        session = await self._open_tts()
+        try:
+            await session.begin(AiEmotion.NEUTRAL)
+            await self._send_json(emotion_frame(AiEmotion.NEUTRAL))
+
+            async def _text():
+                yield _TURN_FALLBACK_TEXT
+
+            self._state = _State.SPEAKING
+            async for pcm in session.stream(_text()):
+                if not self._ws_alive:
+                    break
+                try:
+                    await self._ws.send_bytes(pcm)
+                except Exception:
+                    self._ws_alive = False
+                    break
+        finally:
+            with suppress(Exception):
+                await session.aclose()
 
     async def _maybe_send_script_hint(
         self, ctx: TurnContext, suggestion: str | None
