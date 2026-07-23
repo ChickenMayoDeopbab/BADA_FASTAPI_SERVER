@@ -166,8 +166,7 @@ async def test_turn_sends_ai_transcript_after_speaking_end() -> None:
 
 
 @pytest.mark.asyncio
-async def test_empty_ai_text_skips_ai_transcript() -> None:
-    """대사 없는 턴은 ai transcript 를 보내지 않는다(히스토리 미러)."""
+async def test_empty_ai_text_sends_fallback_transcript_only() -> None:
     p = _make_pipeline(_SilentLLM(), _FakeTTSClient())
     p._state = _State.THINKING
 
@@ -175,13 +174,19 @@ async def test_empty_ai_text_skips_ai_transcript() -> None:
         p._run_turn("여보세요", _TurnTimings(final_at=0.0)), timeout=2.0
     )
 
-    assert _transcripts(p._ws) == []
-    assert p._history == [{"role": "user", "text": "여보세요"}]
+    fallback = pipeline_mod._TURN_FALLBACK_TEXT
+    assert _transcripts(p._ws) == [
+        {"type": "transcript", "role": "ai", "text": fallback}
+    ]
+    assert p._history == [
+        {"role": "user", "text": "여보세요"},
+        {"role": "assistant", "text": fallback},
+    ]
 
 
 @pytest.mark.asyncio
 async def test_watchdog_turn_still_sends_partial_ai_transcript(monkeypatch) -> None:
-    """워치독 취소 턴도 그때까지의 부분 대사를 히스토리 그대로 송신한다."""
+    """워치독 턴도 부분 대사를 송신하고, 폴백 멘트가 뒤따른다(F28). speaking_end 는 마지막."""
     monkeypatch.setattr(pipeline_mod, "_TURN_WATCHDOG_SECONDS", 0.05)
     p = _make_pipeline(_StallAfterTextLLM(), _FakeTTSClient())
     p._state = _State.THINKING
@@ -190,12 +195,14 @@ async def test_watchdog_turn_still_sends_partial_ai_transcript(monkeypatch) -> N
         p._run_turn("여보세요", _TurnTimings(final_at=0.0)), timeout=2.0
     )
 
+    fallback = pipeline_mod._TURN_FALLBACK_TEXT
     frame_types = [f.get("type") for f in p._ws.frames]
-    assert frame_types.index("speaking_end") < frame_types.index("transcript")
+    assert frame_types.index("transcript") < frame_types.index("speaking_end")
     assert _transcripts(p._ws) == [
-        {"type": "transcript", "role": "ai", "text": "잠시"}
+        {"type": "transcript", "role": "ai", "text": "잠시"},
+        {"type": "transcript", "role": "ai", "text": fallback},
     ]
-    assert p._history[-1] == {"role": "assistant", "text": "잠시"}
+    assert p._history[-1] == {"role": "assistant", "text": f"잠시 {fallback}"}
 
 
 @pytest.mark.asyncio

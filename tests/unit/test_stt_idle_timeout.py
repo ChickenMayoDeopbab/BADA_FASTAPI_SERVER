@@ -6,7 +6,7 @@ import pytest
 from google.api_core.exceptions import Aborted, OutOfRange, ServiceUnavailable
 
 from app.schemas.frames import EndReason
-from app.services.pipeline import VoicePipeline
+from app.services.pipeline import VoicePipeline, _State
 from app.services.stt import (
     AUDIO_EOS,
     GoogleSTTClient,
@@ -248,3 +248,71 @@ async def test_lazy_open_eos_returns_without_stream() -> None:
 
     await p._consume_one_stream(p._audio_queue)
     assert fake.calls == []
+
+def _make_warning_pipeline(state) -> tuple[VoicePipeline, list[dict]]:
+    p = VoicePipeline.__new__(VoicePipeline)
+    p._session_id = "sess-test"
+    p._closing = asyncio.Event()
+    p._audio_queue = asyncio.Queue()
+    p._stt = _FakeSTT()
+    p._state = state
+    frames: list[dict] = []
+
+    async def fake_send_json(payload: dict) -> None:
+        frames.append(payload)
+
+    p._send_json = fake_send_json
+    return p, frames
+
+
+def _warning_notices(frames: list[dict]) -> list[dict]:
+    return [
+        f for f in frames
+        if f.get("type") == "notice" and f.get("code") == "NO_AUDIO_WARNING"
+    ]
+
+
+async def test_no_audio_warning_sent_before_idle_timeout(monkeypatch) -> None:
+    monkeypatch.setattr("app.services.pipeline._STT_NO_AUDIO_TIMEOUT", 0.08)
+    monkeypatch.setattr(
+        "app.services.pipeline._STT_NO_AUDIO_WARNING_LEAD", 0.04, raising=False
+    )
+    p, frames = _make_warning_pipeline(_State.LISTENING)
+
+    with pytest.raises(STTIdleTimeoutError):
+        await p._consume_one_stream(p._audio_queue)
+
+    assert len(_warning_notices(frames)) == 1
+    assert _warning_notices(frames)[0].get("text")
+
+
+async def test_no_audio_warning_skipped_when_not_listening(monkeypatch) -> None:
+    monkeypatch.setattr("app.services.pipeline._STT_NO_AUDIO_TIMEOUT", 0.08)
+    monkeypatch.setattr(
+        "app.services.pipeline._STT_NO_AUDIO_WARNING_LEAD", 0.04, raising=False
+    )
+    p, frames = _make_warning_pipeline(_State.SPEAKING)
+
+    with pytest.raises(STTIdleTimeoutError):
+        await p._consume_one_stream(p._audio_queue)
+
+    assert _warning_notices(frames) == []
+
+
+async def test_audio_after_warning_opens_stream(monkeypatch) -> None:
+    monkeypatch.setattr("app.services.pipeline._STT_NO_AUDIO_TIMEOUT", 0.5)
+    monkeypatch.setattr(
+        "app.services.pipeline._STT_NO_AUDIO_WARNING_LEAD", 0.46, raising=False
+    )
+    p, frames = _make_warning_pipeline(_State.LISTENING)
+
+    async def feed_late() -> None:
+        await asyncio.sleep(0.1)
+        p._audio_queue.put_nowait(b"pcm-late")
+
+    feeder = asyncio.create_task(feed_late())
+    await p._consume_one_stream(p._audio_queue)
+    await feeder
+
+    assert p._stt.calls == [b"pcm-late"]
+    assert len(_warning_notices(frames)) == 1
