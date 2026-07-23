@@ -12,6 +12,12 @@ class FrameType(StrEnum):
     TRANSCRIPT = "transcript"         # 대화 스크립트 한 줄(나 혹은 상대)
     SCRIPT_HINT = "script_hint"       # 사용자 다음 발화 힌트, 1은 추천 문장, 2는 조언
     SCENARIO_INFO = "scenario_info"   # AI 역할
+    NOTICE = "notice"                 # 사용자 안내
+
+
+class NoticeCode(StrEnum):
+    TURN_FALLBACK = "TURN_FALLBACK"       # 응답 생성 실패, 재발화 유도 신호
+    NO_AUDIO_WARNING = "NO_AUDIO_WARNING" # 무오디오 자동 종료 임박 경고
 
 
 class TranscriptRole(StrEnum):
@@ -62,3 +68,7 @@ def script_hint_frame(level: int, text: str) -> dict:
 
 def scenario_info_frame(ai_role: str) -> dict:
     return {"type": FrameType.SCENARIO_INFO.value, "aiRole": ai_role}
+
+
+def notice_frame(code: NoticeCode, text: str) -> dict:
+    return {"type": FrameType.NOTICE.value, "code": code.value, "text": text}
