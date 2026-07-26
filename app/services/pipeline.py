@@ -24,9 +24,10 @@ from app.schemas.frames import (
     transcript_frame,
 )
 from app.schemas.llm import AiEmotion, LLMEventType, TurnContext
+from app.services.feedback_service import save_feedback
 from app.services.llm import LLMClient
 from app.services.recording_storage import RecordingStorageService
-from app.services.session import build_turn_context
+from app.services.session import build_turn_context, parse_scenario_id, parse_user_id
 from app.services.spring_client import SpringInternalClient
 from app.services.stt import (
     AUDIO_EOS,
@@ -680,6 +681,8 @@ class VoicePipeline:
             except Exception:
                 logger.warning("잘한 점 생성 중 오류 발생")
 
+        await self._save_feedback(shake_count, good_segments)
+
         await self._spring.notify_session_closed(
             self._session_id,
             reason=reason,
@@ -689,6 +692,31 @@ class VoicePipeline:
             good_segments=good_segments,
             recording_key=recording_key,
             session_type=self._session.get("type"),
+        )
+
+    async def _save_feedback(self, shake_count: int, good_segments: list[dict]) -> None:
+        """피드백을 DB에 저장. 식별자가 없으면 건너뛴다(세션 종료는 계속 진행)."""
+        scenario_id = parse_scenario_id(self._session)
+        user_id = parse_user_id(self._session)
+        if scenario_id is None or user_id is None:
+            # Spring 이 세션에 scenarioId 를 넣기 전이면 여기로 온다. 배포 순서 무관하게 안전.
+            logger.warning(
+                "피드백 저장 스킵 — 세션에 scenarioId/userId 없음",
+                extra={
+                    "session_id": self._session_id,
+                    "has_scenario_id": scenario_id is not None,
+                    "has_user_id": user_id is not None,
+                },
+            )
+            return
+
+        await save_feedback(
+            session_id=self._session_id,
+            user_id=user_id,
+            scenario_id=scenario_id,
+            shake_count=shake_count,
+            silence_total=self._silence_total,
+            good_segments=good_segments,
         )
 
     async def _send_json(self, payload: dict) -> None:

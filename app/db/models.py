@@ -29,6 +29,8 @@ class FeedbackORM(Base):
     __tablename__ = "feedback"
 
     feedback_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    session_id: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     scenario_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("scenario.scenario_id"), nullable=False)
     shake_count: Mapped[int] = mapped_column(BigInteger, nullable=False)
     silence_duration: Mapped[int] = mapped_column(BigInteger, nullable=False)

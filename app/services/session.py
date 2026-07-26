@@ -48,6 +48,34 @@ def is_session_owner(session: dict[str, Any], user_id: int) -> bool:
         )
         return False
 
+def parse_scenario_id(session: dict[str, Any]) -> int | None:
+    """Spring이 Redis 세션에 박은 scenarioId. 없거나 이상값이면 None."""
+    raw = session.get("scenarioId")
+    if raw is None:
+        scenario = session.get("scenario")
+        if isinstance(scenario, dict):
+            raw = scenario.get("scenarioId")
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        logger.warning("세션 scenarioId 타입 불일치: %r", raw)
+        return None
+
+
+def parse_user_id(session: dict[str, Any]) -> int | None:
+    """세션 소유자 userId. 없거나 이상값이면 None."""
+    raw = session.get(OWNER_FIELD)
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        logger.warning("세션 userId 타입 불일치: %r", raw)
+        return None
+
+
 async def authenticate_session(
         ws: WebSocket,
         redis: Redis,
