@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import logging
+from collections.abc import Sequence
 from datetime import UTC, datetime
 
 from anthropic import AsyncAnthropic
@@ -22,6 +24,32 @@ from app.schemas.scenario import (
     ScenarioListResponse,
     ScriptTurnContext,
 )
+from app.services.recording_storage import RecordingStorageService
+
+logger = logging.getLogger(__name__)
+
+_IMAGE_URL_TTL_SEC = 3600
+
+
+def _image_storage(rows: Sequence[ScenarioORM]) -> RecordingStorageService | None:
+    if not any(row.scenario_image for row in rows):
+        return None
+    return RecordingStorageService(get_settings())
+
+
+def _image_url(storage: RecordingStorageService | None, key: str | None) -> str | None:
+    if storage is None or not key:
+        return None
+    try:
+        return storage.presigned_url(key, expires_in=_IMAGE_URL_TTL_SEC)
+    except Exception as e:
+        logger.warning(
+            "썸네일 URL 서명 실패, 이미지 없이 응답: %s: %s",
+            type(e).__name__,
+            e,
+            extra={"s3_key": key},
+        )
+        return None
 
 
 async def get_scenarios(
@@ -63,6 +91,7 @@ async def get_scenarios(
     preset_rows.sort(key=lambda item: item[0].scenario_id)
     custom_rows.sort(key=lambda row: (getattr(row, "created_at", datetime.min), row.scenario_id))
 
+    storage = _image_storage(rows)
     infos = [
         ScenarioInfo(
             scenario_id=row.scenario_id,
@@ -71,7 +100,7 @@ async def get_scenarios(
             category=seed["category"],
             difficulties=seed["difficulties"],
             personalities=seed["personalities"],
-            scenario_image=row.scenario_image,
+            scenario_image=_image_url(storage, row.scenario_image),
             tts_voice_id=row.tts_voice_id,
             ai_prompt=row.ai_prompt,
             is_custom=row.is_custom,
@@ -86,7 +115,7 @@ async def get_scenarios(
             category=ScenarioCategory.CUSTOM,
             difficulties=ALL_DIFFICULTIES,
             personalities=ALL_PERSONALITIES,
-            scenario_image=row.scenario_image,
+            scenario_image=_image_url(storage, row.scenario_image),
             tts_voice_id=row.tts_voice_id,
             ai_prompt=row.ai_prompt,
             is_custom=row.is_custom,
