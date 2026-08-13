@@ -70,6 +70,8 @@ async def get_scenarios(
     custom_rows: list[ScenarioORM] = []
     for row in rows:
         if row.is_custom:
+            if getattr(row, "deleted_at", None) is not None:
+                continue
             if row.is_warmup:
                 continue
             if row.user_id != user_id:
@@ -123,6 +125,22 @@ async def get_scenarios(
         for row in custom_rows
     )
     return ScenarioListResponse(scenarios=infos)
+
+
+async def delete_custom_scenario(
+        db: AsyncSession,
+        scenario_id: int,
+        user_id: int,
+) -> bool:
+    """본인 소유 커스텀 시나리오를 삭제"""
+    row = await db.get(ScenarioORM, scenario_id)
+    if row is None or not row.is_custom or row.user_id != user_id:
+        return False
+    if getattr(row, "deleted_at", None) is not None:
+        return False
+    row.deleted_at = datetime.now(UTC).replace(tzinfo=None)
+    await db.commit()
+    return True
 
 
 _SCENARIO_GEN_SYSTEM = """You are an expert scenario designer for a Korean phone call training application.

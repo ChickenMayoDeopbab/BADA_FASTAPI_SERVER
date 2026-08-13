@@ -161,7 +161,7 @@ async def get_example_conversation(
 
     row = await db.get(ScenarioORM, scenario_id)
     if row is not None and row.is_custom:
-        if row.user_id != user_id:
+        if row.user_id != user_id or getattr(row, "deleted_at", None) is not None:
             raise ScenarioNotFoundError(f"시나리오 {scenario_id} 없음")
         seed = None
     else:

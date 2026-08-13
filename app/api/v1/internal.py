@@ -27,6 +27,8 @@ async def get_scenario_context(
 ) -> ScenarioContextResponse:
     """프리셋은 PRESET_MAP에서, 커스텀은 DB(ScenarioORM)에서 컨텍스트를 만든다."""
     row = await db.get(ScenarioORM, scenario_id)
+    if row is not None and getattr(row, "deleted_at", None) is not None:
+        row = None  # 소프트 삭제된 시나리오로는 새 세션을 못 만든다
     if row is not None and getattr(row, "is_custom", False):
         return _custom_context(row)
 

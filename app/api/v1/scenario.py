@@ -23,6 +23,9 @@ from app.services.scenario_service import (
     create_custom_scenario as svc_create_custom_scenario,
 )
 from app.services.scenario_service import (
+    delete_custom_scenario as svc_delete_custom_scenario,
+)
+from app.services.scenario_service import (
     get_scenarios as svc_get_scenarios,
 )
 
@@ -110,3 +113,25 @@ async def create_custom_scenario(
 
     background.add_task(generate_scenario_thumbnail, response.scenario.scenario_id)
     return response
+
+
+@router.delete(
+    "/custom/{scenario_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="커스텀 시나리오 삭제",
+    description=(
+        "본인이 만든 커스텀 시나리오를 삭제합니다. "
+        "기본 시나리오·타인의 시나리오·이미 삭제된 시나리오는 404를 반환합니다."
+    ),
+)
+async def delete_custom_scenario(
+        scenario_id: int,
+        db: AsyncSession = Depends(get_db),
+        user_id: int = Depends(get_current_user_id),
+) -> None:
+    deleted = await svc_delete_custom_scenario(db, scenario_id, user_id)
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="시나리오를 찾을 수 없습니다.",
+        )
