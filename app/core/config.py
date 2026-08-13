@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     anthropic_api_key: str
     llm_analysis_model: str = "claude-sonnet-4-20250514"
 
+    # 시나리오 썸네일 이미지
+    gemini_image_model: str = "gemini-2.5-flash-image"
+
     # TTS
     elevenlabs_api_key: str
     elevenlabs_model: str = "eleven_flash_v2_5"

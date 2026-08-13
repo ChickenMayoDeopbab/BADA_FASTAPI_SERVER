@@ -1,5 +1,5 @@
 from anthropic import APIError
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from websockets.exceptions import WebSocketException
 
@@ -18,6 +18,7 @@ from app.services.example_service import (
 from app.services.example_service import (
     get_example_conversation as svc_get_example_conversation,
 )
+from app.services.scenario_image_service import generate_scenario_thumbnail
 from app.services.scenario_service import (
     create_custom_scenario as svc_create_custom_scenario,
 )
@@ -90,6 +91,7 @@ async def get_example_conversation(
 )
 async def create_custom_scenario(
         body: CustomSessionRequest,
+        background: BackgroundTasks,
         db: AsyncSession = Depends(get_db),
         user_id: int = Depends(get_current_user_id),
 ) -> CustomScenarioResponse:
@@ -105,4 +107,6 @@ async def create_custom_scenario(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"응답 파싱 오류: {str(e)}",
         ) from e
+
+    background.add_task(generate_scenario_thumbnail, response.scenario.scenario_id)
     return response

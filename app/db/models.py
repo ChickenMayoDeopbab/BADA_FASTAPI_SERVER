@@ -36,3 +36,11 @@ class FeedbackORM(Base):
     silence_duration: Mapped[int] = mapped_column(BigInteger, nullable=False)
     highlights: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+class FileORM(Base):
+    __tablename__ = "file"
+
+    file_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    file_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    s3_key: Mapped[str] = mapped_column(String(512), nullable=False, unique=True)
+    title: Mapped[str | None] = mapped_column(String(255), nullable=True)
