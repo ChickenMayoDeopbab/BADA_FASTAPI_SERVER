@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings, get_settings
 from app.core.preset_scenarios import PRESET_MAP
 from app.core.tts_voices import pick_example_user_voice
-from app.db.models import ScenarioORM
+from app.db.models import ScenarioORM, is_deleted
 from app.schemas.scenario import ExampleConversationResponse, ExampleTurn
 from app.services.recording_storage import RecordingStorageService
 from app.services.tts import ElevenLabsTTSClient
@@ -161,7 +161,7 @@ async def get_example_conversation(
 
     row = await db.get(ScenarioORM, scenario_id)
     if row is not None and row.is_custom:
-        if row.user_id != user_id:
+        if row.user_id != user_id or is_deleted(row):
             raise ScenarioNotFoundError(f"시나리오 {scenario_id} 없음")
         seed = None
     else:

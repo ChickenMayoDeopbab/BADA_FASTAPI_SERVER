@@ -6,6 +6,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base
 
 
+def is_deleted(row: object) -> bool:
+    return getattr(row, "deleted_at", None) is not None
+
+
 class ScenarioORM(Base):
     __tablename__ = "scenario"
 
@@ -24,6 +28,7 @@ class ScenarioORM(Base):
     example_dialogue: Mapped[list | None] = mapped_column(JSON, nullable=True) # 커스텀 전용 [{"speaker", "text"}]
     example_audio_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 class FeedbackORM(Base):
     __tablename__ = "feedback"

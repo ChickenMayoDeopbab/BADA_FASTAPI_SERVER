@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings, get_settings
 from app.core.enums import FileType
 from app.db.base import AsyncSessionLocal
-from app.db.models import FileORM, ScenarioORM
+from app.db.models import FileORM, ScenarioORM, is_deleted
 
 logger = logging.getLogger(__name__)
 
@@ -139,7 +139,7 @@ async def _register_file(db: AsyncSession, key: str, title: str) -> None:
 async def _generate_and_store(scenario_id: int, settings: Settings) -> None:
     async with AsyncSessionLocal() as db:
         row = await db.get(ScenarioORM, scenario_id)
-        if row is None or row.scenario_image:
+        if row is None or is_deleted(row) or row.scenario_image:
             return
 
         scene = await _write_scene_prompt(settings, row)

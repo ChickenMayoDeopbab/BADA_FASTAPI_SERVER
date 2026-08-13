@@ -1,3 +1,4 @@
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
@@ -30,6 +31,10 @@ async def init_db() -> None:
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        if engine.dialect.name == "postgresql":
+            await conn.execute(text(
+                "ALTER TABLE scenario ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP NULL"
+            ))
 
     async with AsyncSessionLocal() as session:
         await seed_preset_scenarios(session)

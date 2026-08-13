@@ -55,6 +55,7 @@ def _copy_custom(row: ScenarioORM, new_id: int) -> ScenarioORM:
         call_purpose=row.call_purpose,
         script=deepcopy(row.script),
         created_at=row.created_at,
+        deleted_at=row.deleted_at,
     )
 
 

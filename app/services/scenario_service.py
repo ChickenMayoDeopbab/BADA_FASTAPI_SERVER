@@ -15,7 +15,7 @@ from app.core.enums import ALL_DIFFICULTIES, ALL_PERSONALITIES, ScenarioCategory
 from app.core.preset_scenarios import PRESET_MAP, PRESET_SCENARIOS, scenario_to_info
 from app.core.prompt_matrix import PERSONALITY_BASE
 from app.core.tts_voices import parse_speaker, pick_voice_id
-from app.db.models import ScenarioORM
+from app.db.models import ScenarioORM, is_deleted
 from app.schemas.scenario import (
     CustomScenarioResponse,
     CustomSessionRequest,
@@ -70,6 +70,8 @@ async def get_scenarios(
     custom_rows: list[ScenarioORM] = []
     for row in rows:
         if row.is_custom:
+            if is_deleted(row):
+                continue
             if row.is_warmup:
                 continue
             if row.user_id != user_id:
@@ -123,6 +125,22 @@ async def get_scenarios(
         for row in custom_rows
     )
     return ScenarioListResponse(scenarios=infos)
+
+
+async def delete_custom_scenario(
+        db: AsyncSession,
+        scenario_id: int,
+        user_id: int,
+) -> bool:
+    """본인 소유 커스텀 시나리오를 삭제"""
+    row = await db.get(ScenarioORM, scenario_id, with_for_update=True)
+    if row is None or not row.is_custom or row.user_id != user_id:
+        return False
+    if is_deleted(row):
+        return False
+    row.deleted_at = datetime.now(UTC).replace(tzinfo=None)
+    await db.commit()
+    return True
 
 
 _SCENARIO_GEN_SYSTEM = """You are an expert scenario designer for a Korean phone call training application.
