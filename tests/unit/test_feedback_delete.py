@@ -86,12 +86,12 @@ async def test_delete_endpoint_204_removes_row() -> None:
     assert app.state.fake_db.session_ids == set()
 
 
-async def test_delete_endpoint_404_when_missing() -> None:
+async def test_delete_endpoint_204_when_missing_idempotent() -> None:
     app = _make_app(set())
 
     resp = await _delete(app, "/internal/v1/feedback/sess-1")
 
-    assert resp.status_code == 404
+    assert resp.status_code == 204
 
 
 async def test_delete_endpoint_requires_secret() -> None:
