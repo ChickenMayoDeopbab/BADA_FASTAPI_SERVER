@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 import httpx
+import pytest
 from fastapi import FastAPI
 
 from app.api.v1 import internal
@@ -16,7 +17,8 @@ class _FakeDB:
 
     async def execute(self, stmt: object) -> SimpleNamespace:
         params = stmt.compile().params
-        sid = params.get("session_id_1")
+        assert len(params) == 1, params
+        sid = next(iter(params.values()))
         removed = sid in self.session_ids
         self.session_ids.discard(sid)
         return SimpleNamespace(rowcount=1 if removed else 0)
@@ -38,6 +40,18 @@ async def test_delete_missing_feedback_returns_false() -> None:
     db = _FakeDB(set())
 
     assert await delete_feedback(db, "sess-없음") is False
+
+
+async def test_delete_db_error_propagates() -> None:
+    class _BoomDB:
+        async def execute(self, _stmt: object) -> None:
+            raise RuntimeError("db down")
+
+        async def commit(self) -> None:
+            pass
+
+    with pytest.raises(RuntimeError, match="db down"):
+        await delete_feedback(_BoomDB(), "sess-1")
 
 
 
