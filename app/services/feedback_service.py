@@ -4,12 +4,23 @@ import json
 import logging
 from datetime import UTC, datetime
 
+from sqlalchemy import delete
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import AsyncSessionLocal
 from app.db.models import FeedbackORM
 
 logger = logging.getLogger(__name__)
+
+
+async def delete_feedback(db: AsyncSession, session_id: str) -> bool:
+    """세션 피드백 행을 삭제"""
+    result = await db.execute(
+        delete(FeedbackORM).where(FeedbackORM.session_id == session_id)
+    )
+    await db.commit()
+    return bool(result.rowcount)
 
 
 async def save_feedback(
