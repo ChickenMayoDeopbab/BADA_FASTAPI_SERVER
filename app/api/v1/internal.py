@@ -63,17 +63,15 @@ async def get_scenario_context(
     "/feedback/{session_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="세션 피드백 삭제",
-    description="Spring이 훈련 기록을 삭제할 때 해당 세션의 feedback 행을 삭제",
+    description=(
+        "Spring이 훈련 기록을 삭제할 때 해당 세션의 feedback 행을 삭제. "
+    ),
 )
 async def delete_feedback(
     session_id: str,
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    if not await svc_delete_feedback(db, session_id):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="FEEDBACK_NOT_FOUND",
-        )
+    await svc_delete_feedback(db, session_id)
 
 
 def _custom_context(row: ScenarioORM) -> ScenarioContextResponse:
