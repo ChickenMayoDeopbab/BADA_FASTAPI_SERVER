@@ -6,6 +6,11 @@ class SessionType(StrEnum):
     SCENARIO = "SCENARIO"
     CUSTOM = "CUSTOM"
 
+class FileType(StrEnum):
+    PROFILE = "PROFILE"
+    SCENARIO_PROFILE = "SCENARIO_PROFILE"
+    CALL_FILE = "CALL_FILE"
+
 class AiPersonality(StrEnum):
     """AI 성격"""
 
