@@ -34,8 +34,13 @@ class _FakeDB:
     def __init__(self, rows: list) -> None:
         self.rows = {row.scenario_id: row for row in rows}
         self.commits = 0
+        self.locked_gets = 0
 
-    async def get(self, _model: object, key: int) -> object | None:
+    async def get(
+        self, _model: object, key: int, with_for_update: bool = False
+    ) -> object | None:
+        if with_for_update:
+            self.locked_gets += 1
         return self.rows.get(key)
 
     async def commit(self) -> None:
@@ -97,6 +102,7 @@ async def test_owner_soft_deletes_own_custom() -> None:
     assert row.deleted_at is not None
     assert db.commits == 1
     assert 101 in db.rows
+    assert db.locked_gets == 1
 
 
 async def test_delete_other_users_custom_refused() -> None:
