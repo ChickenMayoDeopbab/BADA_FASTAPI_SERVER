@@ -2,7 +2,7 @@ import random
 from contextlib import suppress
 from dataclasses import dataclass
 
-from app.core.enums import SpeakerAge, SpeakerGender, SpeakerTone
+from app.core.enums import Difficulty, SpeakerAge, SpeakerGender, SpeakerTone
 
 
 @dataclass(frozen=True)
@@ -27,6 +27,14 @@ VOICE_REGISTRY: list[VoiceProfile] = [
 ]
 
 
+# 난이도따라서 톤 다르게
+_DIFFICULTY_TONE: dict[Difficulty, SpeakerTone | None] = {
+    Difficulty.LOW: SpeakerTone.SOFT,
+    Difficulty.MEDIUM: None,
+    Difficulty.HIGH: SpeakerTone.ROUGH,
+}
+
+
 # 예시 대화에서 '나(사용자 역할)' 대사에 쓰는 고정 보이스
 EXAMPLE_USER_VOICE_ID = "4JJwo477JUAx3HV0T7n7"  # 평범한 젊은 남성
 
@@ -39,6 +47,38 @@ def pick_example_user_voice(ai_voice_id: str | None) -> str:
         if profile.voice_id != ai_voice_id:
             return profile.voice_id
     return EXAMPLE_USER_VOICE_ID
+
+
+def profile_for(voice_id: str | None) -> VoiceProfile | None:
+    """받은 voice_id가 VOICE_REGISTRY에 있으면 반환"""
+    if not voice_id:
+        return None
+    for profile in VOICE_REGISTRY:
+        if profile.voice_id == voice_id:
+            return profile
+    return None
+
+
+def resolve_voice(voice_id: str | None, difficulty: Difficulty | None) -> str | None:
+    """난이도에 맞는 톤으로 보이스 바꾸기"""
+    if difficulty is None:
+        return voice_id
+    target_tone = _DIFFICULTY_TONE.get(difficulty)
+    if target_tone is None:
+        return voice_id
+
+    profile = profile_for(voice_id)
+    if profile is None:
+        return voice_id
+
+    candidates = [
+        v
+        for v in VOICE_REGISTRY
+        if v.gender == profile.gender and v.age == profile.age and v.tone == target_tone
+    ]
+    if not candidates:
+        return voice_id
+    return min(c.voice_id for c in candidates)
 
 
 def parse_speaker(

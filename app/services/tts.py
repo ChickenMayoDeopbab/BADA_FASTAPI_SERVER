@@ -10,6 +10,7 @@ from websockets.asyncio.client import ClientConnection
 from websockets.exceptions import WebSocketException
 
 from app.core.config import Settings
+from app.core.enums import Difficulty
 from app.schemas.llm import AiEmotion
 
 logger = logging.getLogger(__name__)
@@ -22,8 +23,29 @@ _EMOTION_VOICE_OVERRIDES: dict[AiEmotion, dict] = {
     AiEmotion.APOLOGETIC: {"stability": 0.60, "style": 0.10, "speed": 0.96},
 }
 
+# 난이도 하 전용
+_LOW_EMOTION_VOICE_OVERRIDES: dict[AiEmotion, dict] = {
+    AiEmotion.ANNOYED: {"stability": 0.60, "style": 0.10, "speed": 1.00},
+    AiEmotion.ANGRY:   {"stability": 0.60, "style": 0.15, "speed": 1.00},
+}
+
+_SETTING_RANGES: dict[str, tuple[float, float]] = {
+    "stability": (0.0, 1.0),
+    "style": (0.0, 1.0),
+    "similarity_boost": (0.0, 1.0),
+    "speed": (0.7, 1.2),
+}
+
 _SENTENCE_BOUNDARIES = ".?!…\n"
 _CLOSING_AFTER_BOUNDARY = "\"'」』)"
+
+
+def _clamp_settings(settings: dict) -> dict:
+    for key, (low, high) in _SETTING_RANGES.items():
+        value = settings.get(key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            settings[key] = min(max(float(value), low), high)
+    return settings
 
 
 class _SentenceBuffer:
@@ -76,16 +98,24 @@ class _SentenceBuffer:
 class TTSSession:
     """턴 1번마다 ElevenLabs ws 연결"""
 
-    def __init__(self, ws: ClientConnection, voice_settings: dict[str, object]) -> None:
+    def __init__(
+        self,
+        ws: ClientConnection,
+        voice_settings: dict[str, object],
+        difficulty: Difficulty | None = None,
+    ) -> None:
         self._ws = ws
         self._base_voice_settings = voice_settings
+        self._difficulty = difficulty
         self._inited = False
         self._closed = False
 
     def _voice_settings_for(self, emotion: AiEmotion) -> dict:
         settings = dict(self._base_voice_settings)
         settings.update(_EMOTION_VOICE_OVERRIDES.get(emotion, {}))
-        return settings
+        if self._difficulty is Difficulty.LOW:
+            settings.update(_LOW_EMOTION_VOICE_OVERRIDES.get(emotion, {}))
+        return _clamp_settings(settings)
 
     async def begin(self, emotion: AiEmotion = AiEmotion.NEUTRAL) -> None:
         if self._inited:
@@ -138,7 +168,8 @@ class TTSSession:
 
 
 class ElevenLabsTTSClient:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, difficulty: Difficulty | None = None) -> None:
+        self._difficulty = difficulty
         self._api_key = settings.elevenlabs_api_key
         self._voice_id = settings.elevenlabs_voice_id
         self._model = settings.elevenlabs_model
@@ -176,7 +207,7 @@ class ElevenLabsTTSClient:
         except WebSocketException:
             logger.exception("TTS WebSocket 연결 실패")
             raise
-        return TTSSession(ws, self._voice_settings)
+        return TTSSession(ws, self._voice_settings, self._difficulty)
 
     async def stream(
         self,

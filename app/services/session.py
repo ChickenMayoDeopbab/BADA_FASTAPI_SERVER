@@ -5,6 +5,7 @@ from typing import Any
 from fastapi import WebSocket, status
 from redis.asyncio import Redis
 
+from app.core.enums import Difficulty
 from app.schemas.llm import AiPersonality, ScenarioTurn, TurnContext
 
 logger = logging.getLogger(__name__)
@@ -143,6 +144,20 @@ def _parse_script_level(raw: Any) -> int | None:
         return level
     logger.debug("scriptLevel 범위 밖, 힌트 비활성: %r", raw)
     return None
+
+
+def parse_difficulty(session: dict[str, Any]) -> Difficulty | None:
+    """Spring이 보내준 difficulty 이상한 값이면 None 반환"""
+    raw = session.get("difficulty")
+    if not isinstance(raw, str):
+        if raw is not None:
+            logger.debug("difficulty 타입 불일치, 보이스 개입 안 함: %r", raw)
+        return None
+    try:
+        return Difficulty(raw.strip().lower())
+    except ValueError:
+        logger.debug("알 수 없는 difficulty, 보이스 개입 안 함: %r", raw)
+        return None
 
 
 # LLM 에 보낼 히스토리 상한

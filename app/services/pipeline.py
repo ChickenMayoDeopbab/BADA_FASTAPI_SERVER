@@ -12,6 +12,7 @@ from google.api_core.exceptions import GoogleAPICallError
 from app.core.config import Settings
 from app.core.enums import SessionType
 from app.core.metrics import log_metric, now_ms
+from app.core.tts_voices import resolve_voice
 from app.schemas.frames import (
     EndReason,
     NoticeCode,
@@ -29,7 +30,12 @@ from app.schemas.llm import AiEmotion, LLMEventType, TurnContext
 from app.services.feedback_service import save_feedback
 from app.services.llm import LLMClient
 from app.services.recording_storage import RecordingStorageService
-from app.services.session import build_turn_context, parse_scenario_id, parse_user_id
+from app.services.session import (
+    build_turn_context,
+    parse_difficulty,
+    parse_scenario_id,
+    parse_user_id,
+)
 from app.services.spring_client import SpringInternalClient
 from app.services.stt import (
     AUDIO_EOS,
@@ -57,7 +63,7 @@ _SAFETY_FALLBACK = "죄송해요, 그 부분은 지금 답하기 어렵네요."
 _TURN_WATCHDOG_SECONDS = 30.0
 _TURN_FALLBACK_TEXT = "죄송해요, 다시 한번 말씀해 주시겠어요?"
 _FALLBACK_TTS_TIMEOUT = 8.0
-# 칭찬 생성 실패 시 good_point 기본 문구
+# 칭찬 생성 실패 시 잘한 포인트 기본 문구
 _DEFAULT_GOOD_POINT = "잘 이야기했어요"
 
 
@@ -127,7 +133,8 @@ class VoicePipeline:
             language=settings.google_stt_language,
         )
         self._llm = LLMClient()
-        self._tts = ElevenLabsTTSClient(settings)
+        self._difficulty = parse_difficulty(session)
+        self._tts = ElevenLabsTTSClient(settings, self._difficulty)
         self._recording_storage = RecordingStorageService(settings)
 
         self._audio_queue: asyncio.Queue[bytes | None] = asyncio.Queue()
@@ -162,9 +169,10 @@ class VoicePipeline:
         self._script_len = len(script) if isinstance(script, list) else 0
 
         raw_voice = scenario.get("ttsVoiceId") if isinstance(scenario, dict) else None
-        self._voice_id_override = (
+        assigned_voice = (
             raw_voice if isinstance(raw_voice, str) and raw_voice.strip() else None
         )
+        self._voice_id_override = resolve_voice(assigned_voice, self._difficulty)
 
     async def run(self) -> None:
         """진입점"""
