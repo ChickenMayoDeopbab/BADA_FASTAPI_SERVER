@@ -6,6 +6,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base
 
 
+def is_deleted(row: object) -> bool:
+    return getattr(row, "deleted_at", None) is not None
+
+
 class ScenarioORM(Base):
     __tablename__ = "scenario"
 
