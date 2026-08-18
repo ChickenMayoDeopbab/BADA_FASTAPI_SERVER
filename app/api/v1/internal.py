@@ -6,6 +6,7 @@ from app.core.security import require_internal_secret
 from app.db.models import ScenarioORM, is_deleted
 from app.deps.db import get_db
 from app.schemas.scenario import ScenarioContextResponse, ScriptTurnContext
+from app.services.feedback_service import delete_feedback as svc_delete_feedback
 
 router = APIRouter(dependencies=[Depends(require_internal_secret)])
 
@@ -56,6 +57,21 @@ async def get_scenario_context(
         )
 
     return _custom_context(row)
+
+
+@router.delete(
+    "/feedback/{session_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="세션 피드백 삭제",
+    description=(
+        "Spring이 훈련 기록을 삭제할 때 해당 세션의 feedback 행을 삭제. "
+    ),
+)
+async def delete_feedback(
+    session_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    await svc_delete_feedback(db, session_id)
 
 
 def _custom_context(row: ScenarioORM) -> ScenarioContextResponse:
