@@ -58,6 +58,27 @@ def test_connect_sends_empty_ai_role_when_scenario_not_dict(monkeypatch) -> None
     assert frame == {"type": "scenario_info", "aiRole": ""}
 
 
+def test_connect_sends_scenario_info_with_script_level(monkeypatch) -> None:
+    for raw, parsed in ((1, 1), ("2", 2), (3, 3)):
+        session = {"scenario": {"aiRole": "레스토랑 예약 담당 직원"}, "scriptLevel": raw}
+        frame = _first_frame(monkeypatch, session)
+        assert frame == {
+            "type": "scenario_info",
+            "aiRole": "레스토랑 예약 담당 직원",
+            "scriptLevel": parsed,
+        }
+
+
+def test_connect_omits_script_level_when_absent_or_invalid(monkeypatch) -> None:
+    for session in (
+        {"scenario": {"aiRole": "직원"}},
+        {"scenario": {"aiRole": "직원"}, "scriptLevel": "x"},
+        {"scenario": {"aiRole": "직원"}, "scriptLevel": 7},
+    ):
+        frame = _first_frame(monkeypatch, session)
+        assert frame == {"type": "scenario_info", "aiRole": "직원"}
+
+
 def test_init_failure_sends_error_frame_then_1011(monkeypatch) -> None:
     _patch_auth(monkeypatch)
     monkeypatch.setattr(ws_mod, "VoicePipeline", _BoomPipeline)
