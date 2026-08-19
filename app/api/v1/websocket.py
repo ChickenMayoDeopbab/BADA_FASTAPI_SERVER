@@ -9,7 +9,7 @@ from app.core.security import authenticate_ws
 from app.deps.redis import get_redis
 from app.schemas.frames import error_frame, scenario_info_frame
 from app.services.pipeline import VoicePipeline
-from app.services.session import authenticate_session
+from app.services.session import authenticate_session, parse_script_level
 from app.services.spring_client import SpringInternalClient
 
 logger = logging.getLogger(__name__)
@@ -66,7 +66,12 @@ async def voice_stream(
     if not isinstance(scenario, dict):
         scenario = {}
     try:
-        await ws.send_json(scenario_info_frame(str(scenario.get("aiRole", ""))))
+        await ws.send_json(
+            scenario_info_frame(
+                str(scenario.get("aiRole", "")),
+                script_level=parse_script_level(session.get("scriptLevel")),
+            )
+        )
     except (WebSocketDisconnect, RuntimeError):
         return
 

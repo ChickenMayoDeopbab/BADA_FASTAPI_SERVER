@@ -66,8 +66,11 @@ def script_hint_frame(level: int, text: str) -> dict:
     return {"type": FrameType.SCRIPT_HINT.value, "level": level, "text": text}
 
 
-def scenario_info_frame(ai_role: str) -> dict:
-    return {"type": FrameType.SCENARIO_INFO.value, "aiRole": ai_role}
+def scenario_info_frame(ai_role: str, script_level: int | None = None) -> dict:
+    frame = {"type": FrameType.SCENARIO_INFO.value, "aiRole": ai_role}
+    if script_level is not None:
+        frame["scriptLevel"] = script_level
+    return frame
 
 
 def notice_frame(code: NoticeCode, text: str) -> dict:

@@ -132,7 +132,7 @@ def _parse_script(raw_script: Any) -> list[ScenarioTurn]:
     return sorted(turns, key=lambda t: t.step)
 
 
-def _parse_script_level(raw: Any) -> int | None:
+def parse_script_level(raw: Any) -> int | None:
     """Spring 이 넣은 scriptLevel 없거나 이상값이면 None"""
     try:
         level = int(raw)
@@ -204,5 +204,5 @@ def build_turn_context(
         history=_cap_history(history),
         user_utterance=user_utterance,
         scenario_prompt=str(scenario.get("aiPrompt", "")),
-        script_level=_parse_script_level(session.get("scriptLevel")),
+        script_level=parse_script_level(session.get("scriptLevel")),
     )
