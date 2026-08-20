@@ -22,6 +22,10 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH="/opt/venv/bin:$PATH"
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends praat \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN useradd --create-home --uid 1000 appuser
 
 WORKDIR /app
@@ -29,6 +33,7 @@ WORKDIR /app
 COPY --from=builder /opt/venv /opt/venv
 
 COPY app ./app
+COPY vendor ./vendor
 
 USER appuser
 
