@@ -4,6 +4,8 @@
   - 못 잰 값은 절대 0이 되지 않는다 (논문이 직접 경고한 부분)
   - 3초 지속발성이 없으면 실패가 아니라 NO_SUSTAINED 라는 정상 결과다
 """
+import sys
+
 import numpy as np
 import pytest
 
@@ -39,8 +41,13 @@ def stub_script(tmp_path) -> str:
 
 
 def _analyzer(tmp_path, **kwargs) -> AvtiAnalyzer:
+    """_run_praat 을 가짜로 바꿔 쓰는 테스트용. praat 설치 여부를 타지 않는다.
+
+    available 판정이 실행 파일 존재를 보므로, 어디에나 있는 파이썬 경로를
+    praat 자리에 넣는다. 실제로 실행되지는 않는다.
+    """
     return AvtiAnalyzer(
-        praat_bin="praat",
+        praat_bin=sys.executable,
         script_path=stub_script(tmp_path),
         config=AvtiConfig(**kwargs) if kwargs else None,
     )

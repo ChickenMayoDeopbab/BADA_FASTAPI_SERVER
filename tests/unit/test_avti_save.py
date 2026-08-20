@@ -1,5 +1,6 @@
 """AVTI 저장과 백그라운드 워커 테스트."""
 import asyncio
+import sys
 from types import SimpleNamespace
 
 from app.schemas.frames import EndReason
@@ -220,7 +221,7 @@ async def test_running_task_keeps_a_reference(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(avti_worker.AvtiAnalyzer, "_run_praat", lambda self, d: {})
 
     task = avti_worker.schedule_avti(
-        settings=_settings(avti_script_path=script),
+        settings=_settings(avti_script_path=script, praat_bin=sys.executable),
         session_id="sess-1",
         pcm=b"\x00\x00" * 16000 * 5,
         parts=[(0.0, 5.0)],
