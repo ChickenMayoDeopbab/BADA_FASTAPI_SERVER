@@ -117,19 +117,10 @@ _SAFETY_SETTINGS = [
 ]
 
 class LLMClient:
-    _thinking_budget: int | None = None
-
     def __init__(self) -> None:
         settings = get_settings()
         self._client = genai.Client(api_key=settings.gemini_api_key)
         self._model = settings.llm_realtime_model
-        self._thinking_budget = settings.llm_thinking_budget
-
-    def _thinking_config(self) -> types.ThinkingConfig | None:
-        """모델 thinking 설정"""
-        if self._thinking_budget is None:
-            return None
-        return types.ThinkingConfig(thinking_budget=self._thinking_budget)
 
     def _build_gen_config(self, system_prompt: str) -> types.GenerateContentConfig:
         return types.GenerateContentConfig(
@@ -137,7 +128,7 @@ class LLMClient:
             safety_settings=_SAFETY_SETTINGS,
             temperature=0.8, # LLM 내부적으로 확률 분포 넓게 하거나 작게하는거, 최솟값:0, 최댓값:2
             max_output_tokens=1024,
-            thinking_config=self._thinking_config(),
+            thinking_config=types.ThinkingConfig(thinking_budget=0),  # 추론 비활성화
         )
 
     @staticmethod
@@ -171,7 +162,7 @@ class LLMClient:
                 contents="안녕",
                 config=types.GenerateContentConfig(
                     max_output_tokens=1,
-                    thinking_config=self._thinking_config(),
+                    thinking_config=types.ThinkingConfig(thinking_budget=0),
                 ),
             )
             async for _ in stream:
@@ -209,7 +200,7 @@ class LLMClient:
                     safety_settings=_SAFETY_SETTINGS,
                     temperature=0.7,
                     max_output_tokens=256,
-                    thinking_config=self._thinking_config(),
+                    thinking_config=types.ThinkingConfig(thinking_budget=0),
                 ),
             )
         except asyncio.CancelledError:

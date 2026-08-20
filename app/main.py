@@ -11,6 +11,7 @@ from app.core.logging import setup_logging
 from app.core.metrics import log_metric, now_ms
 from app.db.base import init_db
 from app.deps.redis import close_redis, init_redis
+from app.workers.avti_worker import drain as drain_avti
 
 
 @asynccontextmanager
@@ -27,6 +28,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        await drain_avti()
         await close_redis(app.state.redis)
 
 

@@ -5,6 +5,7 @@ import time
 from contextlib import suppress
 from dataclasses import dataclass
 from enum import StrEnum
+from itertools import zip_longest
 
 from fastapi import WebSocket, WebSocketDisconnect
 from google.api_core.exceptions import GoogleAPICallError
@@ -27,6 +28,7 @@ from app.schemas.frames import (
     transcript_frame,
 )
 from app.schemas.llm import AiEmotion, LLMEventType, TurnContext
+from app.services.feedback_points import Band, is_safe, voice_band
 from app.services.feedback_service import save_feedback
 from app.services.llm import LLMClient
 from app.services.recording_storage import RecordingStorageService
@@ -46,6 +48,7 @@ from app.services.stt import (
 )
 from app.services.tremor import TremorAnalyzer
 from app.services.tts import ElevenLabsTTSClient, TTSSession
+from app.workers.avti_worker import run_avti
 
 logger = logging.getLogger(__name__)
 
@@ -63,8 +66,21 @@ _SAFETY_FALLBACK = "죄송해요, 그 부분은 지금 답하기 어렵네요."
 _TURN_WATCHDOG_SECONDS = 30.0
 _TURN_FALLBACK_TEXT = "죄송해요, 다시 한번 말씀해 주시겠어요?"
 _FALLBACK_TTS_TIMEOUT = 8.0
-# 칭찬 생성 실패 시 잘한 포인트 기본 문구
-_DEFAULT_GOOD_POINT = "잘 이야기했어요"
+_AVTI_WAIT_SECONDS = 20.0
+# 구간 피드백
+_MAX_SEGMENTS = 3
+_MIN_GOOD_SEC = 1.0
+_SEG_GOOD = "GOOD"
+_SEG_IMPROVE = "IMPROVE"
+# 구간을 고르는 데만 쓰는 키. 밖으로 나가기 전에 털어낸다.
+_INTERNAL_SEGMENT_KEYS = ("turn", "avti", "reason")
+
+
+def _segment_fallback(kind: str) -> tuple[str, str]:
+    """LLM 이 못 쓰거나 걸러졌을 때 구간에 남길 최소 문구."""
+    if kind == _SEG_IMPROVE:
+        return ("이 구간을 다시 들어봐요", "말이 흔들린 부분이에요. 다음엔 여기서 한 호흡 쉬고 말해봐요.")
+    return ("잘 이야기했어요", "이 구간은 흔들림 없이 이어서 말했어요.")
 
 
 def _clip(text: str, limit: int = 120) -> str:
@@ -704,8 +720,10 @@ class VoicePipeline:
         self._close_user_turn()
 
         shake_count = 0
-        good_segments: list[dict] = []
+        good_candidates: list = []
         recording_key: str | None = None
+        recording_pcm = b""
+        sustained_spans: list = []
         if self._tremor_buf:
             recording_pcm = bytes(self._tremor_buf)
             try:
@@ -726,22 +744,31 @@ class VoicePipeline:
                     self._tremor.analyze, recording_pcm
                 )
                 shake_count = result.shake_count
-                good_segments = self._pick_good_segments(result.good_candidates)
+                good_candidates = result.good_candidates
+                sustained_spans = result.sustained_spans
             except Exception:
                 logger.warning(
                     "떨림 분석 실패",
                     extra={"session_id": self._session_id},
                     exc_info=True,
                 )
-                # 분석 실패 시에도 사용자 턴으로 잘한 구간 3개를 보충
-                good_segments = self._pick_good_segments([])
             finally:
                 self._tremor_buf.clear()
+
+        # 턴별 AVTI 를 먼저 잰다. 어느 구간을 칭찬하고 어느 구간을 짚을지가
+        # 이 값으로 갈리기 때문에 end 프레임보다 앞에 있어야 한다(약 0.2초).
+        avti_by_turn = await self._measure_avti(recording_pcm, sustained_spans)
+        good_segments = self._pick_segments(good_candidates, avti_by_turn)
 
         feedback = {
             "shake_count": shake_count,
             "silence_total": self._silence_total,
-            "good_segments": good_segments,
+            # 문구는 아직 없다(end 프레임 뒤에 채운다). 판단 재료(turn·avti·reason)는
+            # 내부용이라 클라이언트로 내보내지 않는다.
+            "good_segments": [
+                {"start": seg["start"], "end": seg["end"], "type": seg["type"]}
+                for seg in good_segments
+            ],
         }
 
         if self._ws_alive:
@@ -752,19 +779,8 @@ class VoicePipeline:
             with suppress(Exception):
                 await self._ws.close()
 
-        # 종료 프레임 전송 후에 생성 → 사용자 체감 지연 없음. Spring 콜백에만 실린다.
-        if good_segments:
-            try:
-                utterances = [
-                    self._utterance_for(seg["start"], seg["end"]) for seg in good_segments
-                ]
-                praises = await self._llm.praise_segments(utterances)
-                for seg, praise in zip(good_segments, praises, strict=True):
-                    seg["good_point"] = praise or _DEFAULT_GOOD_POINT
-            except asyncio.CancelledError:
-                logger.warning("잘한 점 칭찬 생성 중 취소됨")
-            except Exception:
-                logger.warning("잘한 점 생성 중 오류 발생")
+        # 문구는 end 프레임 뒤에서 채운다 → 사용자 체감 지연 없음.
+        await self._write_segment_feedback(good_segments)
 
         await self._save_feedback(shake_count, good_segments)
 
@@ -779,8 +795,91 @@ class VoicePipeline:
             session_type=self._session.get("type"),
         )
 
-    async def _save_feedback(self, shake_count: int, good_segments: list[dict]) -> None:
-        """피드백을 DB에 저장. 식별자가 없으면 건너뛴다(세션 종료는 계속 진행)."""
+    async def _measure_avti(
+        self, recording_pcm: bytes, sustained_spans: list
+    ) -> dict[int, float]:
+        """턴별 AVTI 측정. 늦어지거나 터져도 피드백은 그대로 나간다.
+
+        {0: 세션 전체, 1..n: 사용자 턴}. 못 잰 턴은 키가 없다 —
+        열 턴에 한 번쯤만 값이 나오므로 없는 게 기본이라고 보면 된다.
+        """
+        if not recording_pcm:
+            return {}
+        parts = [
+            (0.0, len(recording_pcm) / (16000 * 2)),  # 0번은 세션 전체
+            *self._user_turn_intervals,
+        ]
+        try:
+            return await asyncio.wait_for(
+                run_avti(
+                    settings=self._settings,
+                    session_id=self._session_id,
+                    pcm=recording_pcm,
+                    parts=parts,
+                    sustained_spans=sustained_spans,
+                ),
+                timeout=_AVTI_WAIT_SECONDS,
+            )
+        except asyncio.CancelledError:
+            raise
+        except TimeoutError:
+            logger.warning("AVTI 측정 지연 — 목소리 근거 없이 진행",
+                           extra={"session_id": self._session_id})
+        except Exception:
+            logger.warning("AVTI 측정 실패 — 목소리 근거 없이 진행",
+                           exc_info=True, extra={"session_id": self._session_id})
+        return {}
+
+    async def _write_segment_feedback(self, segments: list[dict]) -> None:
+        """구간마다 title / content 를 채운다. 실패해도 구간 자체는 남는다."""
+        if not segments:
+            return
+
+        scenario = self._session.get("scenario") or {}
+        if not isinstance(scenario, dict):
+            scenario = {}
+
+        items = [
+            {
+                "type": seg["type"],
+                "utterance": self._utterance_for(seg["start"], seg["end"]),
+                "avti": seg.get("avti"),
+                "reason": seg.get("reason"),
+            }
+            for seg in segments
+        ]
+
+        try:
+            written = await self._llm.segment_feedback(
+                items,
+                scenario_title=str(scenario.get("title", "")),
+                call_target=str(scenario.get("callTarget", "")),
+                call_purpose=str(scenario.get("callPurpose", "")),
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.warning("구간 피드백 생성 실패", exc_info=True,
+                           extra={"session_id": self._session_id})
+            written = []
+
+        for seg, pair in zip_longest(segments, written, fillvalue=None):
+            if seg is None:
+                break
+            title, content = pair if pair else ("", "")
+            if not is_safe(title, content):
+                title, content = _segment_fallback(seg["type"])
+            seg["title"] = title
+            seg["content"] = content
+            seg["good_point"] = content  # 기존 Spring 매핑 유지
+            for internal in _INTERNAL_SEGMENT_KEYS:
+                seg.pop(internal, None)
+
+    async def _save_feedback(
+        self,
+        shake_count: int,
+        good_segments: list[dict],
+    ) -> None:
         scenario_id = parse_scenario_id(self._session)
         user_id = parse_user_id(self._session)
         if scenario_id is None or user_id is None:
@@ -858,6 +957,55 @@ class VoicePipeline:
                 if hi > lo:
                     out.append((lo, hi))
         return out
+
+    def _pick_segments(self, candidates, avti_by_turn: dict[int, float]) -> list[dict]:
+        """칭찬할 구간과 아쉬운 구간을 함께 고른다."""
+        clean = self._intersect(candidates, self._user_turn_intervals)
+        picked: list[dict] = []
+
+        for index, (start, end) in enumerate(self._user_turn_intervals, start=1):
+            if end - start <= 0:
+                continue
+            avti = avti_by_turn.get(index)
+            band = voice_band(avti)
+            if band is Band.NEEDS_WORK:
+                kind, reason = _SEG_IMPROVE, "voice"
+            elif band is Band.GOOD:
+                kind, reason = _SEG_GOOD, "voice"
+            elif band is Band.MIDDLE:
+                continue  # 애매한 값에서는 이 턴을 아예 안 고른다
+            else:
+                # AVTI 가 없는 턴 — 떨림 없이 이어 말한 구간이 있으면 칭찬 후보
+                overlap = sum(
+                    max(0.0, min(end, ce) - max(start, cs)) for cs, ce in clean
+                )
+                if overlap < _MIN_GOOD_SEC:
+                    continue
+                kind, reason = _SEG_GOOD, "clean"
+            picked.append({
+                "turn": index,
+                "start": round(start, 2),
+                "end": round(end, 2),
+                "type": kind,
+                "reason": reason,
+                "avti": avti,
+            })
+
+        # 아쉬운 구간을 먼저 살리고, 남는 자리를 긴 칭찬 구간으로 채운다.
+        improve = [p for p in picked if p["type"] == _SEG_IMPROVE]
+        good = sorted(
+            (p for p in picked if p["type"] == _SEG_GOOD),
+            key=lambda p: p["end"] - p["start"],
+            reverse=True,
+        )
+        chosen = (improve + good)[:_MAX_SEGMENTS]
+        if not chosen:
+            chosen = [
+                {**seg, "type": _SEG_GOOD, "reason": "fallback", "avti": None}
+                for seg in self._pick_good_segments(candidates)
+            ]
+        chosen.sort(key=lambda p: p["start"])
+        return chosen
 
     def _pick_good_segments(self, candidates) -> list[dict]:
         overlap = self._intersect(candidates, self._user_turn_intervals)
