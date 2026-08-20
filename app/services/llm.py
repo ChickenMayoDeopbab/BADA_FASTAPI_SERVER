@@ -7,6 +7,7 @@ from google.genai import errors, types
 
 from app.core.config import get_settings
 from app.schemas.llm import AiEmotion, LLMEvent, LLMEventType, TurnContext
+from app.services.feedback_points import split_title
 from app.services.llm_prompt import build_contents, build_system_prompt
 
 logger = logging.getLogger(__name__)
@@ -117,10 +118,19 @@ _SAFETY_SETTINGS = [
 ]
 
 class LLMClient:
+    _thinking_budget: int | None = None
+
     def __init__(self) -> None:
         settings = get_settings()
         self._client = genai.Client(api_key=settings.gemini_api_key)
         self._model = settings.llm_realtime_model
+        self._thinking_budget = settings.llm_thinking_budget
+
+    def _thinking_config(self) -> types.ThinkingConfig | None:
+        """None이면 thinking_config 안보내기"""
+        if self._thinking_budget is None:
+            return None
+        return types.ThinkingConfig(thinking_budget=self._thinking_budget)
 
     def _build_gen_config(self, system_prompt: str) -> types.GenerateContentConfig:
         return types.GenerateContentConfig(
@@ -128,7 +138,7 @@ class LLMClient:
             safety_settings=_SAFETY_SETTINGS,
             temperature=0.8, # LLM 내부적으로 확률 분포 넓게 하거나 작게하는거, 최솟값:0, 최댓값:2
             max_output_tokens=1024,
-            thinking_config=types.ThinkingConfig(thinking_budget=0),  # 추론 비활성화
+            thinking_config=self._thinking_config(),
         )
 
     @staticmethod
@@ -162,7 +172,7 @@ class LLMClient:
                 contents="안녕",
                 config=types.GenerateContentConfig(
                     max_output_tokens=1,
-                    thinking_config=types.ThinkingConfig(thinking_budget=0),
+                    thinking_config=self._thinking_config(),
                 ),
             )
             async for _ in stream:
@@ -172,48 +182,115 @@ class LLMClient:
         except Exception:
             logger.debug("LLM 워밍업 실패(무시)", exc_info=True)
 
-    async def praise_segments(self, utterances: list[str]) -> list[str]:
-        if not utterances:
+    async def segment_feedback(
+        self,
+        items: list[dict],
+        *,
+        scenario_title: str = "",
+        call_target: str = "",
+        call_purpose: str = "",
+    ) -> list[tuple[str, str]]:
+        """구간마다 (제목, 내용) 한 쌍. 입력 순서 그대로 같은 개수를 돌려준다.
+
+        items[i] = {"type": GOOD|IMPROVE, "utterance": 그 구간 발화,
+                    "avti": 그 턴의 떨림 값 or None, "reason": voice|clean|fallback}
+
+        GOOD 구간은 발화 내용을 칭찬하고, IMPROVE 구간은 목소리가 흔들렸다는 것을
+        말해야 한다. 그래서 여기서는 음성 얘기를 금지하지 않는다 —
+        구간을 고른 근거가 그것이기 때문이다.
+        """
+        if not items:
             return []
 
-        non_empty_indices = [i for i, u in enumerate(utterances) if u.strip()]
-        if not non_empty_indices:
-            return [""] * len(utterances)
-        non_empty = [utterances[i] for i in non_empty_indices]
-        numbered = "\n".join(f"{i + 1}. {u}" for i, u in enumerate(non_empty))
+        situation = " / ".join(
+            part for part in (scenario_title, call_target, call_purpose) if part
+        ) or "일반 통화"
+
+        lines = []
+        for i, item in enumerate(items, start=1):
+            kind = "칭찬할 구간" if item["type"] == "GOOD" else "짚어줄 구간"
+            measured = (
+                f", 떨림 {item['avti']:.1f}/10" if item.get("avti") is not None else ""
+            )
+            said = (item.get("utterance") or "").strip() or "(발화 인식 안 됨)"
+            lines.append(f"{i}. [{kind}{measured}] \"{said}\"")
+
         system_prompt = (
-            "너는 대화 훈련 코치야. 아래 번호가 매겨진 각 발화에 대해 "
-            "그 발화에서 잘한 점을 '~를 잘했어요' 또는 '~점이 좋았어요' 형태의 "
-            "짧은 칭찬 한 문장으로 써. 발화 '내용'에만 근거하고, "
-            "목소리 떨림·발음 같은 음성 정보는 언급하지 마. "
-            "어려운 한자어나 전문 용어 없이 초등학생도 이해할 수 있는 "
-            "쉬운 단어만 써. "
-            "반드시 입력과 같은 번호를 붙여 '1. 칭찬' 형식으로 한 줄에 하나씩, "
-            "발화 개수만큼만 출력해. 한국어 존댓말."
+            "너는 전화 통화를 무서워하는 사람을 돕는 코치야.\n"
+            f"이번 통화 상황: {situation}\n"
+            "통화에서 뽑아낸 구간들에 대해 한 구간씩 피드백을 써.\n"
+            "\n"
+            "구간 종류:\n"
+            "- [칭찬할 구간]: 그 발화에서 잘한 점을 짚어준다.\n"
+            "- [짚어줄 구간]: 이 구간에서 목소리가 흔들렸다. "
+            "그 얘기를 하고 다음에 어떻게 할지 알려준다.\n"
+            "- '떨림 N/10' 이 붙어 있으면 그 구간의 측정값이다. "
+            "낮으면 안정적, 높으면 흔들린 것. 판단에만 쓰고 숫자는 쓰지 마.\n"
+            "\n"
+            "형식:\n"
+            "- 번호마다 한 줄, '번호. 제목 | 내용' 으로 쓴다.\n"
+            "- 제목은 20자 안쪽, 내용은 두 문장 안쪽. 둘이 같은 말이면 안 된다.\n"
+            "- 입력한 번호 개수만큼만, 순서대로.\n"
+            "\n"
+            "제목 쓰는 법 — 그 구간에서 무슨 일이 있었는지를 제목에 담는다:\n"
+            "  좋은 예: '용건을 먼저 말했어요' / '주소를 말할 때 흔들렸어요'\n"
+            "           '날짜를 정해서 갔어요' / '되묻는 말에 바로 답했어요'\n"
+            "  나쁜 예: '칭찬' / '아쉬움' / '잘했어요' / '아쉬웠어요'\n"
+            "           → 무엇에 대한 얘긴지 알 수 없다. 절대 쓰지 마.\n"
+            "\n"
+            "내용 규칙:\n"
+            "- 그 구간에서 실제로 한 말에 근거해서 써. 없는 장면을 지어내지 마.\n"
+            "- 발화를 그대로 따라 읽지 마. 무엇이 좋았는지/아쉬웠는지를 써.\n"
+            "- 짚어줄 구간은 '다음엔 ~해봐요' 로 끝낸다.\n"
+            "- 목소리 얘기는 '상대방이 ~하게 느꼈을 것 같아요' 처럼 "
+            "듣는 사람 입장으로. 몸 상태를 단정하지 마.\n"
+            "- 숫자, 지표 이름, 점수를 쓰지 마.\n"
+            "- 어려운 말 없이 초등학생도 이해할 단어만. 겁주는 말투 금지.\n"
         )
+
         try:
             resp = await self._client.aio.models.generate_content(
                 model=self._model,
-                contents=numbered,
+                contents="\n".join(lines),
                 config=types.GenerateContentConfig(
                     system_instruction=system_prompt,
                     safety_settings=_SAFETY_SETTINGS,
-                    temperature=0.7,
-                    max_output_tokens=256,
-                    thinking_config=types.ThinkingConfig(thinking_budget=0),
+                    temperature=0.6,
+                    max_output_tokens=512,
+                    thinking_config=self._thinking_config(),
                 ),
             )
         except asyncio.CancelledError:
             raise
         except Exception:
-            logger.warning("잘한 점 칭찬 생성 실패", exc_info=True)
-            return [""] * len(utterances)
+            logger.warning("구간 피드백 생성 실패", exc_info=True)
+            return []
 
-        parsed = self._parse_numbered(resp.text or "", len(non_empty_indices))
-        result = [""] * len(utterances)
-        for orig_idx, praise in zip(non_empty_indices, parsed, strict=True):
-            result[orig_idx] = praise
-        return result
+        return self._parse_numbered_pairs(resp.text or "", len(items))
+
+    @staticmethod
+    def _parse_numbered_pairs(raw: str, n: int) -> list[tuple[str, str]]:
+        """'1. 제목 | 내용' 줄들을 순서대로. 부족하면 빈 쌍으로 채운다."""
+        pairs: list[tuple[str, str]] = []
+        for line in raw.splitlines():
+            text = line.strip()
+            if not text:
+                continue
+            text = re.sub(r"^[-*•]\s*", "", text)
+            text = re.sub(r"^\d+\s*[.)]\s*", "", text).strip()
+            if not text:
+                continue
+            if "|" in text:
+                title, _, content = text.partition("|")
+                title, content = title.strip().strip('"“”'), content.strip().strip('"“”')
+                if not title or not content:
+                    title, content = split_title(text.replace("|", " ").strip())
+            else:
+                title, content = split_title(text.strip('"“”'))
+            pairs.append((title, content))
+        pairs = pairs[:n]
+        pairs.extend([("", "")] * (n - len(pairs)))
+        return pairs
 
     @staticmethod
     def _parse_numbered(raw: str, n: int) -> list[str]:
