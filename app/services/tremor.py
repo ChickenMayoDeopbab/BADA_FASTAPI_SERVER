@@ -17,6 +17,7 @@ class TremorConfig:
     fmax: float = 400.0
     contour_fs: float = 100.0
     energy_active_frac: float = 0.10
+    energy_ref_percentile: float = 95.0
     octave_ratio: float = 1.5
     median_kernel: int = 5
 
@@ -27,7 +28,8 @@ class TremorConfig:
 
     # 지속발성 한정 (짧은 연결발화 모음은 떨림 측정 불가)
     min_sustained_sec: float = 1.2
-    sustained_gap_sec: float = 0.12
+    # 한국어 파열음이 만드는 짧은 무성 구간은 이어붙인다. 이것보다 짧으면 같은 발성으로 본다.
+    sustained_gap_sec: float = 0.20
 
     # 슬라이딩 윈도우
     win_sec: float = 0.6
@@ -53,6 +55,7 @@ class TremorResult:
     sustained_sec: float = 0.0
     debug_windows: list = field(default_factory=list)
     good_candidates: list = field(default_factory=list)
+    sustained_spans: list = field(default_factory=list)
 
 
 class TremorAnalyzer:
@@ -83,7 +86,9 @@ class TremorAnalyzer:
         f0, rms = f0[:m], rms[:m]
         if m < 2 or rms.max() <= 0:
             return None, None
-        active = rms > config.energy_active_frac * rms.max()
+        loud = rms[rms > 0]
+        ref = float(np.percentile(loud, config.energy_ref_percentile)) if loud.size else 0.0
+        active = rms > config.energy_active_frac * ref
         if active.sum() < 2:
             return None, None
         f0 = self._octave_fix(f0)
@@ -156,12 +161,18 @@ class TremorAnalyzer:
                 i = j
             else:
                 i += 1
+        return self._mask_spans(v, fs)
+
+    @staticmethod
+    def _mask_spans(mask, fs: float) -> list:
+        """True 런을 (시작초, 끝초) 리스트로."""
         spans = []
+        n = len(mask)
         i = 0
-        while i < n:  # 유성 런 → 초 단위 구간
-            if v[i]:
+        while i < n:
+            if mask[i]:
                 j = i
-                while j < n and v[j]:
+                while j < n and mask[j]:
                     j += 1
                 spans.append((i / fs, j / fs))
                 i = j
@@ -242,6 +253,9 @@ class TremorAnalyzer:
             sustained_sec=float(sustained.sum()) / fs,
             debug_windows=dbg,
             good_candidates=[(round(s, 2), round(e, 2)) for s, e in good_candidates],
+            sustained_spans=[
+                (round(s, 3), round(e, 3)) for s, e in self._mask_spans(sustained, fs)
+            ],
         )
 
     def _group_episodes(self, on_flags, centers, dbg):

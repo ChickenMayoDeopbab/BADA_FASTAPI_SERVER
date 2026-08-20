@@ -68,6 +68,15 @@ class Settings(BaseSettings):
     # DB
     database_url: str
 
+    avti_enabled: bool = True
+    praat_bin: str = "praat"
+    avti_script_path: str = str(
+        Path(__file__).resolve().parent.parent.parent / "vendor" / "tremor3.05" / "tremor.praat"
+    )
+    avti_window_sec: float = 2.5
+    avti_min_sustained_sec: float = 2.5
+    avti_timeout_sec: float = 30.0
+
 @lru_cache
 def get_settings() -> Settings:
     return Settings()

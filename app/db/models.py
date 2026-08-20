@@ -1,6 +1,17 @@
 from datetime import datetime
 
-from sqlalchemy import JSON, BigInteger, Boolean, DateTime, ForeignKey, String, Text
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -40,6 +51,26 @@ class FeedbackORM(Base):
     shake_count: Mapped[int] = mapped_column(BigInteger, nullable=False)
     silence_duration: Mapped[int] = mapped_column(BigInteger, nullable=False)
     highlights: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+class VoiceTremorMetricORM(Base):
+    __tablename__ = "voice_tremor_metric"
+    __table_args__ = (UniqueConstraint("session_id", "part_index", name="uq_vtm_session_part"),)
+
+    metric_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    session_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    part_index: Mapped[int] = mapped_column(Integer, nullable=False)  # 0 = 세션 전체
+    start_sec: Mapped[float] = mapped_column(Float, nullable=False)
+    end_sec: Mapped[float] = mapped_column(Float, nullable=False)
+
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    avti: Mapped[float | None] = mapped_column(Float, nullable=True)
+    ftrcip: Mapped[float | None] = mapped_column(Float, nullable=True)
+    atri: Mapped[float | None] = mapped_column(Float, nullable=True)
+    fcohnr: Mapped[float | None] = mapped_column(Float, nullable=True)
+    fcom: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    script_version: Mapped[str] = mapped_column(String(16), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
 class FileORM(Base):

@@ -15,6 +15,7 @@ praise(잘한 점 LLM)는 end 프레임 이후에 실행되어야 하며(파이�
 import argparse
 import asyncio
 import time
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -79,10 +80,10 @@ class FakeLLM:
         self.delay_s = delay_s
         self.called_at: float | None = None
 
-    async def praise_segments(self, utterances: list[str]) -> list[str]:
+    async def segment_feedback(self, items, **kwargs):
         self.called_at = time.perf_counter()
         await asyncio.sleep(self.delay_s)
-        return ["또박또박 말했어요"] * len(utterances)
+        return [("용건을 말했어요", "무슨 일로 걸었는지 밝혔어요.")] * len(items)
 
 
 class FakeSpring:
@@ -109,6 +110,8 @@ def build_pipeline(ws, storage, tremor, llm, spring, pcm: bytes, duration_s: flo
     p._tremor_buf = bytearray(pcm)
     p._llm = llm
     p._spring = spring
+    # AVTI 는 end 프레임/콜백 뒤에서 떼어놓고 도는 섀도 작업이라 벤치에서는 꺼둔다.
+    p._settings = SimpleNamespace(avti_enabled=False)
     # 사용자 턴 3개 (good_segments 후보와 겹치도록 녹음 전체에 분산)
     p._user_turn_intervals = [
         (1.0, duration_s * 0.3),
