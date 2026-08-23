@@ -110,7 +110,7 @@ See the LICENSE file for details.
 | 구분 | **패키지** |
 | --- | --- |
 | 웹 | fastapi, uvicorn[standard], pydantic, pydantic-settings |
-| 인프라 | redis[hiredis], aio-pika, celery[redis] |
+| 인프라 | redis[hiredis] |
 | DB | sqlalchemy[asyncio], asyncpg |
 | 통신 | httpx, websockets, boto3 |
 | AI SDK | google-cloud-speech, google-genai, anthropic, elevenlabs |
