@@ -12,8 +12,6 @@ dependencies = [
 
     # Infra
     "redis[hiredis]>=5.0.8",
-    "aio-pika>=9.4.3",
-    "celery[redis]>=5.4",
 
     # Database
     "sqlalchemy[asyncio]>=2.0.40",
