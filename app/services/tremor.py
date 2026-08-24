@@ -56,6 +56,7 @@ class TremorResult:
     debug_windows: list = field(default_factory=list)
     good_candidates: list = field(default_factory=list)
     sustained_spans: list = field(default_factory=list)
+    voiced_spans: list = field(default_factory=list)
 
 
 class TremorAnalyzer:
@@ -255,6 +256,10 @@ class TremorAnalyzer:
             good_candidates=[(round(s, 2), round(e, 2)) for s, e in good_candidates],
             sustained_spans=[
                 (round(s, 3), round(e, 3)) for s, e in self._mask_spans(sustained, fs)
+            ],
+            voiced_spans=[
+                (round(s, 3), round(e, 3))
+                for s, e in self._mask_spans(voiced, fs)
             ],
         )
 
