@@ -50,6 +50,10 @@ from app.services.tremor import TremorAnalyzer
 from app.services.tts import ElevenLabsTTSClient, TTSSession
 from app.workers.avti_worker import run_avti
 
+from app.services.training_analysis import (
+    TrainingPerformanceAnalyzer,
+)
+
 logger = logging.getLogger(__name__)
 
 # barge-in off 해뒀음
@@ -170,6 +174,9 @@ class VoicePipeline:
         self._silence_total: float = 0
         self._tremor = TremorAnalyzer()
         self._tremor_buf = bytearray()
+        self._ai_pcm_bytes = 0
+        self._server_wait_duration_ms = 0
+        self._completed_script_steps = 0
 
         self._user_turn_intervals: list[tuple[float, float]] = []
         self._user_turn_texts: list[str] = []
@@ -445,6 +452,11 @@ class VoicePipeline:
                     break
                 try:
                     await self._ws.send_bytes(pcm)
+
+                    self._ai_pcm_bytes = (
+                            getattr(self, "_ai_pcm_bytes", 0)
+                            + len(pcm)
+                    )
                 except Exception:
                     self._ws_alive = False
                     break
@@ -547,6 +559,35 @@ class VoicePipeline:
         suggestion: str | None = None,
     ) -> None:
         ai_text = "".join(ai_parts).strip()
+
+        if timings.first_pcm_at is not None:
+            response_wait_ms = max(
+                0,
+                int(round(
+                    timings.first_pcm_at
+                    - timings.final_at
+                )),
+            )
+
+            self._server_wait_duration_ms = (
+                    getattr(
+                        self,
+                        "_server_wait_duration_ms",
+                        0,
+                    )
+                    + response_wait_ms
+            )
+
+        if flags["step_done"] and self._script_len:
+            self._completed_script_steps = min(
+                getattr(
+                    self,
+                    "_completed_script_steps",
+                    0,
+                ) + 1,
+                self._script_len,
+            )
+
         scenario_finished = bool(
             flags["step_done"]
             and self._script_len
@@ -639,6 +680,11 @@ class VoicePipeline:
                     break
                 try:
                     await self._ws.send_bytes(pcm)
+
+                    self._ai_pcm_bytes = (
+                            getattr(self, "_ai_pcm_bytes", 0)
+                            + len(pcm)
+                    )
                 except Exception:
                     self._ws_alive = False
                     break
@@ -724,6 +770,8 @@ class VoicePipeline:
         recording_key: str | None = None
         recording_pcm = b""
         sustained_spans: list = []
+        tremor_result = None
+        analysis_failed = False
         if self._tremor_buf:
             recording_pcm = bytes(self._tremor_buf)
             try:
@@ -740,13 +788,14 @@ class VoicePipeline:
                 )
 
             try:
-                result = await asyncio.to_thread(
+                tremor_result = await asyncio.to_thread(
                     self._tremor.analyze, recording_pcm
                 )
-                shake_count = result.shake_count
-                good_candidates = result.good_candidates
-                sustained_spans = result.sustained_spans
+                shake_count = tremor_result.shake_count
+                good_candidates = tremor_result.good_candidates
+                sustained_spans = tremor_result.sustained_spans
             except Exception:
+                analysis_failed = True
                 logger.warning(
                     "떨림 분석 실패",
                     extra={"session_id": self._session_id},
@@ -759,6 +808,43 @@ class VoicePipeline:
         # 이 값으로 갈리기 때문에 end 프레임보다 앞에 있어야 한다(약 0.2초).
         avti_by_turn = await self._measure_avti(recording_pcm, sustained_spans)
         good_segments = self._pick_segments(good_candidates, avti_by_turn)
+
+        analysis = TrainingPerformanceAnalyzer().analyze(
+            session_type=self._session.get("type"),
+            reason=reason,
+            user_turn_intervals=getattr(
+                self,
+                "_user_turn_intervals",
+                [],
+            ),
+            user_turn_texts=getattr(
+                self,
+                "_user_turn_texts",
+                [],
+            ),
+            tremor_result=tremor_result,
+            completed_script_steps=getattr(
+                self,
+                "_completed_script_steps",
+                0,
+            ),
+            script_step_count=getattr(
+                self,
+                "_script_len",
+                0,
+            ),
+            ai_pcm_bytes=getattr(
+                self,
+                "_ai_pcm_bytes",
+                0,
+            ),
+            server_wait_duration_ms=getattr(
+                self,
+                "_server_wait_duration_ms",
+                0,
+            ),
+            analyzer_failed=analysis_failed,
+        )
 
         feedback = {
             "shake_count": shake_count,
@@ -793,6 +879,7 @@ class VoicePipeline:
             good_segments=good_segments,
             recording_key=recording_key,
             session_type=self._session.get("type"),
+            analysis=analysis,
         )
 
     async def _measure_avti(
