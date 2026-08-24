@@ -6,6 +6,10 @@ import httpx
 from app.core.config import Settings
 from app.schemas.frames import EndReason
 
+from app.schemas.training_analysis import (
+    TrainingAnalysisPayload,
+)
+
 logger = logging.getLogger(__name__)
 
 _RETRY_ATTEMPTS = 3
@@ -33,6 +37,7 @@ class SpringInternalClient:
         good_segments: list[dict] | None = None,
         recording_key: str | None = None,
         session_type: str | None = None,
+        analysis: TrainingAnalysisPayload | None = None,
     ) -> None:
         url = f"{self._base_url}/internal/v1/sessions/{session_id}/closed"
         payload = {
@@ -42,7 +47,12 @@ class SpringInternalClient:
             "silence_total": silence_total,
             "shake_count": shake_count,
             "good_segments": good_segments,
-            "recording_key": recording_key
+            "recording_key": recording_key,
+            "analysis": (
+                analysis.model_dump(mode="json")
+                if analysis is not None
+                else None
+            ),
         }
 
         last_error: httpx.HTTPError | None = None
