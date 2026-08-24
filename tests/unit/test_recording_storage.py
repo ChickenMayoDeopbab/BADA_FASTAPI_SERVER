@@ -21,7 +21,6 @@ class _S3Client:
 def _settings() -> Settings:
     return Settings(
         redis_url="redis://localhost:6379/0",
-        rabbitmq_url="amqp://guest:guest@localhost:5672/",
         jwt_secret="secret",
         internal_secret="internal",
         google_project_id="project",

@@ -20,7 +20,5 @@ services:
     depends_on: !override
       redis:
         condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
   db:
     profiles: ["local-only"]

@@ -3,7 +3,6 @@ import os
 _TEST_ENV = {
     "ENV": "test",
     "REDIS_URL": "redis://localhost:6379/0",
-    "RABBITMQ_URL": "amqp://localhost:5672/",
     "JWT_SECRET": "test-jwt-secret",
     "INTERNAL_SECRET": "test-internal-secret",
     "GOOGLE_PROJECT_ID": "test-project",

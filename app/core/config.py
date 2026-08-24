@@ -16,7 +16,6 @@ class Settings(BaseSettings):
 
     # Infra
     redis_url: str
-    rabbitmq_url: str
 
     # Security
     jwt_secret: str

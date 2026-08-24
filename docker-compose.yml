@@ -12,13 +12,10 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://bada:${POSTGRES_PASSWORD:-bada}@db:5432/bada
       REDIS_URL: redis://redis:6379/0
-      RABBITMQ_URL: amqp://${RABBITMQ_USER:-bada}:${RABBITMQ_PASSWORD:-bada}@rabbitmq:5672/
     depends_on:
       db:
         condition: service_healthy
       redis:
-        condition: service_healthy
-      rabbitmq:
         condition: service_healthy
 
   db:
@@ -51,26 +48,8 @@ services:
       timeout: 5s
       retries: 10
 
-  rabbitmq:
-    image: rabbitmq:3-management-alpine
-    hostname: rabbitmq
-    restart: unless-stopped
-    ports:
-      - "15672:15672"
-    environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-bada}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-bada}
-    volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-
 volumes:
   pgdata:
-  rabbitmq_data:
   redis_data:
 
 networks:
