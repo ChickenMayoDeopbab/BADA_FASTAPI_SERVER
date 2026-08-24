@@ -81,7 +81,13 @@ class _FakeTremor:
         self._spans = spans
 
     def analyze(self, pcm: bytes):
-        return SimpleNamespace(shake_count=0, good_candidates=[], sustained_spans=self._spans)
+        return SimpleNamespace(
+            shake_count=0,
+            good_candidates=[],
+            sustained_spans=self._spans,
+            voiced_spans=self._spans,
+            episodes=[],
+        )
 
 
 class _FakeStorage:
