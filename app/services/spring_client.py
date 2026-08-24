@@ -5,10 +5,7 @@ import httpx
 
 from app.core.config import Settings
 from app.schemas.frames import EndReason
-
-from app.schemas.training_analysis import (
-    TrainingAnalysisPayload,
-)
+from app.schemas.training_analysis import TrainingAnalysisPayload
 
 logger = logging.getLogger(__name__)
 

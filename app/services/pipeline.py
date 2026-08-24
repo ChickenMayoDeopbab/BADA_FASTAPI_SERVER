@@ -46,13 +46,10 @@ from app.services.stt import (
     STTIdleTimeoutError,
     STTStreamAbortedError,
 )
+from app.services.training_analysis import TrainingPerformanceAnalyzer
 from app.services.tremor import TremorAnalyzer
 from app.services.tts import ElevenLabsTTSClient, TTSSession
 from app.workers.avti_worker import run_avti
-
-from app.services.training_analysis import (
-    TrainingPerformanceAnalyzer,
-)
 
 logger = logging.getLogger(__name__)
 

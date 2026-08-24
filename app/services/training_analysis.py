@@ -3,7 +3,6 @@ from __future__ import annotations
 import math
 import re
 from collections.abc import Iterable, Sequence
-from typing import TypeAlias
 
 from app.core.enums import SessionType
 from app.schemas.frames import EndReason
@@ -12,7 +11,6 @@ from app.schemas.training_analysis import (
     TrainingAnalysisPayload,
 )
 from app.services.tremor import TremorResult
-
 
 ANALYZER_VERSION = "SPEECH_ANALYZER_V1"
 ANALYSIS_POLICY_VERSION = "ANALYSIS_POLICY_V1"
@@ -51,7 +49,7 @@ _FILLER_WORDS = {
     "그러니까",
 }
 
-Span: TypeAlias = tuple[float, float]
+type Span = tuple[float, float]
 
 
 def _enum_value(value: object | None) -> str | None:
@@ -239,6 +237,7 @@ class TrainingPerformanceAnalyzer:
         for interval, text in zip(
             user_turn_intervals,
             user_turn_texts,
+            strict=False,
         ):
             normalized = _normalize_spans([interval])
 
@@ -442,6 +441,7 @@ class TrainingPerformanceAnalyzer:
             for previous, current in zip(
                 all_tokens,
                 all_tokens[1:],
+                strict=False,
             )
         )
 

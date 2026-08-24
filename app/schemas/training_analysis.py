@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 from enum import StrEnum
+
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
@@ -46,7 +48,7 @@ class TrainingAnalysisPayload(BaseModel):
     analysis_policy_version: str
 
     @model_validator(mode="after")
-    def validate_quality_result(self) -> "TrainingAnalysisPayload":
+    def validate_quality_result(self) -> TrainingAnalysisPayload:
         scores = (
             self.stability_score,
             self.conversation_score,
@@ -64,10 +66,12 @@ class TrainingAnalysisPayload(BaseModel):
                     "PASS 분석에는 제외 사유가 없어야 합니다."
                 )
 
-        if self.analysis_quality_status is AnalysisQualityStatus.FAIL:
-            if not self.analysis_exclusion_reason:
-                raise ValueError(
-                    "FAIL 분석에는 제외 사유가 필요합니다."
-                )
+        if (
+            self.analysis_quality_status is AnalysisQualityStatus.FAIL
+            and not self.analysis_exclusion_reason
+        ):
+            raise ValueError(
+                "FAIL 분석에는 제외 사유가 필요합니다."
+            )
 
         return self
