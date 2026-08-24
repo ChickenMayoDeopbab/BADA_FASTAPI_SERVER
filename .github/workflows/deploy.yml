@@ -117,7 +117,7 @@ jobs:
               if curl -fsS -H "X-Internal-Secret: $SECRET" \
                    http://localhost:8000/internal/v1/health >/dev/null; then
                 echo "Health check passed."
-                docker image prune -f
+                docker image prune -af --filter "until=336h" || true
                 exit 0
               fi
               echo "Waiting for app to become healthy ($i/15)..."
