@@ -24,6 +24,13 @@ class Difficulty(StrEnum):
     MEDIUM = "medium"
     LOW = "low"
 
+class ReactionKind(StrEnum):
+    """게시글 공감"""
+
+    CHEER = "CHEER"     # 힘내요
+    RELATE = "RELATE"   # 공감돼요
+    LIKE = "LIKE"       # 좋아요
+
 class ScenarioCategory(StrEnum):
     RESTAURANT = "restaurant"
     HOSPITAL = "hospital"
