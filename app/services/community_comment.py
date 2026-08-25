@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
-
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.timeutil import utc_naive_now
 from app.db.external import users_table
 from app.db.models import PostCommentORM
 from app.schemas.community import (
@@ -30,9 +29,6 @@ class InvalidParentCommentError(Exception):
     """답글의 부모로 쓸 수 없는 댓글,없거나, 삭제됐거나, 다른 글이거나, 답글인거"""
 
 
-def _now() -> datetime:
-    return datetime.now(UTC).replace(tzinfo=None)
-
 
 async def _check_parent(db: AsyncSession, post_id: int, parent_id: int) -> None:
     """답글 깊이를 1단으로 고정"""
@@ -53,7 +49,7 @@ async def create_comment(
     if body.parent_comment_id is not None:
         await _check_parent(db, post_id, body.parent_comment_id)
 
-    now = _now()
+    now = utc_naive_now()
     row = PostCommentORM(
         post_id=post_id,
         parent_comment_id=body.parent_comment_id,
@@ -152,7 +148,7 @@ async def update_comment(
 
     if body.content != row.content:
         row.content = body.content
-        row.updated_at = _now()
+        row.updated_at = utc_naive_now()
         await db.commit()
 
     return _to_comment(row, await load_author(db, row.user_id))
@@ -164,7 +160,7 @@ async def delete_comment(db: AsyncSession, comment_id: int, *, user_id: int) -> 
     if row.user_id != user_id and not await is_admin_user(db, user_id):
         raise CommentForbiddenError
 
-    now = _now()
+    now = utc_naive_now()
     row.deleted_at = now
 
     if row.parent_comment_id is None:

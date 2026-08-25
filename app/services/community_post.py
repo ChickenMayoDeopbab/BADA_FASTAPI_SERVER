@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
 
 from redis.asyncio import Redis
 from sqlalchemy import case, func, or_, select, update
@@ -10,6 +9,7 @@ from sqlalchemy.orm import aliased
 
 from app.core.enums import ReactionKind
 from app.core.security import is_admin
+from app.core.timeutil import utc_naive_now
 from app.db.external import users_table
 from app.db.models import PostCommentORM, PostORM, PostReactionORM
 from app.schemas.community import (
@@ -42,9 +42,6 @@ _COUNT_FIELD_BY_KIND = {
     ReactionKind.LIKE: "like",
 }
 
-
-def _now() -> datetime:
-    return datetime.now(UTC).replace(tzinfo=None)
 
 
 async def load_author(db: AsyncSession, user_id: int) -> AuthorInfo:
@@ -85,11 +82,7 @@ async def _detail_with_aggregates(
 
 
 async def is_admin_user(db: AsyncSession, user_id: int) -> bool:
-    """어드민 여부를 **지금 DB 값**으로 확인한다.
-
-    토큰에 박힌 role 을 믿으면 해임이 토큰 만료까지 반영되지 않는다.
-    호출 지점이 삭제 두 곳뿐이라 쿼리 1회 추가는 조회·작성 경로에 영향이 없다.
-    """
+    """어드민 여부 확인"""
     stmt = select(users_table.c.role).where(users_table.c.user_id == user_id)
     row = (await db.execute(stmt)).first()
     return row is not None and is_admin(row.role)
@@ -98,7 +91,7 @@ async def is_admin_user(db: AsyncSession, user_id: int) -> bool:
 async def create_post(
     db: AsyncSession, body: PostCreateRequest, user_id: int
 ) -> PostDetailResponse:
-    now = _now()
+    now = utc_naive_now()
     row = PostORM(
         user_id=user_id,
         title=body.title,
@@ -315,7 +308,7 @@ async def update_post(
         changed = True
 
     if changed:
-        row.updated_at = _now()
+        row.updated_at = utc_naive_now()
         await db.commit()
 
     return await _detail_with_aggregates(db, row, user_id)
@@ -327,5 +320,5 @@ async def delete_post(db: AsyncSession, post_id: int, *, user_id: int) -> None:
     if row.user_id != user_id and not await is_admin_user(db, user_id):
         raise PostForbiddenError
 
-    row.deleted_at = _now()
+    row.deleted_at = utc_naive_now()
     await db.commit()
