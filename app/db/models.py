@@ -109,7 +109,10 @@ class PostCommentORM(Base):
     """댓글과 답글들"""
 
     __tablename__ = "post_comment"
-    __table_args__ = (Index("ix_post_comment_post_created", "post_id", "created_at"),)
+    __table_args__ = (
+        Index("ix_post_comment_post_created", "post_id", "created_at"),
+        Index("ix_post_comment_parent", "parent_comment_id"),
+    )
 
     comment_id: Mapped[int] = mapped_column(_AUTO_PK, primary_key=True, autoincrement=True)
     post_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("post.post_id"), nullable=False)
