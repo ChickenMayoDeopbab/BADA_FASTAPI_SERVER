@@ -297,6 +297,33 @@ async def test_no_recording_means_no_avti(monkeypatch) -> None:
     assert not calls
 
 
+async def test_analysis_failure_does_not_block_session_close(
+    monkeypatch,
+) -> None:
+    order: list[str] = []
+    captured: dict = {}
+
+    def _raise_analysis_error(*args, **kwargs):
+        raise RuntimeError("analysis failed")
+
+    async def _capture(*args, **kwargs):
+        order.append("spring")
+        captured.update(kwargs)
+
+    monkeypatch.setattr(
+        "app.services.pipeline.TrainingPerformanceAnalyzer.analyze",
+        _raise_analysis_error,
+    )
+
+    p = _pipeline(seconds=0, turns=[], spans=[], log=order)
+    p._spring.notify_session_closed = _capture
+
+    await p._teardown()
+
+    assert order == ["end_frame", "spring"]
+    assert captured["analysis"] is None
+
+
 async def test_slow_avti_does_not_block_the_session(monkeypatch) -> None:
     """AVTI 가 매달려도 end 프레임과 훈련 기록은 나간다."""
     order: list[str] = []

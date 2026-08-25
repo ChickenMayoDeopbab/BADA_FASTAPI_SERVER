@@ -100,6 +100,34 @@ def test_calculates_three_objective_scores() -> None:
     assert result.analysis_exclusion_reason is None
 
 
+def test_does_not_count_repetition_across_turn_boundaries() -> None:
+    analyzer = TrainingPerformanceAnalyzer()
+
+    result = analyzer.analyze(
+        session_type=SessionType.SCENARIO,
+        reason=EndReason.SCENARIO_DONE,
+        user_turn_intervals=[
+            (0.0, 4.0),
+            (5.0, 9.0),
+        ],
+        user_turn_texts=[
+            "네 감사합니다",
+            "감사합니다 다음에 연락드릴게요",
+        ],
+        tremor_result=_valid_tremor_result(),
+        completed_script_steps=2,
+        script_step_count=4,
+        ai_pcm_bytes=32000,
+        server_wait_duration_ms=1200,
+    )
+
+    assert (
+        result.analysis_quality_status
+        is AnalysisQualityStatus.PASS
+    )
+    assert result.fluency_score == 100.0
+
+
 def test_rejects_insufficient_valid_turns() -> None:
     analyzer = TrainingPerformanceAnalyzer()
 

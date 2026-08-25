@@ -787,26 +787,34 @@ class VoicePipeline:
         avti_by_turn = await self._measure_avti(recording_pcm, sustained_spans)
         good_segments = self._pick_segments(good_candidates, avti_by_turn)
 
-        analysis = TrainingPerformanceAnalyzer().analyze(
-            session_type=self._session.get("type"),
-            reason=reason,
-            user_turn_intervals=getattr(
-                self,
-                "_user_turn_intervals",
-                [],
-            ),
-            user_turn_texts=getattr(
-                self,
-                "_user_turn_texts",
-                [],
-            ),
-            tremor_result=tremor_result,
-            completed_script_steps=self._completed_script_steps,
-            script_step_count=self._script_len,
-            ai_pcm_bytes=self._ai_pcm_bytes,
-            server_wait_duration_ms=self._server_wait_duration_ms,
-            analyzer_failed=analysis_failed,
-        )
+        analysis = None
+        try:
+            analysis = TrainingPerformanceAnalyzer().analyze(
+                session_type=self._session.get("type"),
+                reason=reason,
+                user_turn_intervals=getattr(
+                    self,
+                    "_user_turn_intervals",
+                    [],
+                ),
+                user_turn_texts=getattr(
+                    self,
+                    "_user_turn_texts",
+                    [],
+                ),
+                tremor_result=tremor_result,
+                completed_script_steps=self._completed_script_steps,
+                script_step_count=self._script_len,
+                ai_pcm_bytes=self._ai_pcm_bytes,
+                server_wait_duration_ms=self._server_wait_duration_ms,
+                analyzer_failed=analysis_failed,
+            )
+        except Exception:
+            logger.warning(
+                "훈련 성과 분석 실패 - 분석 없이 종료 콜백 진행",
+                extra={"session_id": self._session_id},
+                exc_info=True,
+            )
 
         feedback = {
             "shake_count": shake_count,

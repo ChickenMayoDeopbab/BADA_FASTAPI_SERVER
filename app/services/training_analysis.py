@@ -428,22 +428,23 @@ class TrainingPerformanceAnalyzer:
         pause_score = 100.0 * (1.0 - pause_ratio)
 
         all_tokens: list[str] = []
+        repeated_count = 0
 
         for text in valid_texts:
-            all_tokens.extend(_tokens(text))
+            turn_tokens = _tokens(text)
+            all_tokens.extend(turn_tokens)
+            repeated_count += sum(
+                previous == current
+                for previous, current in zip(
+                    turn_tokens,
+                    turn_tokens[1:],
+                    strict=False,
+                )
+            )
 
         filler_count = sum(
             token in _FILLER_WORDS
             for token in all_tokens
-        )
-
-        repeated_count = sum(
-            previous == current
-            for previous, current in zip(
-                all_tokens,
-                all_tokens[1:],
-                strict=False,
-            )
         )
 
         lexical_disfluency_ratio = (
