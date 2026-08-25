@@ -30,13 +30,3 @@ numpy==1.26.4
 
 # JWT
 PyJWT==2.10.1
-
-# Dev/Test
-pytest==8.3.5
-pytest-asyncio==0.26.0
-aiosqlite==0.22.1
-ruff==0.15.17
-
-# DB
-sqlalchemy[asyncio]==2.0.40
-asyncpg==0.30.0
