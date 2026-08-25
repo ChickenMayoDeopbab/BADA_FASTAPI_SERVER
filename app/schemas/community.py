@@ -71,6 +71,7 @@ class PostDetailResponse(BaseModel):
 
 
 _PREVIEW_CHARS = 100
+_ZWJ = "\u200d"
 
 
 class PostSummary(BaseModel):
@@ -97,7 +98,11 @@ class PostListResponse(BaseModel):
 
 
 def preview_of(content: str) -> str:
-    return content[:_PREVIEW_CHARS]
+    """프리뷰"""
+    cut = content[:_PREVIEW_CHARS]
+    while cut and (cut[-1] == _ZWJ or unicodedata.combining(cut[-1])):
+        cut = cut[:-1]
+    return cut
 
 
 class ReactionRequest(BaseModel):
