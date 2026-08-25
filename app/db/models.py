@@ -27,6 +27,7 @@ class ScenarioORM(Base):
     scenario_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     title: Mapped[str] = mapped_column(String(50), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    category: Mapped[str] = mapped_column(String(20), nullable=False)
     scenario_image: Mapped[str | None] = mapped_column(String(255), nullable=True)
     tts_voice_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
     ai_prompt: Mapped[str] = mapped_column(Text, nullable=False)

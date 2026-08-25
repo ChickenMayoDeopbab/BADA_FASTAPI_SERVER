@@ -55,6 +55,7 @@ class ScenarioContextResponse(BaseModel):
 class CustomSessionRequest(BaseModel):
     """커스텀 시나리오 생성, 생성은 Spring이 여기선 AI가 시나리오만 만들고 저장 후 반환"""
     title: str = Field(..., min_length=1, max_length=50)
+    category: ScenarioCategory
     call_target: str = Field(..., min_length=2, max_length=100)
     call_purpose: str = Field(..., min_length=5, max_length=200)
     personality: AiPersonality = AiPersonality.NORMAL
