@@ -62,12 +62,13 @@ async def get_scenarios(
 
     if not rows:
         result_list = PRESET_SCENARIOS
-        if category:
-            result_list = [s for s in result_list if s["category"] == category]
+        if category is not None:
+            result_list = [scenario for scenario in result_list if scenario["category"] == category]
         return ScenarioListResponse(scenarios=[scenario_to_info(s) for s in result_list])
 
     preset_rows: list[tuple[ScenarioORM, dict]] = []
-    custom_rows: list[ScenarioORM] = []
+    custom_rows: list[tuple[ScenarioORM, ScenarioCategory]] = []
+
     for row in rows:
         if row.is_custom:
             if is_deleted(row):
@@ -76,22 +77,26 @@ async def get_scenarios(
                 continue
             if row.user_id != user_id:
                 continue
-            if category not in (None, ScenarioCategory.CUSTOM):
+            row_category = ScenarioCategory(row.category)
+            if category is not None and row_category != category:
                 continue
-            custom_rows.append(row)
-            continue
 
-        if category == ScenarioCategory.CUSTOM:
+            custom_rows.append((row, row_category))
             continue
         seed = PRESET_MAP.get(row.scenario_id)
         if seed is None:
             continue
-        if category and seed["category"] != category:
+        if category is not None and seed["category"] != category:
             continue
         preset_rows.append((row, seed))
 
     preset_rows.sort(key=lambda item: item[0].scenario_id)
-    custom_rows.sort(key=lambda row: (getattr(row, "created_at", datetime.min), row.scenario_id))
+    custom_rows.sort(key=lambda item:
+        (
+            getattr(item[0], "created_at", datetime.min),
+            item[0].scenario_id,
+        )
+    )
 
     storage = _image_storage(rows)
     infos = [
@@ -105,7 +110,7 @@ async def get_scenarios(
             scenario_image=_image_url(storage, row.scenario_image),
             tts_voice_id=row.tts_voice_id,
             ai_prompt=row.ai_prompt,
-            is_custom=row.is_custom,
+            is_custom=False,
         )
         for row, seed in preset_rows
     ]
@@ -114,13 +119,13 @@ async def get_scenarios(
             scenario_id=row.scenario_id,
             title=row.title,
             content=row.content,
-            category=ScenarioCategory.CUSTOM,
+            category=row_category,
             difficulties=ALL_DIFFICULTIES,
             personalities=ALL_PERSONALITIES,
             scenario_image=_image_url(storage, row.scenario_image),
             tts_voice_id=row.tts_voice_id,
             ai_prompt=row.ai_prompt,
-            is_custom=row.is_custom,
+            is_custom=True,
         )
         for row in custom_rows
     )
@@ -144,7 +149,7 @@ async def delete_custom_scenario(
 
 
 _SCENARIO_GEN_SYSTEM = """You are an expert scenario designer for a Korean phone call training application.
-The user provides the scenario title, call purpose, call target, difficulty, and AI personality.
+The user provides the scenario title, category, call purpose, call target, difficulty, and AI personality.
 Generate a realistic phone call training scenario that matches them.
 You must output ONLY valid JSON.
 Do not output markdown, explanations, code fences, comments, or any additional text.
@@ -198,6 +203,7 @@ async def create_custom_scenario(
 
     user_msg = (
         f"Scenario title: {request.title}\n"
+        f"Category: {request.category.value}\n"
         f"Call purpose: {request.call_purpose}\n"
         f"Call target: {request.call_target}\n"
         f"Difficulty: {request.difficulty.value}\n"
@@ -228,6 +234,7 @@ async def create_custom_scenario(
     scenario_orm = ScenarioORM(
         title=request.title,
         content=data["content"],
+        category=request.category.value,
         scenario_image=None,
         tts_voice_id=voice_id,
         ai_prompt=data["ai_prompt"],
