@@ -7,6 +7,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -19,6 +20,9 @@ from app.db.base import Base
 
 def is_deleted(row: object) -> bool:
     return getattr(row, "deleted_at", None) is not None
+
+
+_AUTO_PK = BigInteger().with_variant(Integer, "sqlite")
 
 
 class ScenarioORM(Base):
@@ -80,3 +84,56 @@ class FileORM(Base):
     file_type: Mapped[str] = mapped_column(String(32), nullable=False)
     s3_key: Mapped[str] = mapped_column(String(512), nullable=False, unique=True)
     title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+
+class PostORM(Base):
+    """커뮤니티 게시글"""
+
+    __tablename__ = "post"
+    __table_args__ = (
+        Index("ix_post_alive_recent", "deleted_at", "created_at"),
+        Index("ix_post_user_recent", "user_id", "created_at"),
+    )
+
+    post_id: Mapped[int] = mapped_column(_AUTO_PK, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    title: Mapped[str] = mapped_column(String(100), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    view_count: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class PostCommentORM(Base):
+    """댓글과 답글들"""
+
+    __tablename__ = "post_comment"
+    __table_args__ = (
+        Index("ix_post_comment_post_created", "post_id", "created_at"),
+        Index("ix_post_comment_parent", "parent_comment_id"),
+    )
+
+    comment_id: Mapped[int] = mapped_column(_AUTO_PK, primary_key=True, autoincrement=True)
+    post_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("post.post_id"), nullable=False)
+    parent_comment_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("post_comment.comment_id"), nullable=True
+    )
+    user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class PostReactionORM(Base):
+    """게시글 공감, 변경은 UPDATE, 취소는 DELETE."""
+
+    __tablename__ = "post_reaction"
+    __table_args__ = (UniqueConstraint("post_id", "user_id", name="uq_post_reaction_post_user"),)
+
+    reaction_id: Mapped[int] = mapped_column(_AUTO_PK, primary_key=True, autoincrement=True)
+    post_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("post.post_id"), nullable=False)
+    user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
