@@ -1,12 +1,40 @@
+import pytest
+from pydantic import ValidationError
+
 from app.core.enums import SessionType
 from app.schemas.frames import EndReason
 from app.schemas.training_analysis import (
     AnalysisQualityStatus,
+    TrainingAnalysisPayload,
 )
 from app.services.training_analysis import (
     TrainingPerformanceAnalyzer,
 )
 from app.services.tremor import TremorResult
+
+
+def test_rejects_failed_analysis_with_objective_scores() -> None:
+    with pytest.raises(
+        ValidationError,
+        match="FAIL 분석에는 객관 점수가 없어야 합니다.",
+    ):
+        TrainingAnalysisPayload(
+            stability_score=75.0,
+            conversation_score=75.0,
+            fluency_score=75.0,
+            user_speech_duration_ms=1000,
+            ai_speech_duration_ms=1000,
+            server_wait_duration_ms=500,
+            valid_user_turn_count=1,
+            user_tremor_duration_ms=0,
+            user_sustained_speech_duration_ms=0,
+            completed_script_steps=0,
+            script_step_count=4,
+            analysis_quality_status=AnalysisQualityStatus.FAIL,
+            analysis_exclusion_reason="INSUFFICIENT_USER_SPEECH",
+            analyzer_version="SPEECH_ANALYZER_V1",
+            analysis_policy_version="ANALYSIS_POLICY_V1",
+        )
 
 
 def _valid_tremor_result() -> TremorResult:

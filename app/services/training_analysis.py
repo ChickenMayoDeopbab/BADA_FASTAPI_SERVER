@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import re
 from collections.abc import Iterable, Sequence
+from typing import TypeAlias
 
 from app.core.enums import SessionType
 from app.schemas.frames import EndReason
@@ -49,7 +50,7 @@ _FILLER_WORDS = {
     "그러니까",
 }
 
-type Span = tuple[float, float]
+Span: TypeAlias = tuple[float, float]  # noqa: UP040 - Python 3.11 compatibility
 
 
 def _enum_value(value: object | None) -> str | None:

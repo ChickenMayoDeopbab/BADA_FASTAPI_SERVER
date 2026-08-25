@@ -473,6 +473,9 @@ def _make_voice_pipeline(session: dict, llm=None, tts=None) -> VoicePipeline:
     p._user_turn_intervals = []
     p._turn_open_at = None
     p._script_len = 0
+    p._ai_pcm_bytes = 0
+    p._server_wait_duration_ms = 0
+    p._completed_script_steps = 0
 
     scenario = session.get("scenario") or {}
     raw_voice = scenario.get("ttsVoiceId") if isinstance(scenario, dict) else None

@@ -449,11 +449,7 @@ class VoicePipeline:
                     break
                 try:
                     await self._ws.send_bytes(pcm)
-
-                    self._ai_pcm_bytes = (
-                            getattr(self, "_ai_pcm_bytes", 0)
-                            + len(pcm)
-                    )
+                    self._ai_pcm_bytes += len(pcm)
                 except Exception:
                     self._ws_alive = False
                     break
@@ -566,22 +562,11 @@ class VoicePipeline:
                 )),
             )
 
-            self._server_wait_duration_ms = (
-                    getattr(
-                        self,
-                        "_server_wait_duration_ms",
-                        0,
-                    )
-                    + response_wait_ms
-            )
+            self._server_wait_duration_ms += response_wait_ms
 
         if flags["step_done"] and self._script_len:
             self._completed_script_steps = min(
-                getattr(
-                    self,
-                    "_completed_script_steps",
-                    0,
-                ) + 1,
+                self._completed_script_steps + 1,
                 self._script_len,
             )
 
@@ -677,11 +662,7 @@ class VoicePipeline:
                     break
                 try:
                     await self._ws.send_bytes(pcm)
-
-                    self._ai_pcm_bytes = (
-                            getattr(self, "_ai_pcm_bytes", 0)
-                            + len(pcm)
-                    )
+                    self._ai_pcm_bytes += len(pcm)
                 except Exception:
                     self._ws_alive = False
                     break
@@ -820,26 +801,10 @@ class VoicePipeline:
                 [],
             ),
             tremor_result=tremor_result,
-            completed_script_steps=getattr(
-                self,
-                "_completed_script_steps",
-                0,
-            ),
-            script_step_count=getattr(
-                self,
-                "_script_len",
-                0,
-            ),
-            ai_pcm_bytes=getattr(
-                self,
-                "_ai_pcm_bytes",
-                0,
-            ),
-            server_wait_duration_ms=getattr(
-                self,
-                "_server_wait_duration_ms",
-                0,
-            ),
+            completed_script_steps=self._completed_script_steps,
+            script_step_count=self._script_len,
+            ai_pcm_bytes=self._ai_pcm_bytes,
+            server_wait_duration_ms=self._server_wait_duration_ms,
             analyzer_failed=analysis_failed,
         )
 

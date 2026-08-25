@@ -68,6 +68,14 @@ class TrainingAnalysisPayload(BaseModel):
 
         if (
             self.analysis_quality_status is AnalysisQualityStatus.FAIL
+            and any(score is not None for score in scores)
+        ):
+            raise ValueError(
+                "FAIL 분석에는 객관 점수가 없어야 합니다."
+            )
+
+        if (
+            self.analysis_quality_status is AnalysisQualityStatus.FAIL
             and not self.analysis_exclusion_reason
         ):
             raise ValueError(

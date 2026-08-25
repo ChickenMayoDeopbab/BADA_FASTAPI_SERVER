@@ -115,6 +115,10 @@ def _pipeline(*, seconds: float, turns: list, spans: list, log: list | None = No
     p._user_turn_intervals = turns
     p._user_turn_texts = [f"발화{i}" for i in range(len(turns))]
     p._turn_open_at = None
+    p._script_len = 0
+    p._ai_pcm_bytes = 0
+    p._server_wait_duration_ms = 0
+    p._completed_script_steps = 0
     p._settings = _settings()
     return p
 
