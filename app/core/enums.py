@@ -32,12 +32,10 @@ class ReactionKind(StrEnum):
     LIKE = "LIKE"       # 좋아요
 
 class ScenarioCategory(StrEnum):
-    RESTAURANT = "restaurant"
-    HOSPITAL = "hospital"
-    COMPLAINT = "complaint"
-    DELIVERY = "delivery"
-    BANK = "bank"
-    CUSTOM = "custom"
+    WORK = "work"
+    DAILY = "daily"
+    SCHOOL = "school"
+    OTHER = "other"
 
 ALL_DIFFICULTIES: list[Difficulty] = [Difficulty.LOW, Difficulty.MEDIUM, Difficulty.HIGH]
 ALL_PERSONALITIES: list[AiPersonality] = [

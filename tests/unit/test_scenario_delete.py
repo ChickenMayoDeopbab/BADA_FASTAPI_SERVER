@@ -7,6 +7,7 @@ from fastapi import FastAPI
 
 from app.api.v1 import internal
 from app.api.v1.scenario import router as scenario_router
+from app.core.enums import ScenarioCategory
 from app.core.preset_scenarios import PRESET_MAP, PRESET_SCENARIOS
 from app.core.security import require_internal_secret
 from app.db.seed import seed_preset_scenarios
@@ -55,6 +56,7 @@ def _custom_row(scenario_id: int, user_id: int | None, **kw) -> SimpleNamespace:
         scenario_id=scenario_id,
         title=kw.get("title", f"커스텀 {scenario_id}"),
         content="설명",
+        category=kw.get("category", ScenarioCategory.OTHER.value),
         scenario_image=None,
         tts_voice_id=None,
         ai_prompt="prompt",
@@ -75,6 +77,7 @@ def _preset_row(scenario_id: int, **kw) -> SimpleNamespace:
         scenario_id=scenario_id,
         title=seed["title"],
         content=seed["content"],
+        category=seed["category"].value,
         scenario_image=seed["scenario_image"],
         tts_voice_id=seed["tts_voice_id"],
         ai_prompt=seed["ai_prompt"],

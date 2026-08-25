@@ -9,7 +9,7 @@ from fastapi import FastAPI
 
 import app.core.tts_voices as tts_voices
 from app.api.v1 import internal
-from app.core.enums import SpeakerAge, SpeakerGender, SpeakerTone
+from app.core.enums import ScenarioCategory, SpeakerAge, SpeakerGender, SpeakerTone
 from app.core.security import require_internal_secret
 from app.core.tts_voices import VoiceProfile, parse_speaker, pick_voice_id
 from app.deps.db import get_db
@@ -209,6 +209,7 @@ def _make_fake_anthropic_client(payload: dict) -> type:
 def _request() -> CustomSessionRequest:
     return CustomSessionRequest(
         title="집주인 통화 연습",
+        category=ScenarioCategory.OTHER,
         call_target="집주인",
         call_purpose="월세 납부일 조정 문의",
     )

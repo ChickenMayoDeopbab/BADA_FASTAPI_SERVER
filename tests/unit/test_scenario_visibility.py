@@ -45,6 +45,7 @@ def _custom_row(scenario_id: int, user_id: int | None, **kw) -> SimpleNamespace:
         scenario_id=scenario_id,
         title=kw.get("title", f"커스텀 {scenario_id}"),
         content="설명",
+        category=kw.get("category", ScenarioCategory.OTHER.value),
         scenario_image=None,
         tts_voice_id=None,
         ai_prompt="prompt",
@@ -64,6 +65,7 @@ def _preset_row(scenario_id: int) -> SimpleNamespace:
         scenario_id=scenario_id,
         title=seed["title"],
         content=seed["content"],
+        category=seed["category"].value,
         scenario_image=seed["scenario_image"],
         tts_voice_id=seed["tts_voice_id"],
         ai_prompt=seed["ai_prompt"],
@@ -120,34 +122,53 @@ async def test_presets_visible_to_all_users() -> None:
     assert all(s.is_custom is False for s in resp.scenarios)
 
 
-async def test_custom_category_filter_combines_with_owner() -> None:
+async def test_daily_filter_includes_presets_and_own_daily_custom() -> None:
     rows = [
         *_preset_rows(),
-        _custom_row(101, user_id=1),
-        _custom_row(102, user_id=2),
+        _custom_row(101, user_id=1, category=ScenarioCategory.DAILY.value),
+        _custom_row(102, user_id=1, category=ScenarioCategory.OTHER.value),
+        _custom_row(103, user_id=2, category=ScenarioCategory.DAILY.value),
     ]
 
-    resp = await get_scenarios(
-        _FakeDB(rows), ScenarioCategory.CUSTOM, user_id=1
+    response = await get_scenarios(
+        _FakeDB(rows), ScenarioCategory.DAILY, user_id=1
     )
 
-    assert _ids(resp) == [101]
-
-
-async def test_non_custom_category_filter_excludes_customs() -> None:
-    rows = [*_preset_rows(), _custom_row(101, user_id=1)]
-
-    resp = await get_scenarios(
-        _FakeDB(rows), ScenarioCategory.RESTAURANT, user_id=1
+    assert _ids(response) == [*_preset_ids(), 101]
+    assert all(
+        scenario.category == ScenarioCategory.DAILY
+        for scenario in response.scenarios
     )
 
-    expected_ids = [
-        s["scenario_id"]
-        for s in PRESET_SCENARIOS
-        if s["category"] == ScenarioCategory.RESTAURANT
+
+async def test_work_filter_returns_matching_custom_only() -> None:
+    rows = [
+        *_preset_rows(),
+        _custom_row(101, user_id=1, category=ScenarioCategory.WORK.value),
+        _custom_row(102, user_id=1, category=ScenarioCategory.SCHOOL.value),
     ]
-    assert _ids(resp) == expected_ids
-    assert all(s.category == ScenarioCategory.RESTAURANT for s in resp.scenarios)
+
+    response = await get_scenarios(
+        _FakeDB(rows), ScenarioCategory.WORK, user_id=1
+    )
+
+    assert _ids(response) == [101]
+    assert response.scenarios[0].is_custom is True
+    assert response.scenarios[0].category == ScenarioCategory.WORK
+
+
+async def test_invalid_stored_custom_category_falls_back_to_other() -> None:
+    rows = [
+        *_preset_rows(),
+        _custom_row(101, user_id=1, category="legacy-invalid"),
+    ]
+
+    response = await get_scenarios(
+        _FakeDB(rows), ScenarioCategory.OTHER, user_id=1
+    )
+
+    assert _ids(response) == [101]
+    assert response.scenarios[0].category == ScenarioCategory.OTHER
 
 
 def _make_app(rows: list, user_id: int | None = None) -> FastAPI:
@@ -182,6 +203,27 @@ async def test_empty_db_falls_back_to_presets() -> None:
     scenarios = resp.json()["scenarios"]
     assert len(scenarios) > 0
     assert all(s["is_custom"] is False for s in scenarios)
+
+
+async def test_legacy_category_query_is_rejected() -> None:
+    app = _make_app(rows=[], user_id=1)
+
+    response = await _get(
+        app,
+        "/api/v1/scenario/scenarios?category=hospital",
+    )
+
+    assert response.status_code == 422
+
+
+def test_custom_create_defaults_missing_category_to_other() -> None:
+    request = CustomSessionRequest(
+        title="교수님께 과제 문의",
+        call_target="담당 교수님",
+        call_purpose="과제 제출 기한 연장 가능 여부 문의",
+    )
+
+    assert request.category == ScenarioCategory.OTHER
 
 
 async def test_warmup_custom_hidden_even_from_owner() -> None:
@@ -246,15 +288,20 @@ class _FakeSeedDB:
 
 def _scenario_orm(scenario_id: int, **kw) -> ScenarioORM:
     seed = PRESET_MAP.get(scenario_id, PRESET_MAP[1])
+    is_custom = kw.get("is_custom", False)
     return ScenarioORM(
         scenario_id=scenario_id,
         title=kw.get("title", seed["title"]),
         content=kw.get("content", seed["content"]),
+        category=kw.get(
+            "category",
+            ScenarioCategory.OTHER.value if is_custom else seed["category"].value,
+        ),
         scenario_image=kw.get("scenario_image", seed["scenario_image"]),
         tts_voice_id=kw.get("tts_voice_id", seed["tts_voice_id"]),
         ai_prompt=kw.get("ai_prompt", seed["ai_prompt"]),
         user_id=kw.get("user_id"),
-        is_custom=kw.get("is_custom", False),
+        is_custom=is_custom,
         is_warmup=kw.get("is_warmup", False),
         call_target=kw.get("call_target", seed["call_target"]),
         call_purpose=kw.get("call_purpose", seed["call_purpose"]),
@@ -270,6 +317,7 @@ async def test_seed_preset_scenarios_inserts_missing_presets() -> None:
 
     assert sorted(db.scenarios) == _preset_ids()
     assert all(row.is_custom is False for row in db.scenarios.values())
+    assert all(row.category == ScenarioCategory.DAILY.value for row in db.scenarios.values())
     assert db.commits == 1
 
 
@@ -300,6 +348,7 @@ async def test_seed_preset_scenarios_moves_conflicting_custom_and_feedback() -> 
         title="커스텀 충돌",
         user_id=7,
         is_custom=True,
+        category=ScenarioCategory.WORK.value,
         call_target="구청 직원",
         call_purpose="민원 문의",
     )
@@ -314,6 +363,7 @@ async def test_seed_preset_scenarios_moves_conflicting_custom_and_feedback() -> 
     assert moved_customs[0].scenario_id == 9
     assert moved_customs[0].title == "커스텀 충돌"
     assert moved_customs[0].user_id == 7
+    assert moved_customs[0].category == ScenarioCategory.WORK.value
     assert db.scenarios[1].is_custom is False
     assert db.scenarios[1].title == PRESET_MAP[1]["title"]
     assert feedback.scenario_id == 9
@@ -359,6 +409,7 @@ async def test_create_custom_stores_warmup_flag(monkeypatch) -> None:
 
     request = CustomSessionRequest(
         title="집주인 통화 연습",
+        category=ScenarioCategory.OTHER,
         call_target="집주인",
         call_purpose="월세 납부일 조정 문의",
         is_warmup=True,
@@ -368,12 +419,15 @@ async def test_create_custom_stores_warmup_flag(monkeypatch) -> None:
     assert db.added is not None
     assert db.added.is_warmup is True
     assert db.added.user_id == 1
+    assert db.added.category == ScenarioCategory.OTHER.value
 
     db2 = _FakeWriteDB()
     request2 = CustomSessionRequest(
         title="일반 커스텀",
+        category=ScenarioCategory.DAILY,
         call_target="레스토랑 직원",
         call_purpose="창가 자리로 예약 요청",
     )
     await create_custom_scenario(db2, request2, user_id=1)
     assert db2.added.is_warmup is False
+    assert db2.added.category == ScenarioCategory.DAILY.value
