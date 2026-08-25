@@ -31,10 +31,42 @@ async def init_db() -> None:
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
         if engine.dialect.name == "postgresql":
-            await conn.execute(text(
-                "ALTER TABLE scenario ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP NULL"
-            ))
+            await conn.execute(
+                text(
+                    "ALTER TABLE scenario "
+                    "ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP NULL"
+                )
+            )
+
+            await conn.execute(
+                text(
+                    "ALTER TABLE scenario "
+                    "ADD COLUMN IF NOT EXISTS category VARCHAR(20) NULL"
+                )
+            )
+
+            await conn.execute(
+                text(
+                    """
+                    UPDATE scenario
+                    SET category = CASE
+                        WHEN is_custom = TRUE THEN 'other'
+                        ELSE 'daily'
+                    END
+                    WHERE category IS NULL
+                       OR category NOT IN ('work', 'daily', 'school', 'other')
+                    """
+                )
+            )
+
+            await conn.execute(
+                text(
+                    "ALTER TABLE scenario "
+                    "ALTER COLUMN category SET NOT NULL"
+                )
+            )
 
     async with AsyncSessionLocal() as session:
         await seed_preset_scenarios(session)
