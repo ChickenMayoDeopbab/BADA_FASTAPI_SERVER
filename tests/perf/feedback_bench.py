@@ -120,6 +120,10 @@ def build_pipeline(ws, storage, tremor, llm, spring, pcm: bytes, duration_s: flo
     ]
     p._user_turn_texts = ["첫 번째 발화", "두 번째 발화", "세 번째 발화"]
     p._turn_open_at = None
+    p._script_len = 0
+    p._ai_pcm_bytes = 0
+    p._server_wait_duration_ms = 0
+    p._completed_script_steps = 0
     return p
 
 

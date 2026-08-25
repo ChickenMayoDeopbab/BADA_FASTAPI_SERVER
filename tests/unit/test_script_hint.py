@@ -264,6 +264,9 @@ def _make_pipeline(llm, session: dict) -> VoicePipeline:
     p._user_turn_intervals = []
     p._turn_open_at = None
     p._script_len = len(session.get("scenario", {}).get("script", []) or [])
+    p._ai_pcm_bytes = 0
+    p._server_wait_duration_ms = 0
+    p._completed_script_steps = 0
     return p
 
 

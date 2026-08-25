@@ -103,6 +103,9 @@ def _make_pipeline(llm, tts) -> VoicePipeline:
     p._user_turn_intervals = []
     p._turn_open_at = None
     p._script_len = 0
+    p._ai_pcm_bytes = 0
+    p._server_wait_duration_ms = 0
+    p._completed_script_steps = 0
     return p
 
 

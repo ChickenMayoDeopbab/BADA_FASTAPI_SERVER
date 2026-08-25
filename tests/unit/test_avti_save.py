@@ -81,7 +81,13 @@ class _FakeTremor:
         self._spans = spans
 
     def analyze(self, pcm: bytes):
-        return SimpleNamespace(shake_count=0, good_candidates=[], sustained_spans=self._spans)
+        return SimpleNamespace(
+            shake_count=0,
+            good_candidates=[],
+            sustained_spans=self._spans,
+            voiced_spans=self._spans,
+            episodes=[],
+        )
 
 
 class _FakeStorage:
@@ -109,6 +115,10 @@ def _pipeline(*, seconds: float, turns: list, spans: list, log: list | None = No
     p._user_turn_intervals = turns
     p._user_turn_texts = [f"발화{i}" for i in range(len(turns))]
     p._turn_open_at = None
+    p._script_len = 0
+    p._ai_pcm_bytes = 0
+    p._server_wait_duration_ms = 0
+    p._completed_script_steps = 0
     p._settings = _settings()
     return p
 
@@ -285,6 +295,33 @@ async def test_no_recording_means_no_avti(monkeypatch) -> None:
     await p._teardown()
 
     assert not calls
+
+
+async def test_analysis_failure_does_not_block_session_close(
+    monkeypatch,
+) -> None:
+    order: list[str] = []
+    captured: dict = {}
+
+    def _raise_analysis_error(*args, **kwargs):
+        raise RuntimeError("analysis failed")
+
+    async def _capture(*args, **kwargs):
+        order.append("spring")
+        captured.update(kwargs)
+
+    monkeypatch.setattr(
+        "app.services.pipeline.TrainingPerformanceAnalyzer.analyze",
+        _raise_analysis_error,
+    )
+
+    p = _pipeline(seconds=0, turns=[], spans=[], log=order)
+    p._spring.notify_session_closed = _capture
+
+    await p._teardown()
+
+    assert order == ["end_frame", "spring"]
+    assert captured["analysis"] is None
 
 
 async def test_slow_avti_does_not_block_the_session(monkeypatch) -> None:
