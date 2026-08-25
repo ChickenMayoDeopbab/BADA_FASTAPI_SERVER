@@ -77,7 +77,15 @@ async def get_scenarios(
                 continue
             if row.user_id != user_id:
                 continue
-            row_category = ScenarioCategory(row.category)
+            try:
+                row_category = ScenarioCategory(row.category)
+            except (TypeError, ValueError):
+                logger.warning(
+                    "유효하지 않은 시나리오 카테고리를 OTHER로 처리: %r",
+                    row.category,
+                    extra={"scenario_id": row.scenario_id},
+                )
+                row_category = ScenarioCategory.OTHER
             if category is not None and row_category != category:
                 continue
 

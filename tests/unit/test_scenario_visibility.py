@@ -157,6 +157,20 @@ async def test_work_filter_returns_matching_custom_only() -> None:
     assert response.scenarios[0].category == ScenarioCategory.WORK
 
 
+async def test_invalid_stored_custom_category_falls_back_to_other() -> None:
+    rows = [
+        *_preset_rows(),
+        _custom_row(101, user_id=1, category="legacy-invalid"),
+    ]
+
+    response = await get_scenarios(
+        _FakeDB(rows), ScenarioCategory.OTHER, user_id=1
+    )
+
+    assert _ids(response) == [101]
+    assert response.scenarios[0].category == ScenarioCategory.OTHER
+
+
 def _make_app(rows: list, user_id: int | None = None) -> FastAPI:
     app = FastAPI()
     app.include_router(scenario_router)
@@ -174,12 +188,6 @@ async def _get(app: FastAPI, path: str) -> httpx.Response:
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         return await client.get(path)
-
-
-async def _post(app: FastAPI, path: str, json: dict) -> httpx.Response:
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        return await client.post(path, json=json)
 
 
 async def test_list_requires_auth() -> None:
@@ -208,20 +216,14 @@ async def test_legacy_category_query_is_rejected() -> None:
     assert response.status_code == 422
 
 
-async def test_custom_create_requires_category() -> None:
-    app = _make_app(rows=[], user_id=1)
-
-    response = await _post(
-        app,
-        "/api/v1/scenario/custom",
-        json={
-            "title": "교수님께 과제 문의",
-            "call_target": "담당 교수님",
-            "call_purpose": "과제 제출 기한 연장 가능 여부 문의",
-        },
+def test_custom_create_defaults_missing_category_to_other() -> None:
+    request = CustomSessionRequest(
+        title="교수님께 과제 문의",
+        call_target="담당 교수님",
+        call_purpose="과제 제출 기한 연장 가능 여부 문의",
     )
 
-    assert response.status_code == 422
+    assert request.category == ScenarioCategory.OTHER
 
 
 async def test_warmup_custom_hidden_even_from_owner() -> None:
