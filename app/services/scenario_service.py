@@ -127,7 +127,7 @@ async def get_scenarios(
             ai_prompt=row.ai_prompt,
             is_custom=True,
         )
-        for row in custom_rows
+        for row, row_category in custom_rows
     )
     return ScenarioListResponse(scenarios=infos)
 
