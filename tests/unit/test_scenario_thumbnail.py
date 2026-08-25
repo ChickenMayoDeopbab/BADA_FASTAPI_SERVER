@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.core.enums import FileType
+from app.core.enums import FileType, ScenarioCategory
 from app.db.models import FileORM
 from app.services import scenario_image_service, scenario_service
 from app.services.scenario_image_service import (
@@ -26,6 +26,7 @@ def _scenario_row(scenario_id: int = 101, user_id: int = 1, **kw) -> SimpleNames
         scenario_id=scenario_id,
         title=kw.get("title", "카페 단체 예약 문의"),
         content="단체 예약이 가능한지 물어본다",
+        category=kw.get("category", ScenarioCategory.OTHER.value),
         scenario_image=kw.get("scenario_image"),
         tts_voice_id=None,
         ai_prompt="prompt",
