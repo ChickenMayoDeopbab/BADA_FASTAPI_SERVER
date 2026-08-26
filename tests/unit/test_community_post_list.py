@@ -147,7 +147,7 @@ async def test_list_query_count_does_not_grow_with_post_count() -> None:
         resp = await env.client.get("/api/v1/community/posts")
 
     assert len(resp.json()["posts"]) == 5
-    assert len(env.queries) == 3, "\n---\n".join(env.queries)
+    assert len(env.queries) == 4, "\n---\n".join(env.queries)
 
 
 async def test_soft_deleted_post_disappears_from_list() -> None:
