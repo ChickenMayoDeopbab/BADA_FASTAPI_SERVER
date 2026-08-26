@@ -3,7 +3,7 @@
 여기 정의된 Spring 테이블은 FastAPI 가 생성이나 변경 절대 금지
 """
 
-from sqlalchemy import BigInteger, Column, MetaData, String, Table
+from sqlalchemy import BigInteger, Column, DateTime, MetaData, SmallInteger, String, Table
 
 external_metadata = MetaData()
 
@@ -15,4 +15,16 @@ users_table = Table(
     Column("profile_image", String(255)),
     # @Enumerated(EnumType.STRING) 이 남기는 enum 이름 — "USER" / "ADMIN"
     Column("role", String(20)),
+)
+
+training_records_table = Table(
+    "training_records",
+    external_metadata,
+    Column("record_id", BigInteger, primary_key=True),
+    Column("user_id", BigInteger),
+    Column("scenario_name", String(255)),
+    Column("session_type", String(32)),
+    Column("started_at", DateTime),
+    Column("duration_seconds", BigInteger),
+    Column("anxiety_score", SmallInteger),
 )
