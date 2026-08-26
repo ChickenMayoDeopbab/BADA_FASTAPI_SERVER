@@ -27,6 +27,9 @@ _AUTO_PK = BigInteger().with_variant(Integer, "sqlite")
 
 class ScenarioORM(Base):
     __tablename__ = "scenario"
+    __table_args__ = (
+        Index("ix_scenario_origin_user", "origin_scenario_id", "user_id"),
+    )
 
     # _AUTO_PK 를 쓰는 이유: 맨 BigInteger 는 SQLite 에서 BIGINT 로 렌더돼
     # rowid 자동 부여가 안 된다(INTEGER PRIMARY KEY 에서만 된다).
@@ -46,6 +49,7 @@ class ScenarioORM(Base):
     script: Mapped[list | None] = mapped_column(JSON, nullable=True) # [{"step", "ai_goal", "hint"}]
     example_dialogue: Mapped[list | None] = mapped_column(JSON, nullable=True) # 커스텀 전용 [{"speaker", "text"}]
     example_audio_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    origin_scenario_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 

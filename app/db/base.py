@@ -49,6 +49,19 @@ async def init_db() -> None:
 
             await conn.execute(
                 text(
+                    "ALTER TABLE scenario "
+                    "ADD COLUMN IF NOT EXISTS origin_scenario_id BIGINT NULL"
+                )
+            )
+            await conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_scenario_origin_user "
+                    "ON scenario (origin_scenario_id, user_id)"
+                )
+            )
+
+            await conn.execute(
+                text(
                     """
                     UPDATE scenario
                     SET category = CASE
