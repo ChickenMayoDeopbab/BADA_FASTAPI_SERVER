@@ -80,6 +80,15 @@ class PostAttachment(BaseModel):
     training_record: AttachedTrainingRecord | None = None
 
 
+class ScenarioCopyResponse(BaseModel):
+    """시나리오 카피 결과"""
+
+    scenario_id: int
+    title: str
+    category: str
+    already_copied: bool = False
+
+
 class PostCreateRequest(BaseModel):
     title: Title
     content: PostBody
