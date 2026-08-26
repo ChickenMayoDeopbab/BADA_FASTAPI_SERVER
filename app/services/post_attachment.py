@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.enums import AttachmentKind
@@ -17,6 +18,17 @@ from app.schemas.community import (
 
 class AttachmentInvalidError(Exception):
     """붙이면 안되는거 붙임"""
+
+
+async def commit_translating_conflicts(db: AsyncSession) -> None:
+    """디비 에러 시 에러 반환, 아니면 커밋"""
+    try:
+        await db.commit()
+    except IntegrityError as e:
+        await db.rollback()
+        if "post_attachment" in str(e.orig):
+            raise AttachmentInvalidError("같은 종류는 하나만 첨부할 수 있습니다.") from e
+        raise
 
 
 async def _check_scenario(db: AsyncSession, ref_id: int, user_id: int) -> None:
@@ -53,8 +65,6 @@ async def build_rows(
     db: AsyncSession, post_id: int, requested: list[AttachmentRequest], user_id: int
 ) -> list[PostAttachmentORM]:
     """검증 통과한것만 행 만들기"""
-    kinds = [a.kind for a in requested]
-
     now = utc_naive_now()
     rows: list[PostAttachmentORM] = []
     for item in requested:

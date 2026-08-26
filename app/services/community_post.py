@@ -26,6 +26,7 @@ from app.schemas.community import (
 from app.services.post_attachment import (
     AttachmentInvalidError,
     build_rows,
+    commit_translating_conflicts,
     detail_for_post,
     kinds_by_post,
 )
@@ -115,7 +116,7 @@ async def create_post(
     except AttachmentInvalidError:
         await db.rollback()
         raise
-    await db.commit()
+    await commit_translating_conflicts(db)
 
     return await _detail_with_aggregates(db, row, user_id)
 
@@ -337,7 +338,7 @@ async def update_post(
 
     if changed:
         row.updated_at = utc_naive_now()
-        await db.commit()
+        await commit_translating_conflicts(db)
 
     return await _detail_with_aggregates(db, row, user_id)
 
