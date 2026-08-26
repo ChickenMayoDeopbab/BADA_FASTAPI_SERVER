@@ -4,7 +4,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, BeforeValidator, Field, StringConstraints
 
-from app.core.enums import ReactionKind
+from app.core.enums import AttachmentKind, ReactionKind
 
 
 def to_nfc(value: object) -> object:
@@ -47,14 +47,49 @@ class ReactionCounts(BaseModel):
     total: int = 0
 
 
+class AttachmentRequest(BaseModel):
+    """첨부하는거 종류별 최대 1개"""
+
+    kind: AttachmentKind
+    ref_id: int
+
+
+class AttachedScenario(BaseModel):
+    """첨부된 시나리오"""
+
+    title: str
+    content: str
+    category: str
+    is_available: bool = True
+    is_mine: bool = False
+
+
+class AttachedTrainingRecord(BaseModel):
+    scenario_name: str | None = None
+    session_type: str | None = None
+    started_at: datetime | None = None
+    duration_seconds: int | None = None
+    anxiety_score: int | None = None
+    is_available: bool = True
+
+
+class PostAttachment(BaseModel):
+    kind: AttachmentKind
+    ref_id: int
+    scenario: AttachedScenario | None = None
+    training_record: AttachedTrainingRecord | None = None
+
+
 class PostCreateRequest(BaseModel):
     title: Title
     content: PostBody
+    attachments: list[AttachmentRequest] = Field(default_factory=list)
 
 
 class PostUpdateRequest(BaseModel):
     title: Title | None = None
     content: PostBody | None = None
+    attachments: list[AttachmentRequest] | None = None
 
 
 class PostDetailResponse(BaseModel):
@@ -66,6 +101,7 @@ class PostDetailResponse(BaseModel):
     comment_count: int = 0
     reactions: ReactionCounts = Field(default_factory=lambda: ReactionCounts())
     my_reaction: ReactionKind | None = None
+    attachments: list[PostAttachment] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 
@@ -85,6 +121,7 @@ class PostSummary(BaseModel):
     comment_count: int
     reactions: ReactionCounts
     my_reaction: ReactionKind | None = None
+    attachment_kinds: list[AttachmentKind] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 

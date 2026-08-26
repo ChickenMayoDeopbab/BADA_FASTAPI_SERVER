@@ -28,7 +28,10 @@ _AUTO_PK = BigInteger().with_variant(Integer, "sqlite")
 class ScenarioORM(Base):
     __tablename__ = "scenario"
 
-    scenario_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    # _AUTO_PK 를 쓰는 이유: 맨 BigInteger 는 SQLite 에서 BIGINT 로 렌더돼
+    # rowid 자동 부여가 안 된다(INTEGER PRIMARY KEY 에서만 된다).
+    # PostgreSQL DDL 은 양쪽 다 BIGSERIAL 로 같아서 마이그레이션은 필요 없다.
+    scenario_id: Mapped[int] = mapped_column(_AUTO_PK, primary_key=True, autoincrement=True)
     title: Mapped[str] = mapped_column(String(50), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     category: Mapped[str] = mapped_column(String(20), nullable=False)
@@ -137,4 +140,17 @@ class PostReactionORM(Base):
     post_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("post.post_id"), nullable=False)
     user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+class PostAttachmentORM(Base):
+    __tablename__ = "post_attachment"
+    __table_args__ = (
+        UniqueConstraint("post_id", "kind", name="uq_post_attachment_post_kind"),
+    )
+
+    attachment_id: Mapped[int] = mapped_column(_AUTO_PK, primary_key=True, autoincrement=True)
+    post_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("post.post_id"), nullable=False)
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    ref_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
