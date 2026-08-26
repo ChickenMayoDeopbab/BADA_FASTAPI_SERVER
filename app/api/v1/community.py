@@ -34,6 +34,7 @@ from app.services.community_post import list_posts as svc_list_posts
 from app.services.community_post import update_post as svc_update_post
 from app.services.community_reaction import clear_reaction as svc_clear_reaction
 from app.services.community_reaction import set_reaction as svc_set_reaction
+from app.services.post_attachment import AttachmentInvalidError
 
 router = APIRouter(prefix="/api/v1/community", tags=["community"])
 
@@ -50,7 +51,12 @@ async def create_post(
     db: AsyncSession = Depends(get_db),
     user_id: int = Depends(get_current_user_id),
 ) -> PostDetailResponse:
-    return await svc_create_post(db, body, user_id)
+    try:
+        return await svc_create_post(db, body, user_id)
+    except AttachmentInvalidError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
 
 
 @router.get(
