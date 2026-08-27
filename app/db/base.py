@@ -44,8 +44,18 @@ _TZ_COLUMNS: tuple[tuple[str, tuple[str, ...]], ...] = (
 )
 
 
+_TZ_MIGRATION_LOCK_KEY = 20260827
+
+_TZ_MIGRATION_LOCK_TIMEOUT = "5s"
+
+
 async def migrate_naive_utc_to_timestamptz(conn: AsyncConnection) -> list[str]:
     """timestamptz로 마이그레이션 하는 코드"""
+    await conn.execute(
+        text("SELECT pg_advisory_xact_lock(:key)"), {"key": _TZ_MIGRATION_LOCK_KEY}
+    )
+    await conn.execute(text(f"SET LOCAL lock_timeout = '{_TZ_MIGRATION_LOCK_TIMEOUT}'"))
+
     naive = {
         (row.table_name, row.column_name)
         for row in (
