@@ -5,6 +5,7 @@ from typing import Annotated
 from pydantic import BaseModel, BeforeValidator, Field, StringConstraints
 
 from app.core.enums import AttachmentKind, ReactionKind
+from app.core.timeutil import KstDatetime
 
 
 def to_nfc(value: object) -> object:
@@ -115,8 +116,8 @@ class PostDetailResponse(BaseModel):
     reactions: ReactionCounts = Field(default_factory=lambda: ReactionCounts())
     my_reaction: ReactionKind | None = None
     attachments: list[PostAttachment] = Field(default_factory=list)
-    created_at: datetime
-    updated_at: datetime
+    created_at: KstDatetime
+    updated_at: KstDatetime
 
 
 _PREVIEW_CHARS = 100
@@ -135,8 +136,8 @@ class PostSummary(BaseModel):
     reactions: ReactionCounts
     my_reaction: ReactionKind | None = None
     attachment_kinds: list[AttachmentKind] = Field(default_factory=list)
-    created_at: datetime
-    updated_at: datetime
+    created_at: KstDatetime
+    updated_at: KstDatetime
 
 
 class PostListResponse(BaseModel):
@@ -181,8 +182,8 @@ class CommentResponse(BaseModel):
     parent_comment_id: int | None = None
     content: str
     author: AuthorInfo
-    created_at: datetime
-    updated_at: datetime
+    created_at: KstDatetime
+    updated_at: KstDatetime
 
 
 class CommentThread(CommentResponse):
