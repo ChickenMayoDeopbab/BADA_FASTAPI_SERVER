@@ -1,6 +1,6 @@
 import logging
 
-from sqlalchemy import text
+from sqlalchemy import DateTime, text
 from sqlalchemy.ext.asyncio import (
     AsyncConnection,
     AsyncSession,
@@ -33,15 +33,16 @@ class Base(DeclarativeBase):
     pass
 
 
-_TZ_COLUMNS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("scenario", ("created_at", "deleted_at")),
-    ("feedback", ("created_at",)),
-    ("voice_tremor_metric", ("created_at",)),
-    ("post", ("created_at", "updated_at", "deleted_at")),
-    ("post_comment", ("created_at", "updated_at", "deleted_at")),
-    ("post_reaction", ("created_at",)),
-    ("post_attachment", ("created_at",)),
-)
+def tz_migration_targets() -> list[tuple[str, str]]:
+    """마이그레이션 대상 모델에서 도출"""
+    from app.db import models
+
+    return sorted(
+        (table.name, column.name)
+        for table in Base.metadata.tables.values()
+        for column in table.columns
+        if isinstance(column.type, DateTime) and column.type.timezone
+    )
 
 
 _TZ_MIGRATION_LOCK_KEY = 20260827
@@ -51,10 +52,10 @@ _TZ_MIGRATION_LOCK_TIMEOUT = "5s"
 
 async def migrate_naive_utc_to_timestamptz(conn: AsyncConnection) -> list[str]:
     """timestamptz로 마이그레이션 하는 코드"""
+    await conn.execute(text(f"SET LOCAL lock_timeout = '{_TZ_MIGRATION_LOCK_TIMEOUT}'"))
     await conn.execute(
         text("SELECT pg_advisory_xact_lock(:key)"), {"key": _TZ_MIGRATION_LOCK_KEY}
     )
-    await conn.execute(text(f"SET LOCAL lock_timeout = '{_TZ_MIGRATION_LOCK_TIMEOUT}'"))
 
     naive = {
         (row.table_name, row.column_name)
@@ -73,17 +74,16 @@ async def migrate_naive_utc_to_timestamptz(conn: AsyncConnection) -> list[str]:
     }
 
     migrated: list[str] = []
-    for table, columns in _TZ_COLUMNS:
-        for column in columns:
-            if (table, column) not in naive:
-                continue
-            await conn.execute(
-                text(
-                    f'ALTER TABLE "{table}" ALTER COLUMN "{column}" '
-                    f"TYPE timestamptz USING \"{column}\" AT TIME ZONE 'UTC'"
-                )
+    for table, column in tz_migration_targets():
+        if (table, column) not in naive:
+            continue
+        await conn.execute(
+            text(
+                f'ALTER TABLE "{table}" ALTER COLUMN "{column}" '
+                f"TYPE timestamptz USING \"{column}\" AT TIME ZONE 'UTC'"
             )
-            migrated.append(f"{table}.{column}")
+        )
+        migrated.append(f"{table}.{column}")
     return migrated
 
 
