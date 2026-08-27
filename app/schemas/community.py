@@ -65,11 +65,15 @@ class AttachedScenario(BaseModel):
 
 
 class AttachedTrainingRecord(BaseModel):
+    """첨부된 훈련 기록"""
+
     scenario_name: str | None = None
     session_type: str | None = None
     started_at: datetime | None = None
     duration_seconds: int | None = None
     anxiety_score: int | None = None
+    audio_url: str | None = None
+    audio_status: str = "none"
     is_available: bool = True
 
 

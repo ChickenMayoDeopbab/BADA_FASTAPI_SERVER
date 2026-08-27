@@ -13,7 +13,6 @@ users_table = Table(
     Column("user_id", BigInteger, primary_key=True),
     Column("name", String(50)),
     Column("profile_image", String(255)),
-    # @Enumerated(EnumType.STRING) 이 남기는 enum 이름 — "USER" / "ADMIN"
     Column("role", String(20)),
 )
 
@@ -27,4 +26,5 @@ training_records_table = Table(
     Column("started_at", DateTime),
     Column("duration_seconds", BigInteger),
     Column("anxiety_score", SmallInteger),
+    Column("recording_key", String(512)),
 )
