@@ -101,3 +101,39 @@ def test_degenerate_pcm_does_not_explode(pcm: bytes) -> None:
 def test_very_short_audio_passes_through() -> None:
     y = _voiced(seconds=0.05)
     assert len(morph(y, SR, DEFAULT_SEMITONES)) == len(y)
+
+
+class _FakeS3:
+    """get_object 는 성공하지만 내용이 WAV 가 아닌 경우."""
+
+    def __init__(self, body: bytes) -> None:
+        self._body = body
+
+    def get_object(self, **_kw: object) -> dict:
+        return {"Body": _Body(self._body)}
+
+
+class _Body:
+    def __init__(self, data: bytes) -> None:
+        self._data = data
+
+    def read(self) -> bytes:
+        return self._data
+
+
+def test_corrupt_object_returns_none_like_the_rest_of_the_class() -> None:
+    """S3 는 응답했는데 WAV 가 아니면? 이 클래스의 다른 메서드는 전부 None 을 준다.
+
+    여기만 원시 예외를 던지면 ensure_morphed 의 경고 로그를 건너뛰고
+    워커의 광범위한 except 로 떨어져 원인 파악이 어려워진다.
+    """
+    from types import SimpleNamespace
+
+    from app.services.recording_storage import RecordingStorageService
+
+    settings = SimpleNamespace(
+        s3_bucket="b", aws_access_key=None, aws_secret_key=None, aws_region="ap-northeast-2"
+    )
+    storage = RecordingStorageService(settings, client=_FakeS3(b"not a wav at all"))
+
+    assert storage.download_pcm("recordings/x.wav") is None

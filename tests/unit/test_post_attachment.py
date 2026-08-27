@@ -428,3 +428,68 @@ async def test_record_without_a_recording_reports_none() -> None:
 
         assert block["audio_status"] == "none"
         assert block["audio_url"] is None
+
+
+@pytest.mark.asyncio
+async def test_patch_with_someone_elses_scenario_is_400_not_500() -> None:
+    """생성은 400 을 주는데 수정만 500 이면 같은 실수에 다른 답이 나간다."""
+    async with community_app() as env:
+        post_id = await create_post(env)
+        theirs = await _add_scenario(env, _scenario(user_id=8))
+
+        resp = await env.client.patch(
+            f"/api/v1/community/posts/{post_id}",
+            json={"attachments": [{"kind": "SCENARIO", "ref_id": theirs}]},
+        )
+
+        assert resp.status_code == 400, resp.text
+
+
+@pytest.mark.asyncio
+async def test_patch_with_duplicate_kind_is_400_not_500() -> None:
+    async with community_app() as env:
+        post_id = await create_post(env)
+        first = await _add_scenario(env, _scenario())
+        second = await _add_scenario(env, _scenario())
+
+        resp = await env.client.patch(
+            f"/api/v1/community/posts/{post_id}",
+            json={"attachments": [
+                {"kind": "SCENARIO", "ref_id": first},
+                {"kind": "SCENARIO", "ref_id": second},
+            ]},
+        )
+
+        assert resp.status_code == 400, resp.text
+
+
+@pytest.mark.asyncio
+async def test_patch_with_the_same_attachments_changes_nothing() -> None:
+    """같은 목록을 다시 보내면 행을 지웠다 새로 만들면 안 된다.
+
+    프론트가 편집 때마다 현재 첨부를 그대로 돌려보내는 구현이면 매번
+    attachment_id 가 바뀌고 변조 작업이 다시 예약된다.
+    """
+    async with community_app() as env:
+        scenario_id = await _add_scenario(env, _scenario())
+        created = await env.client.post(
+            "/api/v1/community/posts",
+            json={"title": "제목", "content": "내용",
+                  "attachments": [{"kind": "SCENARIO", "ref_id": scenario_id}]},
+        )
+        post_id = created.json()["post_id"]
+
+        # id 비교로는 못 잡는다 — SQLite 는 삭제한 행의 id 를 그대로 재사용한다.
+        # 실제로 지웠는지는 발행된 쿼리로 봐야 한다.
+        env.queries.clear()
+        resp = await env.client.patch(
+            f"/api/v1/community/posts/{post_id}",
+            json={"attachments": [{"kind": "SCENARIO", "ref_id": scenario_id}]},
+        )
+        assert resp.status_code == 200, resp.text
+
+        touched = [
+            q for q in env.queries
+            if "post_attachment" in q and q.strip().upper().startswith(("DELETE", "INSERT"))
+        ]
+        assert not touched, "내용이 같은데 첨부를 지웠다 다시 넣었다:\n" + "\n".join(touched)

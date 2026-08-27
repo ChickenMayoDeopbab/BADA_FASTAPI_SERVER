@@ -247,3 +247,58 @@ async def test_deleting_my_copy_lets_me_take_it_again() -> None:
 
         assert again.status_code == 201, again.text
         assert again.json()["scenario_id"] != first.json()["scenario_id"]
+
+
+@pytest.mark.asyncio
+async def test_db_refuses_a_second_live_copy_of_the_same_root() -> None:
+    """중복 방지가 파이썬 검사에만 있으면 동시 요청 둘 다 통과한다.
+
+    부분 유니크 인덱스라 지운 복제본은 세지 않는다 — 지웠으면 다시 가져올 수 있어야 한다.
+    """
+    from sqlalchemy.exc import IntegrityError
+
+    async with community_app() as env:
+        origin = await _add(env, _scenario(user_id=8))
+        await _add(env, _scenario(user_id=7, origin_scenario_id=origin))
+
+        with pytest.raises(IntegrityError):
+            await _add(env, _scenario(user_id=7, origin_scenario_id=origin))
+
+
+@pytest.mark.asyncio
+async def test_losing_a_copy_race_returns_the_row_the_winner_made() -> None:
+    """두 요청이 동시에 "없음" 을 보고 둘 다 만들려 할 때.
+
+    진 쪽은 500 을 내면 안 된다 — 이미 목록에 있으니 그걸 돌려주는 게 맞다.
+    첫 조회만 눈을 가려 경합을 재현한다.
+    """
+    from app.services import scenario_share
+
+    async with community_app() as env:
+        origin = await _add(env, _scenario(user_id=8))
+        post_id = await _post_with_scenario(env, origin, author=8)
+        winner = await _add(env, _scenario(user_id=7, origin_scenario_id=origin))
+
+        real = scenario_share._already_mine
+        missed = {"once": False}
+
+        async def _blind_first(db, root_id, user_id):
+            if not missed["once"]:
+                missed["once"] = True
+                return None            # 경쟁자가 아직 커밋 안 한 것처럼
+            return await real(db, root_id, user_id)
+
+        scenario_share._already_mine = _blind_first
+        try:
+            env.login(7)
+            resp = await env.client.post(
+                f"/api/v1/community/posts/{post_id}/scenario/copy"
+            )
+        finally:
+            scenario_share._already_mine = real
+
+        assert missed["once"], "경합을 재현하지 못했다 — 테스트가 무의미하다"
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["scenario_id"] == winner
+        # 원본 + 이긴 쪽 복제본. 진 쪽은 아무것도 안 남겨야 한다.
+        assert await _count(env) == 2, "경합에서 진 쪽이 행을 하나 더 만들었다"
