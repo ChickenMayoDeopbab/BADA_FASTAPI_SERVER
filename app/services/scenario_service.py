@@ -14,6 +14,7 @@ from app.core.config import get_settings
 from app.core.enums import ALL_DIFFICULTIES, ALL_PERSONALITIES, ScenarioCategory
 from app.core.preset_scenarios import PRESET_MAP, PRESET_SCENARIOS, scenario_to_info
 from app.core.prompt_matrix import PERSONALITY_BASE
+from app.core.timeutil import ensure_utc, now_utc
 from app.core.tts_voices import parse_speaker, pick_voice_id
 from app.db.models import ScenarioORM, is_deleted
 from app.schemas.scenario import (
@@ -27,6 +28,9 @@ from app.schemas.scenario import (
 from app.services.recording_storage import RecordingStorageService
 
 logger = logging.getLogger(__name__)
+
+# created_at 이 비어있는 행을 맨 뒤로 보내는 정렬 폴백. 컬럼이 aware 라 폴백도 aware 여야 한다.
+_OLDEST = datetime.min.replace(tzinfo=UTC)
 
 _IMAGE_URL_TTL_SEC = 3600
 
@@ -100,13 +104,9 @@ async def get_scenarios(
 
     preset_rows.sort(key=lambda item: item[0].scenario_id)
 
-    # 내가 만든 것과 가져온 것을 나눈다. 프론트는 is_custom·is_copied 두 불리언으로
-    # 섹션을 그리므로 응답 구조는 그대로 두고 순서와 플래그만 정한다.
-    # 각 섹션 안은 최신순 — 방금 만들거나 가져온 게 위에 와야 한다.
-    # 음수로 뒤집지 않고 reverse 를 쓰는 이유: created_at 이 없는 행의 기본값
-    # datetime.min 은 .timestamp() 에서 ValueError(year 0 is out of range) 로 터진다.
     def _by_recency(item: tuple) -> tuple:
-        return (getattr(item[0], "created_at", datetime.min), item[0].scenario_id)
+        created = getattr(item[0], "created_at", None)
+        return (ensure_utc(created) if created is not None else _OLDEST, item[0].scenario_id)
 
     mine = [item for item in custom_rows if item[0].origin_scenario_id is None]
     copied = [item for item in custom_rows if item[0].origin_scenario_id is not None]
@@ -160,7 +160,7 @@ async def delete_custom_scenario(
         return False
     if is_deleted(row):
         return False
-    row.deleted_at = datetime.now(UTC).replace(tzinfo=None)
+    row.deleted_at = now_utc()
     await db.commit()
     return True
 
@@ -246,7 +246,7 @@ async def create_custom_scenario(
     voice_id = pick_voice_id(gender, age, tone)
 
     script = _normalize_script(data.get("script"))
-    now = datetime.now(UTC).replace(tzinfo=None)
+    now = now_utc()
 
     scenario_orm = ScenarioORM(
         title=request.title,
