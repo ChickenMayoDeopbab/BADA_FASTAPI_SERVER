@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import UTC, datetime
 
 from sqlalchemy import delete
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.timeutil import now_utc
 from app.db.base import AsyncSessionLocal
 from app.db.models import FeedbackORM
 
@@ -54,7 +54,7 @@ async def save_feedback(
                     shake_count=shake_count,
                     silence_duration=round(silence_total),
                     highlights=highlights,
-                    created_at=datetime.now(UTC).replace(tzinfo=None),
+                    created_at=now_utc(),
                 )
                 # 재연결로 파이프라인이 두 번 떠도 중복 저장 안 되게
                 .on_conflict_do_nothing(index_elements=["session_id"])

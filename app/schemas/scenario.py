@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.enums import AiPersonality, Difficulty, ScenarioCategory
+from app.core.timeutil import KstDatetime
 
 
 class ScenarioInfo(BaseModel):
@@ -73,5 +73,5 @@ class GenerateDetailScenario(BaseModel):
 
 class CustomScenarioResponse(BaseModel):
     scenario: GenerateDetailScenario
-    created_at: datetime
+    created_at: KstDatetime
     message: str = "커스텀 시나리오가 생성되었습니다."

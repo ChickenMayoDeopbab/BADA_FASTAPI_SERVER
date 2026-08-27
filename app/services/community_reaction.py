@@ -5,7 +5,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.enums import ReactionKind
-from app.core.timeutil import utc_naive_now
+from app.core.timeutil import now_utc
 from app.db.models import PostReactionORM
 from app.schemas.community import ReactionCounts, ReactionStateResponse
 from app.services.community_post import alive_post, reaction_summary
@@ -41,7 +41,7 @@ async def set_reaction(
     if existing is None:
         db.add(
             PostReactionORM(
-                post_id=post_id, user_id=user_id, kind=kind.value, created_at=utc_naive_now()
+                post_id=post_id, user_id=user_id, kind=kind.value, created_at=now_utc()
             )
         )
         try:

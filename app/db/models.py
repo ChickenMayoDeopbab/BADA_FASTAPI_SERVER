@@ -30,10 +30,6 @@ class ScenarioORM(Base):
     __tablename__ = "scenario"
     __table_args__ = (
         Index("ix_scenario_origin_user", "origin_scenario_id", "user_id"),
-        # 같은 뿌리를 한 사람이 두 번 가져가지 못하게 DB 가 막는다. 파이썬 검사만
-        # 두면 동시에 들어온 두 요청이 둘 다 "없음" 을 보고 각자 만든다.
-        # 부분 인덱스인 이유: 지운 복제본은 세면 안 되고(다시 가져올 수 있어야 한다),
-        # 내가 직접 만든 것들은 origin 이 NULL 이라 애초에 대상이 아니다.
         Index(
             "uq_scenario_origin_user_alive",
             "origin_scenario_id",
@@ -63,8 +59,8 @@ class ScenarioORM(Base):
     example_dialogue: Mapped[list | None] = mapped_column(JSON, nullable=True) # 커스텀 전용 [{"speaker", "text"}]
     example_audio_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
     origin_scenario_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 class FeedbackORM(Base):
     __tablename__ = "feedback"
@@ -76,7 +72,7 @@ class FeedbackORM(Base):
     shake_count: Mapped[int] = mapped_column(BigInteger, nullable=False)
     silence_duration: Mapped[int] = mapped_column(BigInteger, nullable=False)
     highlights: Mapped[str] = mapped_column(Text, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 class VoiceTremorMetricORM(Base):
     __tablename__ = "voice_tremor_metric"
@@ -96,7 +92,7 @@ class VoiceTremorMetricORM(Base):
     fcom: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     script_version: Mapped[str] = mapped_column(String(16), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 class FileORM(Base):
     __tablename__ = "file"
@@ -121,9 +117,9 @@ class PostORM(Base):
     title: Mapped[str] = mapped_column(String(100), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     view_count: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class PostCommentORM(Base):
@@ -142,9 +138,9 @@ class PostCommentORM(Base):
     )
     user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class PostReactionORM(Base):
@@ -157,7 +153,7 @@ class PostReactionORM(Base):
     post_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("post.post_id"), nullable=False)
     user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     kind: Mapped[str] = mapped_column(String(16), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class PostAttachmentORM(Base):
@@ -170,4 +166,4 @@ class PostAttachmentORM(Base):
     post_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("post.post_id"), nullable=False)
     kind: Mapped[str] = mapped_column(String(20), nullable=False)
     ref_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

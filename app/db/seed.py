@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.preset_scenarios import PRESET_SCENARIOS
+from app.core.timeutil import now_utc
 from app.db.models import FeedbackORM, ScenarioORM
 
 _PRESET_IDS = {int(s["scenario_id"]) for s in PRESET_SCENARIOS}
@@ -91,7 +92,7 @@ async def _sync_postgres_sequence(db: AsyncSession) -> None:
 
 async def seed_preset_scenarios(db: AsyncSession) -> None:
     """Keep reserved preset scenario rows present and move conflicting custom rows."""
-    now = datetime.now(UTC).replace(tzinfo=None)
+    now = now_utc()
     next_custom_id = await _next_custom_id(db)
 
     for preset in PRESET_SCENARIOS:

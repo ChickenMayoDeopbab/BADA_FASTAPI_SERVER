@@ -1,8 +1,17 @@
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+import logging
+
+from sqlalchemy import DateTime, text
+from sqlalchemy.ext.asyncio import (
+    AsyncConnection,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 from sqlalchemy.orm import DeclarativeBase
 
 from app.core.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 engine = create_async_engine(
     get_settings().database_url,
@@ -24,11 +33,66 @@ class Base(DeclarativeBase):
     pass
 
 
+def tz_migration_targets() -> list[tuple[str, str]]:
+    """마이그레이션 대상 모델에서 도출"""
+    from app.db import models  # noqa: F401  (ORM metadata에 등록)
+
+    return sorted(
+        (table.name, column.name)
+        for table in Base.metadata.tables.values()
+        for column in table.columns
+        if isinstance(column.type, DateTime) and column.type.timezone
+    )
+
+
+_TZ_MIGRATION_LOCK_KEY = 20260827
+
+_TZ_MIGRATION_LOCK_TIMEOUT = "5s"
+
+
+async def migrate_naive_utc_to_timestamptz(conn: AsyncConnection) -> list[str]:
+    """timestamptz로 마이그레이션 하는 코드"""
+    await conn.execute(text(f"SET LOCAL lock_timeout = '{_TZ_MIGRATION_LOCK_TIMEOUT}'"))
+    await conn.execute(
+        text("SELECT pg_advisory_xact_lock(:key)"), {"key": _TZ_MIGRATION_LOCK_KEY}
+    )
+
+    naive = {
+        (row.table_name, row.column_name)
+        for row in (
+            await conn.execute(
+                text(
+                    """
+                    SELECT table_name, column_name
+                    FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND data_type = 'timestamp without time zone'
+                    """
+                )
+            )
+        ).all()
+    }
+
+    migrated: list[str] = []
+    for table, column in tz_migration_targets():
+        if (table, column) not in naive:
+            continue
+        await conn.execute(
+            text(
+                f'ALTER TABLE "{table}" ALTER COLUMN "{column}" '
+                f"TYPE timestamptz USING \"{column}\" AT TIME ZONE 'UTC'"
+            )
+        )
+        migrated.append(f"{table}.{column}")
+    return migrated
+
+
 async def init_db() -> None:
     """FastAPI 소유 테이블 공유 DB에 생성"""
     from app.db import models  # noqa: F401  (ScenarioORM/FeedbackORM 을 metadata 에 등록)
     from app.db.seed import seed_preset_scenarios
 
+    moved: list[str] = []
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
@@ -36,7 +100,7 @@ async def init_db() -> None:
             await conn.execute(
                 text(
                     "ALTER TABLE scenario "
-                    "ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP NULL"
+                    "ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ NULL"
                 )
             )
 
@@ -87,6 +151,13 @@ async def init_db() -> None:
                     "ALTER COLUMN category SET NOT NULL"
                 )
             )
+
+            moved = await migrate_naive_utc_to_timestamptz(conn)
+            if moved:
+                logger.info("timestamptz 로 전환한 컬럼: %s", ", ".join(moved))
+
+    if moved:
+        await engine.dispose()
 
     async with AsyncSessionLocal() as session:
         await seed_preset_scenarios(session)
