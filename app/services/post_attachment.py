@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import asyncio
+
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.enums import AttachmentKind
 from app.core.timeutil import utc_naive_now
 from app.db.external import training_records_table
@@ -14,6 +17,8 @@ from app.schemas.community import (
     AttachmentRequest,
     PostAttachment,
 )
+from app.services.morphed_recording import build_storage, morphed_url
+from app.workers.voice_morph_worker import schedule_morph
 
 
 class AttachmentInvalidError(Exception):
@@ -108,23 +113,43 @@ async def _scenario_block(
     )
 
 
+async def recording_key_of(db: AsyncSession, record_id: int) -> str | None:
+    """변조 예약에만 씀"""
+    stmt = select(training_records_table.c.recording_key).where(
+        training_records_table.c.record_id == record_id
+    )
+    return (await db.execute(stmt)).scalar_one_or_none()
+
+
 async def _training_record_block(
     db: AsyncSession, ref_id: int, viewer_id: int
 ) -> AttachedTrainingRecord | None:
     t = training_records_table.c
     stmt = select(
-        t.user_id, t.scenario_name, t.session_type,
-        t.started_at, t.duration_seconds, t.anxiety_score,
+        t.scenario_name, t.session_type, t.started_at,
+        t.duration_seconds, t.anxiety_score, t.recording_key,
     ).where(t.record_id == ref_id)
     row = (await db.execute(stmt)).first()
     if row is None:
         return AttachedTrainingRecord(is_available=False)
+
+    # 변조본이 준비됐을 때만 URL 을 준다. 원본 키는 절대 싣지 않는다.
+    if not row.recording_key:
+        url, status = None, "none"
+    else:
+        url = await asyncio.to_thread(
+            morphed_url, build_storage(get_settings()), row.recording_key
+        )
+        status = "ready" if url else "processing"
+
     return AttachedTrainingRecord(
         scenario_name=row.scenario_name,
         session_type=row.session_type,
         started_at=row.started_at,
         duration_seconds=row.duration_seconds,
         anxiety_score=row.anxiety_score,
+        audio_url=url,
+        audio_status=status,
     )
 
 
@@ -148,3 +173,14 @@ async def detail_for_post(
             item.training_record = await _training_record_block(db, row.ref_id, viewer_id)
         out.append(item)
     return out
+
+
+async def schedule_morphs(db: AsyncSession, rows: list[PostAttachmentORM]) -> None:
+    """훈련 기록에 대한 변조본 생성을 백그라운드로 올림"""
+    settings = get_settings()
+    for row in rows:
+        if row.kind != AttachmentKind.TRAINING_RECORD.value:
+            continue
+        schedule_morph(
+            settings=settings, recording_key=await recording_key_of(db, row.ref_id)
+        )

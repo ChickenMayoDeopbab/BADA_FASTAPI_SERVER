@@ -29,6 +29,7 @@ from app.services.post_attachment import (
     commit_translating_conflicts,
     detail_for_post,
     kinds_by_post,
+    schedule_morphs,
 )
 
 logger = logging.getLogger(__name__)
@@ -112,11 +113,13 @@ async def create_post(
 
     await db.flush()
     try:
-        db.add_all(await build_rows(db, row.post_id, body.attachments, user_id))
+        attachments = await build_rows(db, row.post_id, body.attachments, user_id)
     except AttachmentInvalidError:
         await db.rollback()
         raise
+    db.add_all(attachments)
     await commit_translating_conflicts(db)
+    await schedule_morphs(db, attachments)
 
     return await _detail_with_aggregates(db, row, user_id)
 
@@ -317,6 +320,7 @@ async def update_post(
         raise PostForbiddenError
 
     changed = False
+    pending_morphs: list = []
     if body.title is not None and body.title != row.title:
         row.title = body.title
         changed = True
@@ -334,11 +338,13 @@ async def update_post(
             delete(PostAttachmentORM).where(PostAttachmentORM.post_id == post_id)
         )
         db.add_all(new_rows)
+        pending_morphs = new_rows
         changed = True
 
     if changed:
         row.updated_at = utc_naive_now()
         await commit_translating_conflicts(db)
+        await schedule_morphs(db, pending_morphs)
 
     return await _detail_with_aggregates(db, row, user_id)
 

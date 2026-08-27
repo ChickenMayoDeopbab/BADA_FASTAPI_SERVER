@@ -99,12 +99,18 @@ async def get_scenarios(
         preset_rows.append((row, seed))
 
     preset_rows.sort(key=lambda item: item[0].scenario_id)
-    custom_rows.sort(key=lambda item:
-        (
-            getattr(item[0], "created_at", datetime.min),
-            item[0].scenario_id,
+
+    def _newest_first(item: tuple) -> tuple:
+        return (
+            -getattr(item[0], "created_at", datetime.min).timestamp(),
+            -item[0].scenario_id,
         )
-    )
+
+    mine = [item for item in custom_rows if item[0].origin_scenario_id is None]
+    copied = [item for item in custom_rows if item[0].origin_scenario_id is not None]
+    mine.sort(key=_newest_first)
+    copied.sort(key=_newest_first)
+    custom_rows = mine + copied
 
     storage = _image_storage(rows)
     infos = [
@@ -134,6 +140,7 @@ async def get_scenarios(
             tts_voice_id=row.tts_voice_id,
             ai_prompt=row.ai_prompt,
             is_custom=True,
+            is_copied=row.origin_scenario_id is not None,
         )
         for row, row_category in custom_rows
     )

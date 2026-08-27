@@ -46,6 +46,27 @@ class RecordingStorageService:
         )
         return key
 
+    def download_pcm(self, key: str) -> bytes | None:
+        """WAV읽고 raw PCM만 줌"""
+        if not self._bucket or not key or self._client is None:
+            return None
+        try:
+            body = self._client.get_object(Bucket=self._bucket, Key=key)["Body"].read()
+        except Exception:
+            return None
+
+        with wave.open(io.BytesIO(body), "rb") as wav:
+            return wav.readframes(wav.getnframes())
+
+    def exists(self, key: str) -> bool:
+        if not self._bucket or not key or self._client is None:
+            return False
+        try:
+            self._client.head_object(Bucket=self._bucket, Key=key)
+        except Exception:
+            return False
+        return True
+
     def presigned_url(self, key: str, expires_in: int = 600) -> str | None:
         if not self._bucket or not key or self._client is None:
             return None
