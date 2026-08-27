@@ -19,6 +19,7 @@ class ScenarioInfo(BaseModel):
     tts_voice_id: str | None = None
     ai_prompt: str
     is_custom: bool
+    is_copied: bool = False
 
 class ScenarioListResponse(BaseModel):
     scenarios: list[ScenarioInfo]

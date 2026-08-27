@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 
 from redis.asyncio import Redis
-from sqlalchemy import case, func, or_, select, update
+from sqlalchemy import case, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -11,7 +11,7 @@ from app.core.enums import ReactionKind
 from app.core.security import is_admin
 from app.core.timeutil import utc_naive_now
 from app.db.external import users_table
-from app.db.models import PostCommentORM, PostORM, PostReactionORM
+from app.db.models import PostAttachmentORM, PostCommentORM, PostORM, PostReactionORM
 from app.schemas.community import (
     AuthorInfo,
     PostCreateRequest,
@@ -22,6 +22,15 @@ from app.schemas.community import (
     ReactionCounts,
     preview_of,
     to_nfc,
+)
+from app.services.post_attachment import (
+    AttachmentInvalidError,
+    build_rows,
+    commit_translating_conflicts,
+    current_pairs,
+    detail_for_post,
+    kinds_by_post,
+    schedule_morphs,
 )
 
 logger = logging.getLogger(__name__)
@@ -78,6 +87,7 @@ async def _detail_with_aggregates(
     detail.comment_count = comment_counts.get(row.post_id, 0)
     detail.reactions = counts.get(row.post_id, ReactionCounts())
     detail.my_reaction = mine.get(row.post_id)
+    detail.attachments = await detail_for_post(db, row.post_id, viewer_id)
     return detail
 
 
@@ -101,9 +111,18 @@ async def create_post(
         updated_at=now,
     )
     db.add(row)
-    await db.commit()
 
-    return _to_detail(row, await load_author(db, user_id))
+    await db.flush()
+    try:
+        attachments = await build_rows(db, row.post_id, body.attachments, user_id)
+    except AttachmentInvalidError:
+        await db.rollback()
+        raise
+    db.add_all(attachments)
+    await commit_translating_conflicts(db)
+    await schedule_morphs(db, attachments)
+
+    return await _detail_with_aggregates(db, row, user_id)
 
 
 async def _should_count_view(redis: Redis, post_id: int, viewer_id: int) -> bool:
@@ -263,6 +282,7 @@ async def list_posts(
     post_ids = [row.post_id for row, _, _, _ in rows]
     comment_counts = await _comment_counts(db, post_ids)
     reaction_counts, my_reactions = await reaction_summary(db, post_ids, viewer_id)
+    attachment_kinds = await kinds_by_post(db, post_ids)
 
     posts = [
         PostSummary(
@@ -274,6 +294,7 @@ async def list_posts(
             comment_count=comment_counts.get(row.post_id, 0),
             reactions=reaction_counts.get(row.post_id, ReactionCounts()),
             my_reaction=my_reactions.get(row.post_id),
+            attachment_kinds=attachment_kinds.get(row.post_id, []),
             created_at=row.created_at,
             updated_at=row.updated_at,
         )
@@ -300,6 +321,7 @@ async def update_post(
         raise PostForbiddenError
 
     changed = False
+    pending_morphs: list = []
     if body.title is not None and body.title != row.title:
         row.title = body.title
         changed = True
@@ -307,9 +329,25 @@ async def update_post(
         row.content = body.content
         changed = True
 
+    if "attachments" in body.model_fields_set:
+        try:
+            new_rows = await build_rows(db, post_id, body.attachments or [], user_id)
+        except AttachmentInvalidError:
+            await db.rollback()
+            raise
+        wanted = {(row.kind, row.ref_id) for row in new_rows}
+        if wanted != await current_pairs(db, post_id):
+            await db.execute(
+                delete(PostAttachmentORM).where(PostAttachmentORM.post_id == post_id)
+            )
+            db.add_all(new_rows)
+            pending_morphs = new_rows
+            changed = True
+
     if changed:
         row.updated_at = utc_naive_now()
-        await db.commit()
+        await commit_translating_conflicts(db)
+        await schedule_morphs(db, pending_morphs)
 
     return await _detail_with_aggregates(db, row, user_id)
 

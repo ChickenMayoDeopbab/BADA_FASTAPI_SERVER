@@ -31,7 +31,6 @@ class _FakeResult:
 
 
 class _FakeDB:
-    """execute→scalars→all 체인만 흉내내는 읽기 전용 가짜 세션."""
 
     def __init__(self, rows: list) -> None:
         self._rows = rows
@@ -56,6 +55,7 @@ def _custom_row(scenario_id: int, user_id: int | None, **kw) -> SimpleNamespace:
         call_purpose=kw.get("call_purpose", "목적"),
         script=kw.get("script", []),
         created_at=kw.get("created_at", datetime(2026, 1, 1)),
+        origin_scenario_id=kw.get("origin_scenario_id"),
     )
 
 
@@ -307,6 +307,7 @@ def _scenario_orm(scenario_id: int, **kw) -> ScenarioORM:
         call_purpose=kw.get("call_purpose", seed["call_purpose"]),
         script=kw.get("script", seed["script"]),
         created_at=kw.get("created_at", datetime(2026, 1, 1)),
+        origin_scenario_id=kw.get("origin_scenario_id"),
     )
 
 

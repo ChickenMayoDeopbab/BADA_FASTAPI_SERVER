@@ -13,6 +13,7 @@ from app.core.metrics import log_metric, now_ms
 from app.db.base import init_db
 from app.deps.redis import close_redis, init_redis
 from app.workers.avti_worker import drain as drain_avti
+from app.workers.voice_morph_worker import drain as drain_morphs
 
 
 @asynccontextmanager
@@ -30,6 +31,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         yield
     finally:
         await drain_avti()
+        await drain_morphs()
         await close_redis(app.state.redis)
 
 

@@ -99,12 +99,20 @@ async def get_scenarios(
         preset_rows.append((row, seed))
 
     preset_rows.sort(key=lambda item: item[0].scenario_id)
-    custom_rows.sort(key=lambda item:
-        (
-            getattr(item[0], "created_at", datetime.min),
-            item[0].scenario_id,
-        )
-    )
+
+    # 내가 만든 것과 가져온 것을 나눈다. 프론트는 is_custom·is_copied 두 불리언으로
+    # 섹션을 그리므로 응답 구조는 그대로 두고 순서와 플래그만 정한다.
+    # 각 섹션 안은 최신순 — 방금 만들거나 가져온 게 위에 와야 한다.
+    # 음수로 뒤집지 않고 reverse 를 쓰는 이유: created_at 이 없는 행의 기본값
+    # datetime.min 은 .timestamp() 에서 ValueError(year 0 is out of range) 로 터진다.
+    def _by_recency(item: tuple) -> tuple:
+        return (getattr(item[0], "created_at", datetime.min), item[0].scenario_id)
+
+    mine = [item for item in custom_rows if item[0].origin_scenario_id is None]
+    copied = [item for item in custom_rows if item[0].origin_scenario_id is not None]
+    mine.sort(key=_by_recency, reverse=True)
+    copied.sort(key=_by_recency, reverse=True)
+    custom_rows = mine + copied
 
     storage = _image_storage(rows)
     infos = [
@@ -134,6 +142,7 @@ async def get_scenarios(
             tts_voice_id=row.tts_voice_id,
             ai_prompt=row.ai_prompt,
             is_custom=True,
+            is_copied=row.origin_scenario_id is not None,
         )
         for row, row_category in custom_rows
     )

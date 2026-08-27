@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,6 +16,7 @@ from app.schemas.community import (
     PostUpdateRequest,
     ReactionRequest,
     ReactionStateResponse,
+    ScenarioCopyResponse,
 )
 from app.services.community_comment import (
     CommentForbiddenError,
@@ -34,6 +35,13 @@ from app.services.community_post import list_posts as svc_list_posts
 from app.services.community_post import update_post as svc_update_post
 from app.services.community_reaction import clear_reaction as svc_clear_reaction
 from app.services.community_reaction import set_reaction as svc_set_reaction
+from app.services.post_attachment import AttachmentInvalidError
+from app.services.scenario_share import (
+    NothingToCopyError,
+    OriginGoneError,
+    PostMissingError,
+)
+from app.services.scenario_share import copy_attached_scenario as svc_copy_scenario
 
 router = APIRouter(prefix="/api/v1/community", tags=["community"])
 
@@ -50,7 +58,12 @@ async def create_post(
     db: AsyncSession = Depends(get_db),
     user_id: int = Depends(get_current_user_id),
 ) -> PostDetailResponse:
-    return await svc_create_post(db, body, user_id)
+    try:
+        return await svc_create_post(db, body, user_id)
+    except AttachmentInvalidError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
 
 
 @router.get(
@@ -113,6 +126,10 @@ async def update_post(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="본인이 작성한 게시글만 수정할 수 있습니다.",
+        ) from e
+    except AttachmentInvalidError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
         ) from e
 
 
@@ -294,4 +311,38 @@ async def list_my_posts(
 ) -> PostListResponse:
     return await svc_list_posts(
         db, viewer_id=user_id, page=page, size=size, author_id=user_id
+    )
+
+
+@router.post(
+    "/posts/{post_id}/scenario/copy",
+    response_model=ScenarioCopyResponse,
+    summary="첨부된 시나리오를 내 목록으로 가져오기",
+)
+async def copy_attached_scenario(
+    post_id: int,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+    user_id: int = Depends(get_current_user_id),
+) -> ScenarioCopyResponse:
+    try:
+        scenario, already = await svc_copy_scenario(db, post_id, user_id)
+    except PostMissingError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="게시글을 찾을 수 없습니다."
+        ) from e
+    except NothingToCopyError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except OriginGoneError as e:
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail="원본 시나리오가 삭제되어 가져올 수 없습니다.",
+        ) from e
+
+    response.status_code = status.HTTP_200_OK if already else status.HTTP_201_CREATED
+    return ScenarioCopyResponse(
+        scenario_id=scenario.scenario_id,
+        title=scenario.title,
+        category=scenario.category,
+        already_copied=already,
     )

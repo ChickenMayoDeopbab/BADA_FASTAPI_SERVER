@@ -31,6 +31,13 @@ class ReactionKind(StrEnum):
     RELATE = "RELATE"   # 공감돼요
     LIKE = "LIKE"       # 좋아요
 
+
+class AttachmentKind(StrEnum):
+    """게시글에 첨부 가능한거"""
+
+    SCENARIO = "SCENARIO"
+    TRAINING_RECORD = "TRAINING_RECORD"
+
 class ScenarioCategory(StrEnum):
     WORK = "work"
     DAILY = "daily"

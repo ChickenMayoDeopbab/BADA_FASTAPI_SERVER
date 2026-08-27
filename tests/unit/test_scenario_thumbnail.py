@@ -1,5 +1,3 @@
-"""썸네일 생성(저장)부터 목록 조회(presigned URL)까지 외부 호출을 스텁으로 대체해 검증한다."""
-
 from datetime import datetime
 from types import SimpleNamespace
 
@@ -37,10 +35,8 @@ def _scenario_row(scenario_id: int = 101, user_id: int = 1, **kw) -> SimpleNames
         call_purpose="단체 예약 가능 여부 확인",
         script=[],
         created_at=datetime(2026, 1, 1),
+        origin_scenario_id=kw.get("origin_scenario_id"),
     )
-
-
-# --- 외부 의존성 스텁 ---
 
 
 class _FakeS3:
@@ -66,7 +62,6 @@ class _FakeFileResult:
 
 
 class _FakeSession:
-    """_generate_and_store가 쓰는 get/execute/add/commit만 흉내낸다."""
 
     def __init__(self, row: SimpleNamespace | None, existing_file_id: int | None = None) -> None:
         self.row = row
@@ -108,7 +103,6 @@ def _fake_anthropic(scene: str = _SCENE, calls: list | None = None):
 
 
 def _fake_genai(mime: str = "image/png", calls: list | None = None, lead_text: bool = True):
-    """텍스트 파트가 먼저 오는 실제 응답 형태를 재현한다."""
 
     parts = []
     if lead_text:
@@ -146,9 +140,6 @@ def fake_s3(monkeypatch) -> _FakeS3:
     client = _FakeS3()
     monkeypatch.setattr(scenario_image_service, "_s3_client", lambda _settings: client)
     return client
-
-
-# --- 순수 함수 ---
 
 
 def test_extract_image_skips_leading_text_part() -> None:
