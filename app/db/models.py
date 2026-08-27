@@ -12,6 +12,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -29,6 +30,18 @@ class ScenarioORM(Base):
     __tablename__ = "scenario"
     __table_args__ = (
         Index("ix_scenario_origin_user", "origin_scenario_id", "user_id"),
+        # 같은 뿌리를 한 사람이 두 번 가져가지 못하게 DB 가 막는다. 파이썬 검사만
+        # 두면 동시에 들어온 두 요청이 둘 다 "없음" 을 보고 각자 만든다.
+        # 부분 인덱스인 이유: 지운 복제본은 세면 안 되고(다시 가져올 수 있어야 한다),
+        # 내가 직접 만든 것들은 origin 이 NULL 이라 애초에 대상이 아니다.
+        Index(
+            "uq_scenario_origin_user_alive",
+            "origin_scenario_id",
+            "user_id",
+            unique=True,
+            sqlite_where=text("origin_scenario_id IS NOT NULL AND deleted_at IS NULL"),
+            postgresql_where=text("origin_scenario_id IS NOT NULL AND deleted_at IS NULL"),
+        ),
     )
 
     # _AUTO_PK 를 쓰는 이유: 맨 BigInteger 는 SQLite 에서 BIGINT 로 렌더돼

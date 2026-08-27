@@ -59,6 +59,13 @@ async def init_db() -> None:
                     "ON scenario (origin_scenario_id, user_id)"
                 )
             )
+            await conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_scenario_origin_user_alive "
+                    "ON scenario (origin_scenario_id, user_id) "
+                    "WHERE origin_scenario_id IS NOT NULL AND deleted_at IS NULL"
+                )
+            )
 
             await conn.execute(
                 text(

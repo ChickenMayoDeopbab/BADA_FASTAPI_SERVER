@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.enums import AttachmentKind
@@ -92,6 +93,15 @@ async def copy_attached_scenario(
         created_at=utc_naive_now(),
     )
     db.add(copy)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        # 동시에 들어온 다른 요청이 먼저 만들었다. 유니크 인덱스가 막아준 것이므로
+        # 에러가 아니라 "이미 갖고 있음" 이 맞는 답이다.
+        await db.rollback()
+        existing = await _already_mine(db, root_id, user_id)
+        if existing is None:
+            raise
+        return existing, True
     await db.refresh(copy)
     return copy, False
