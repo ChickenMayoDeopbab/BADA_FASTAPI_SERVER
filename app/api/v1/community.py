@@ -127,6 +127,10 @@ async def update_post(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="본인이 작성한 게시글만 수정할 수 있습니다.",
         ) from e
+    except AttachmentInvalidError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
 
 
 @router.delete(
