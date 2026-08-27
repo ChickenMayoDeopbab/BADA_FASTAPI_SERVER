@@ -1,5 +1,4 @@
 import unicodedata
-from datetime import datetime
 from typing import Annotated
 
 from pydantic import BaseModel, BeforeValidator, Field, StringConstraints
@@ -70,7 +69,7 @@ class AttachedTrainingRecord(BaseModel):
 
     scenario_name: str | None = None
     session_type: str | None = None
-    started_at: datetime | None = None
+    started_at: KstDatetime | None = None
     duration_seconds: int | None = None
     anxiety_score: int | None = None
     audio_url: str | None = None

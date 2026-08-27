@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
+from app.db.external import training_records_table
 from tests.unit.community_env import community_app, create_post
 
 _KST = "+09:00"
@@ -76,3 +77,40 @@ async def test_comment_created_at_points_at_the_real_instant() -> None:
 
     created = _parsed(resp.json()["created_at"])
     assert before - _SLACK <= created <= after + _SLACK
+
+
+async def test_attached_training_record_started_at_carries_kst_offset() -> None:
+    started = datetime.now(UTC).replace(tzinfo=None)
+    async with community_app(user_id=7) as env:
+        async with env.sessions() as db:
+            await db.execute(
+                training_records_table.insert().values(
+                    record_id=901,
+                    user_id=7,
+                    scenario_name="병원 예약 전화",
+                    session_type="PRACTICE",
+                    started_at=started,
+                    duration_seconds=132,
+                    anxiety_score=41,
+                )
+            )
+            await db.commit()
+
+        created = await env.client.post(
+            "/api/v1/community/posts",
+            json={
+                "title": "제목",
+                "content": "내용",
+                "attachments": [{"kind": "TRAINING_RECORD", "ref_id": 901}],
+            },
+        )
+        assert created.status_code == 201, created.text
+        detail = await env.client.get(
+            f"/api/v1/community/posts/{created.json()['post_id']}"
+        )
+
+    raw = detail.json()["attachments"][0]["training_record"]["started_at"]
+    assert raw.endswith(_KST), f"started_at 만 오프셋이 없다: {raw}"
+    assert _parsed(raw) == started.replace(tzinfo=UTC), (
+        f"started_at 이 밀렸다: {raw} (기대 {started.replace(tzinfo=UTC).astimezone()})"
+    )
