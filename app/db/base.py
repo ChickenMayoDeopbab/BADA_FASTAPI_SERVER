@@ -35,7 +35,7 @@ class Base(DeclarativeBase):
 
 def tz_migration_targets() -> list[tuple[str, str]]:
     """마이그레이션 대상 모델에서 도출"""
-    from app.db import models
+    from app.db import models  # ORM metadata에 등록
 
     return sorted(
         (table.name, column.name)
