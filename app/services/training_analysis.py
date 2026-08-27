@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import math
 import re
 from collections.abc import Iterable, Sequence
@@ -12,12 +13,6 @@ from app.schemas.training_analysis import (
     TrainingAnalysisPayload,
 )
 from app.services.tremor import TremorResult
-import logging
-import math
-import re
-
-ANALYZER_VERSION = "SPEECH_ANALYZER_V1"
-ANALYSIS_POLICY_VERSION = "ANALYSIS_POLICY_V1"
 
 logger = logging.getLogger(__name__)
 
@@ -496,7 +491,7 @@ class TrainingPerformanceAnalyzer:
             conversation_score=conversation_score,
             fluency_score=fluency_score,
             analysis_quality_status=
-            AnalysisQualityStatus.PASS,
+                AnalysisQualityStatus.PASS,
             analysis_exclusion_reason=None,
             **base_fields,
         )
