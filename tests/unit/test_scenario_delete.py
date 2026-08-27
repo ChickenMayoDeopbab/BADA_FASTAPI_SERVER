@@ -68,6 +68,7 @@ def _custom_row(scenario_id: int, user_id: int | None, **kw) -> SimpleNamespace:
         script=[{"step": 1, "ai_goal": "인사", "hint": "인사하세요"}],
         created_at=kw.get("created_at", datetime(2026, 1, 1)),
         deleted_at=kw.get("deleted_at"),
+        origin_scenario_id=kw.get("origin_scenario_id"),
     )
 
 

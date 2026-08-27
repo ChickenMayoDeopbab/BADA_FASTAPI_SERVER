@@ -95,3 +95,13 @@ async def test_category_filter_still_applies_to_both_sections() -> None:
     resp = await get_scenarios(_FakeDB(rows), ScenarioCategory.WORK, user_id=1)
 
     assert [s.scenario_id for s in _customs(resp)] == [201]
+
+
+@pytest.mark.asyncio
+async def test_row_without_created_at_does_not_break_sorting() -> None:
+    rows = [*_preset_rows(), _mine(101, day=1), _mine(102, day=2)]
+    del rows[-1].created_at
+
+    resp = await get_scenarios(_FakeDB(rows), None, user_id=1)
+
+    assert {s.scenario_id for s in _customs(resp)} == {101, 102}
