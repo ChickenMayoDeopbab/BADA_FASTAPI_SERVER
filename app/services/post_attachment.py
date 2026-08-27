@@ -82,6 +82,14 @@ async def build_rows(
     return rows
 
 
+async def current_pairs(db: AsyncSession, post_id: int) -> set[tuple[str, int]]:
+    """수정 요청이 실제로 다른지 볼 때 확인용"""
+    stmt = select(PostAttachmentORM.kind, PostAttachmentORM.ref_id).where(
+        PostAttachmentORM.post_id == post_id
+    )
+    return {(kind, ref_id) for kind, ref_id in (await db.execute(stmt)).all()}
+
+
 async def kinds_by_post(db: AsyncSession, post_ids: list[int]) -> dict[int, list[str]]:
     """목록용 정렬"""
     if not post_ids:

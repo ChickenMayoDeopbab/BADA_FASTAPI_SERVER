@@ -27,6 +27,7 @@ from app.services.post_attachment import (
     AttachmentInvalidError,
     build_rows,
     commit_translating_conflicts,
+    current_pairs,
     detail_for_post,
     kinds_by_post,
     schedule_morphs,
@@ -334,12 +335,14 @@ async def update_post(
         except AttachmentInvalidError:
             await db.rollback()
             raise
-        await db.execute(
-            delete(PostAttachmentORM).where(PostAttachmentORM.post_id == post_id)
-        )
-        db.add_all(new_rows)
-        pending_morphs = new_rows
-        changed = True
+        wanted = {(row.kind, row.ref_id) for row in new_rows}
+        if wanted != await current_pairs(db, post_id):
+            await db.execute(
+                delete(PostAttachmentORM).where(PostAttachmentORM.post_id == post_id)
+            )
+            db.add_all(new_rows)
+            pending_morphs = new_rows
+            changed = True
 
     if changed:
         row.updated_at = utc_naive_now()

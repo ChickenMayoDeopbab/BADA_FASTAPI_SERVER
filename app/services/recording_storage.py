@@ -52,11 +52,10 @@ class RecordingStorageService:
             return None
         try:
             body = self._client.get_object(Bucket=self._bucket, Key=key)["Body"].read()
+            with wave.open(io.BytesIO(body), "rb") as wav:
+                return wav.readframes(wav.getnframes())
         except Exception:
             return None
-
-        with wave.open(io.BytesIO(body), "rb") as wav:
-            return wav.readframes(wav.getnframes())
 
     def exists(self, key: str) -> bool:
         if not self._bucket or not key or self._client is None:
