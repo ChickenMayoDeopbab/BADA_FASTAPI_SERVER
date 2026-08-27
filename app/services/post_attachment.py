@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.enums import AttachmentKind
-from app.core.timeutil import utc_naive_now
+from app.core.timeutil import now_utc
 from app.db.external import training_records_table
 from app.db.models import PostAttachmentORM, ScenarioORM
 from app.schemas.community import (
@@ -70,7 +70,7 @@ async def build_rows(
     db: AsyncSession, post_id: int, requested: list[AttachmentRequest], user_id: int
 ) -> list[PostAttachmentORM]:
     """검증 통과한것만 행 만들기"""
-    now = utc_naive_now()
+    now = now_utc()
     rows: list[PostAttachmentORM] = []
     for item in requested:
         await _CHECKS[item.kind](db, item.ref_id, user_id)

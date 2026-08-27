@@ -9,7 +9,7 @@ from sqlalchemy.orm import aliased
 
 from app.core.enums import ReactionKind
 from app.core.security import is_admin
-from app.core.timeutil import utc_naive_now
+from app.core.timeutil import now_utc
 from app.db.external import users_table
 from app.db.models import PostAttachmentORM, PostCommentORM, PostORM, PostReactionORM
 from app.schemas.community import (
@@ -101,7 +101,7 @@ async def is_admin_user(db: AsyncSession, user_id: int) -> bool:
 async def create_post(
     db: AsyncSession, body: PostCreateRequest, user_id: int
 ) -> PostDetailResponse:
-    now = utc_naive_now()
+    now = now_utc()
     row = PostORM(
         user_id=user_id,
         title=body.title,
@@ -345,7 +345,7 @@ async def update_post(
             changed = True
 
     if changed:
-        row.updated_at = utc_naive_now()
+        row.updated_at = now_utc()
         await commit_translating_conflicts(db)
         await schedule_morphs(db, pending_morphs)
 
@@ -358,5 +358,5 @@ async def delete_post(db: AsyncSession, post_id: int, *, user_id: int) -> None:
     if row.user_id != user_id and not await is_admin_user(db, user_id):
         raise PostForbiddenError
 
-    row.deleted_at = utc_naive_now()
+    row.deleted_at = now_utc()
     await db.commit()

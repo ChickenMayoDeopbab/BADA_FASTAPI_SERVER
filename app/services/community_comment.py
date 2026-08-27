@@ -3,7 +3,7 @@ from __future__ import annotations
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.timeutil import utc_naive_now
+from app.core.timeutil import now_utc
 from app.db.external import users_table
 from app.db.models import PostCommentORM
 from app.schemas.community import (
@@ -49,7 +49,7 @@ async def create_comment(
     if body.parent_comment_id is not None:
         await _check_parent(db, post_id, body.parent_comment_id)
 
-    now = utc_naive_now()
+    now = now_utc()
     row = PostCommentORM(
         post_id=post_id,
         parent_comment_id=body.parent_comment_id,
@@ -148,7 +148,7 @@ async def update_comment(
 
     if body.content != row.content:
         row.content = body.content
-        row.updated_at = utc_naive_now()
+        row.updated_at = now_utc()
         await db.commit()
 
     return _to_comment(row, await load_author(db, row.user_id))
@@ -160,7 +160,7 @@ async def delete_comment(db: AsyncSession, comment_id: int, *, user_id: int) -> 
     if row.user_id != user_id and not await is_admin_user(db, user_id):
         raise CommentForbiddenError
 
-    now = utc_naive_now()
+    now = now_utc()
     row.deleted_at = now
 
     if row.parent_comment_id is None:

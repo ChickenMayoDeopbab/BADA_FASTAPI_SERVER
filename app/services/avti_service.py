@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
 
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
+from app.core.timeutil import now_utc
 from app.db.base import AsyncSessionLocal
 from app.db.models import VoiceTremorMetricORM
 from app.services.avti import SCRIPT_VERSION, AvtiPart
@@ -22,7 +22,7 @@ async def save_avti_metrics(
     if not parts:
         return 0
 
-    now = datetime.now(UTC).replace(tzinfo=None)
+    now = now_utc()
     rows = [
         {
             "session_id": session_id,

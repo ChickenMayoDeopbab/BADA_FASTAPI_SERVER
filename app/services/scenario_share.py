@@ -5,7 +5,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.enums import AttachmentKind
-from app.core.timeutil import utc_naive_now
+from app.core.timeutil import now_utc
 from app.db.models import PostAttachmentORM, PostORM, ScenarioORM
 
 # 카피된 시나리오가 받는 거
@@ -90,14 +90,12 @@ async def copy_attached_scenario(
         is_custom=True,
         is_warmup=False,
         origin_scenario_id=root_id,
-        created_at=utc_naive_now(),
+        created_at=now_utc(),
     )
     db.add(copy)
     try:
         await db.commit()
     except IntegrityError:
-        # 동시에 들어온 다른 요청이 먼저 만들었다. 유니크 인덱스가 막아준 것이므로
-        # 에러가 아니라 "이미 갖고 있음" 이 맞는 답이다.
         await db.rollback()
         existing = await _already_mine(db, root_id, user_id)
         if existing is None:
