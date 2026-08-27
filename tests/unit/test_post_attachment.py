@@ -357,3 +357,74 @@ async def test_patch_replaces_attachments_wholesale() -> None:
 
         assert resp.status_code == 200, resp.text
         assert resp.json()["attachments"][0]["ref_id"] == second
+
+
+async def _add_record_with_recording(env: Env, record_id: int, user_id: int, key: str) -> int:
+    async with env.sessions() as db:
+        await db.execute(
+            training_records_table.insert().values(
+                record_id=record_id, user_id=user_id,
+                scenario_name="병원 예약 전화", session_type="PRACTICE",
+                started_at=datetime.now(UTC).replace(tzinfo=None),
+                duration_seconds=132, anxiety_score=41,
+                recording_key=key,
+            )
+        )
+        await db.commit()
+    return record_id
+
+
+@pytest.mark.asyncio
+async def test_original_recording_key_never_reaches_the_response() -> None:
+    secret = "recordings/sess-abc/deadbeef-1234.wav"
+    async with community_app() as env:
+        record_id = await _add_record_with_recording(env, 601, user_id=7, key=secret)
+        created = await env.client.post(
+            "/api/v1/community/posts",
+            json={"title": "연습 기록", "content": "내용",
+                  "attachments": [{"kind": "TRAINING_RECORD", "ref_id": record_id}]},
+        )
+        post_id = created.json()["post_id"]
+
+        detail = await env.client.get(f"/api/v1/community/posts/{post_id}")
+        listing = await env.client.get("/api/v1/community/posts")
+
+        for label, body in (("생성", created.text), ("상세", detail.text), ("목록", listing.text)):
+            assert secret not in body, f"{label} 응답에 원본 키가 실렸다"
+            assert "recordings/" not in body, f"{label} 응답에 원본 경로가 실렸다"
+
+
+@pytest.mark.asyncio
+async def test_audio_is_processing_until_the_morph_lands() -> None:
+    async with community_app() as env:
+        record_id = await _add_record_with_recording(
+            env, 602, user_id=7, key="recordings/sess-x/y.wav"
+        )
+        created = await env.client.post(
+            "/api/v1/community/posts",
+            json={"title": "t", "content": "c",
+                  "attachments": [{"kind": "TRAINING_RECORD", "ref_id": record_id}]},
+        )
+
+        detail = await env.client.get(f"/api/v1/community/posts/{created.json()['post_id']}")
+        block = detail.json()["attachments"][0]["training_record"]
+
+        assert block["audio_url"] is None
+        assert block["audio_status"] == "processing"
+
+
+@pytest.mark.asyncio
+async def test_record_without_a_recording_reports_none() -> None:
+    async with community_app() as env:
+        record_id = await _add_training_record(env, 603, user_id=7)
+        created = await env.client.post(
+            "/api/v1/community/posts",
+            json={"title": "t", "content": "c",
+                  "attachments": [{"kind": "TRAINING_RECORD", "ref_id": record_id}]},
+        )
+
+        detail = await env.client.get(f"/api/v1/community/posts/{created.json()['post_id']}")
+        block = detail.json()["attachments"][0]["training_record"]
+
+        assert block["audio_status"] == "none"
+        assert block["audio_url"] is None
