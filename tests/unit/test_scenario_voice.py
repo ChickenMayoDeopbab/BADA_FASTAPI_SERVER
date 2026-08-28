@@ -233,7 +233,11 @@ async def test_custom_scenario_assigns_voice(monkeypatch) -> None:
     payload = {
         "content": "테스트 시나리오",
         "ai_prompt": "You are a clerk.",
-        "script": [{"step": 1, "ai_goal": "인사", "hint": "인사하세요"}],
+        "script": [
+            {"step": 1, "ai_goal": "인사", "hint": "인사하세요"},
+            {"step": 2, "ai_goal": "용건 확인", "hint": "용건을 말하세요"},
+            {"step": 3, "ai_goal": "마무리", "hint": "감사 인사를 하세요"},
+        ],
         "speaker": {"gender": "male", "age": "middle"},
     }
     monkeypatch.setattr(
@@ -266,7 +270,11 @@ async def test_custom_scenario_assigns_voice_with_tone(monkeypatch) -> None:
     payload = {
         "content": "테스트 시나리오",
         "ai_prompt": "You are a clerk.",
-        "script": [{"step": 1, "ai_goal": "인사", "hint": "인사하세요"}],
+        "script": [
+            {"step": 1, "ai_goal": "인사", "hint": "인사하세요"},
+            {"step": 2, "ai_goal": "용건 확인", "hint": "용건을 말하세요"},
+            {"step": 3, "ai_goal": "마무리", "hint": "감사 인사를 하세요"},
+        ],
         "speaker": {"gender": "male", "age": "middle", "tone": "rough"},
     }
     monkeypatch.setattr(
@@ -290,7 +298,11 @@ async def test_custom_scenario_speaker_missing_none(monkeypatch) -> None:
     payload = {
         "content": "테스트 시나리오",
         "ai_prompt": "You are a clerk.",
-        "script": [{"step": 1, "ai_goal": "인사", "hint": "인사하세요"}],
+        "script": [
+            {"step": 1, "ai_goal": "인사", "hint": "인사하세요"},
+            {"step": 2, "ai_goal": "용건 확인", "hint": "용건을 말하세요"},
+            {"step": 3, "ai_goal": "마무리", "hint": "감사 인사를 하세요"},
+        ],
     }
     monkeypatch.setattr(
         scenario_service, "AsyncAnthropic", _make_fake_anthropic_client(payload)
@@ -313,7 +325,11 @@ async def test_custom_scenario_bad_speaker_none(monkeypatch) -> None:
     payload = {
         "content": "테스트 시나리오",
         "ai_prompt": "You are a clerk.",
-        "script": [{"step": 1, "ai_goal": "인사", "hint": "인사하세요"}],
+        "script": [
+            {"step": 1, "ai_goal": "인사", "hint": "인사하세요"},
+            {"step": 2, "ai_goal": "용건 확인", "hint": "용건을 말하세요"},
+            {"step": 3, "ai_goal": "마무리", "hint": "감사 인사를 하세요"},
+        ],
         "speaker": {"gender": "robot", "age": 3},
     }
     monkeypatch.setattr(
