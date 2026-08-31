@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import math
 import re
 from collections.abc import Iterable, Sequence
@@ -13,8 +14,10 @@ from app.schemas.training_analysis import (
 )
 from app.services.tremor import TremorResult
 
-ANALYZER_VERSION = "SPEECH_ANALYZER_V1"
-ANALYSIS_POLICY_VERSION = "ANALYSIS_POLICY_V1"
+logger = logging.getLogger(__name__)
+
+ANALYZER_VERSION = "SPEECH_ANALYZER_V2"
+ANALYSIS_POLICY_VERSION = "ANALYSIS_POLICY_V2"
 
 _SAMPLE_RATE = 16000
 _SAMPLE_BYTES = 2
@@ -158,34 +161,66 @@ def _tokens(text: str) -> list[str]:
     ]
 
 
-def _long_pause_duration(
-    user_turns: list[Span],
+def _has_overlap(
+    turn: Span,
+    spans: Iterable[Sequence[float]],
+) -> bool:
+    return bool(_intersect_spans([turn], spans))
+
+
+def _has_long_pause(
+    turn: Span,
     voiced_spans: list[Span],
-) -> float:
-    total = 0.0
+) -> bool:
+    turn_start, turn_end = turn
+    turn_voice = _intersect_spans(
+        [turn],
+        voiced_spans,
+    )
 
-    for turn_start, turn_end in user_turns:
-        turn_voice = _intersect_spans(
-            [(turn_start, turn_end)],
-            voiced_spans,
+    cursor = turn_start
+
+    for voice_start, voice_end in turn_voice:
+        if voice_start - cursor >= _LONG_PAUSE_SECONDS:
+            return True
+
+        cursor = max(cursor, voice_end)
+
+    return turn_end - cursor >= _LONG_PAUSE_SECONDS
+
+
+def _has_lexical_disfluency(text: str) -> bool:
+    turn_tokens = _tokens(text)
+
+    if any(token in _FILLER_WORDS for token in turn_tokens):
+        return True
+
+    return any(
+        previous == current
+        for previous, current in zip(
+            turn_tokens,
+            turn_tokens[1:],
+            strict=False,
         )
+    )
 
-        cursor = turn_start
 
-        for voice_start, voice_end in turn_voice:
-            gap = voice_start - cursor
+def _clean_utterance_score(
+    total_count: int,
+    problem_count: int,
+) -> float:
+    if total_count <= 0:
+        return 0.0
 
-            if gap >= _LONG_PAUSE_SECONDS:
-                total += gap
+    normalized_problem_count = min(
+        max(problem_count, 0),
+        total_count,
+    )
+    clean_count = total_count - normalized_problem_count
 
-            cursor = max(cursor, voice_end)
-
-        tail_gap = turn_end - cursor
-
-        if tail_gap >= _LONG_PAUSE_SECONDS:
-            total += tail_gap
-
-    return total
+    return _clamp_score(
+        100.0 * clean_count / total_count
+    )
 
 
 class TrainingPerformanceAnalyzer:
@@ -380,9 +415,6 @@ class TrainingPerformanceAnalyzer:
         if tremor_result is None:
             return failed("MISSING_OR_UNREADABLE_AUDIO")
 
-        if script_step_count <= 0:
-            return failed("MISSING_SCRIPT")
-
         if len(valid_turns) < _MIN_VALID_USER_TURNS:
             return failed("INSUFFICIENT_VALID_TURNS")
 
@@ -398,74 +430,60 @@ class TrainingPerformanceAnalyzer:
         ):
             return failed("INSUFFICIENT_SUSTAINED_SPEECH")
 
-        tremor_ratio = min(
-            tremor_seconds / sustained_speech_seconds,
-            1.0,
+        total_utterance_count = len(valid_turns)
+
+        tremor_utterance_count = sum(
+            _has_overlap(turn, valid_tremor_spans)
+            for turn in valid_turns
         )
 
-        stability_score = _clamp_score(
-            100.0 * (1.0 - tremor_ratio)
+        silence_utterance_count = sum(
+            _has_long_pause(turn, valid_voice_spans)
+            for turn in valid_turns
         )
 
-        conversation_score = _clamp_score(
-            100.0
-            * completed_script_steps
-            / script_step_count
+        stutter_utterance_count = sum(
+            _has_lexical_disfluency(text)
+            for text in valid_texts
         )
 
-        user_turn_duration = _duration_seconds(valid_turns)
-        long_pause_duration = _long_pause_duration(
-            valid_turns,
-            valid_voice_spans,
+        stability_score = _clean_utterance_score(
+            total_utterance_count,
+            tremor_utterance_count,
         )
 
-        pause_ratio = (
-            min(long_pause_duration / user_turn_duration, 1.0)
-            if user_turn_duration > 0
-            else 1.0
+        conversation_score = _clean_utterance_score(
+            total_utterance_count,
+            silence_utterance_count,
         )
 
-        pause_score = 100.0 * (1.0 - pause_ratio)
-
-        all_tokens: list[str] = []
-        repeated_count = 0
-
-        for text in valid_texts:
-            turn_tokens = _tokens(text)
-            all_tokens.extend(turn_tokens)
-            repeated_count += sum(
-                previous == current
-                for previous, current in zip(
-                    turn_tokens,
-                    turn_tokens[1:],
-                    strict=False,
-                )
-            )
-
-        filler_count = sum(
-            token in _FILLER_WORDS
-            for token in all_tokens
+        fluency_score = _clean_utterance_score(
+            total_utterance_count,
+            stutter_utterance_count,
         )
 
-        lexical_disfluency_ratio = (
-            min(
-                2.0
-                * (filler_count + repeated_count)
-                / len(all_tokens),
-                1.0,
-            )
-            if all_tokens
-            else 1.0
-        )
-
-        lexical_score = (
-            100.0
-            * (1.0 - lexical_disfluency_ratio)
-        )
-
-        fluency_score = _clamp_score(
-            pause_score * 0.7
-            + lexical_score * 0.3
+        logger.info(
+            "문장 비율 기반 훈련 성과 분석 완료",
+            extra={
+                "valid_utterance_count":
+                    total_utterance_count,
+                "tremor_utterance_count":
+                    tremor_utterance_count,
+                "silence_utterance_count":
+                    silence_utterance_count,
+                "stutter_utterance_count":
+                    stutter_utterance_count,
+                "stability_score":
+                    stability_score,
+                "conversation_score":
+                    conversation_score,
+                "fluency_score":
+                    fluency_score,
+                "analyzer_version":
+                    ANALYZER_VERSION,
+                "analysis_policy_version":
+                    ANALYSIS_POLICY_VERSION,
+            },
         )
 
         return TrainingAnalysisPayload(

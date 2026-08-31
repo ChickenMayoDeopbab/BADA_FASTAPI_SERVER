@@ -4,6 +4,7 @@ import sys
 from types import SimpleNamespace
 
 from app.schemas.frames import EndReason
+from app.schemas.training_analysis import AnalysisQualityStatus
 from app.services.avti import AvtiPart, AvtiStatus
 from app.services.avti_service import save_avti_metrics
 from app.services.pipeline import VoicePipeline
@@ -93,6 +94,15 @@ class _FakeTremor:
 class _FakeStorage:
     def upload_pcm(self, session_id: str, pcm: bytes) -> str:
         return "rec.wav"
+
+
+class _NullStorage:
+    def upload_pcm(
+        self,
+        session_id: str,
+        pcm: bytes,
+    ) -> None:
+        return None
 
 
 class _FakeLLM:
@@ -295,6 +305,51 @@ async def test_no_recording_means_no_avti(monkeypatch) -> None:
     await p._teardown()
 
     assert not calls
+
+
+async def test_null_recording_key_does_not_block_analysis(
+    monkeypatch,
+) -> None:
+    captured: dict = {}
+
+    async def _fake_run(**kwargs):
+        return {}
+
+    async def _capture(*args, **kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr(
+        "app.services.pipeline.run_avti",
+        _fake_run,
+    )
+
+    pipeline = _pipeline(
+        seconds=8,
+        turns=[
+            (0.0, 4.0),
+            (4.0, 8.0),
+        ],
+        spans=[
+            (0.0, 8.0),
+        ],
+    )
+    pipeline._recording_storage = _NullStorage()
+    pipeline._end_reason = EndReason.SCENARIO_DONE
+    pipeline._spring.notify_session_closed = _capture
+
+    await pipeline._teardown()
+
+    assert captured["recording_key"] is None
+
+    analysis = captured["analysis"]
+    assert analysis is not None
+    assert (
+        analysis.analysis_quality_status
+        is AnalysisQualityStatus.PASS
+    )
+    assert analysis.stability_score == 100.0
+    assert analysis.conversation_score == 100.0
+    assert analysis.fluency_score == 100.0
 
 
 async def test_analysis_failure_does_not_block_session_close(
