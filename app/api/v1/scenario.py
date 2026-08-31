@@ -20,6 +20,11 @@ from app.services.example_service import (
 )
 from app.services.scenario_image_service import generate_scenario_thumbnail
 from app.services.scenario_service import (
+    ScenarioConfigError,
+    ScenarioGenInvalidError,
+    ScenarioRefusedError,
+)
+from app.services.scenario_service import (
     create_custom_scenario as svc_create_custom_scenario,
 )
 from app.services.scenario_service import (
@@ -30,6 +35,14 @@ from app.services.scenario_service import (
 )
 
 router = APIRouter(prefix="/api/v1/scenario", tags=["scenario"])
+
+# 왜 막혔는지 사용자가 알 수 있어야 한다. 서버 결함이 아니므로 4xx.
+_REFUSAL_MESSAGES = {
+    "ILLEGAL": "불법 행위를 연습하는 시나리오는 만들 수 없습니다. 통화 목적을 다시 적어주세요.",
+    "HARMFUL": "다른 사람에게 해가 될 수 있는 시나리오는 만들 수 없습니다. 통화 목적을 다시 적어주세요.",
+    "SEXUAL": "선정적인 내용의 시나리오는 만들 수 없습니다. 통화 목적을 다시 적어주세요.",
+    "INJECTION": "시나리오 설정에 넣을 수 없는 지시가 포함돼 있습니다. 통화 목적을 다시 적어주세요.",
+}
 
 @router.get(
     "/scenarios",
@@ -103,10 +116,25 @@ async def create_custom_scenario(
 ) -> CustomScenarioResponse:
     try:
         response = await svc_create_custom_scenario(db, body, user_id)
+    except ScenarioRefusedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=_REFUSAL_MESSAGES.get(e.code, _REFUSAL_MESSAGES["INJECTION"]),
+        ) from e
+    except ScenarioConfigError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AI 시나리오 생성이 일시적으로 불가합니다. 잠시 후 다시 시도해 주세요.",
+        ) from e
     except APIError as e:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"AI 시나리오 생성 실패: {e.message}",
+        ) from e
+    except ScenarioGenInvalidError as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="AI가 올바른 시나리오를 만들지 못했습니다. 다시 시도해 주세요.",
         ) from e
     except (ValueError, KeyError) as e:
         raise HTTPException(

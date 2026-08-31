@@ -389,7 +389,11 @@ class _FakeAnthropicMessages:
         payload = {
             "content": "집주인에게 월세 문의 전화",
             "ai_prompt": "You are a landlord.",
-            "script": [{"step": 1, "ai_goal": "용건을 묻는다", "hint": "인사하세요"}],
+            "script": [
+                {"step": 1, "ai_goal": "용건을 묻는다", "hint": "인사하세요"},
+                {"step": 2, "ai_goal": "내용을 확인한다", "hint": "용건을 말하세요"},
+                {"step": 3, "ai_goal": "통화를 마무리한다", "hint": "감사 인사를 하세요"},
+            ],
         }
         return SimpleNamespace(content=[SimpleNamespace(text=json.dumps(payload))])
 
