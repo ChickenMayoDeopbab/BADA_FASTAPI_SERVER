@@ -4,27 +4,29 @@ import json
 import logging
 import re
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
+from hashlib import sha256
 
 from anthropic import AsyncAnthropic
 from anthropic.types import MessageParam
 from pydantic import BaseModel, Field, ValidationError, field_validator
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.enums import ALL_DIFFICULTIES, ALL_PERSONALITIES, ScenarioCategory
 from app.core.preset_scenarios import PRESET_MAP, PRESET_SCENARIOS, scenario_to_info
 from app.core.prompt_matrix import PERSONALITY_BASE
-from app.core.timeutil import ensure_utc, now_utc
+from app.core.timeutil import as_kst, ensure_utc, now_utc
 from app.core.tts_voices import parse_speaker, pick_voice_id
-from app.db.models import ScenarioORM, is_deleted
+from app.db.models import FeedbackORM, ScenarioORM, is_deleted
 from app.schemas.scenario import (
     CustomScenarioResponse,
     CustomSessionRequest,
     GenerateDetailScenario,
     ScenarioInfo,
     ScenarioListResponse,
+    ScenarioRecommendationResponse,
     ScriptTurnContext,
 )
 from app.services.recording_storage import RecordingStorageService
@@ -149,6 +151,87 @@ async def get_scenarios(
         for row, row_category in custom_rows
     )
     return ScenarioListResponse(scenarios=infos)
+
+
+def _daily_pick(
+    scenarios: Sequence[ScenarioInfo],
+    *,
+    user_id: int,
+    recommendation_date: date,
+) -> ScenarioInfo:
+    """동일 사용자에게 같은 날 같은 후보군이면 동일한 시나리오를 반환한다."""
+    ordered = sorted(scenarios, key=lambda scenario: scenario.scenario_id)
+    candidate_ids = ",".join(str(scenario.scenario_id) for scenario in ordered)
+    seed = f"{user_id}:{recommendation_date.isoformat()}:{candidate_ids}"
+    index = int.from_bytes(sha256(seed.encode()).digest()[:8], "big") % len(ordered)
+    return ordered[index]
+
+
+async def get_recommended_scenario(
+    db: AsyncSession,
+    user_id: int,
+    *,
+    recommendation_date: date | None = None,
+) -> ScenarioRecommendationResponse | None:
+    """새 DB 구조 없이 미연습 및 마지막 연습 시점으로 시나리오 하나를 추천한다."""
+    candidates = (await get_scenarios(db, None, user_id)).scenarios
+    if not candidates:
+        return None
+
+    history_stmt = (
+        select(
+            FeedbackORM.scenario_id,
+            func.max(FeedbackORM.created_at).label("last_practiced_at"),
+        )
+        .where(FeedbackORM.user_id == user_id)
+        .group_by(FeedbackORM.scenario_id)
+    )
+    history_result = await db.execute(history_stmt)
+    last_practiced = {
+        int(scenario_id): ensure_utc(practiced_at)
+        for scenario_id, practiced_at in history_result.all()
+    }
+
+    # 목록 서비스가 본인 생성 커스텀을 최신순으로 반환하므로 첫 항목이 가장 최근 생성본이다.
+    custom_not_practiced = [
+        scenario
+        for scenario in candidates
+        if scenario.is_custom and scenario.scenario_id not in last_practiced
+    ]
+    if custom_not_practiced:
+        return ScenarioRecommendationResponse(
+            scenario=custom_not_practiced[0],
+            reason="CUSTOM_NOT_PRACTICED",
+        )
+
+    today = recommendation_date or as_kst(now_utc()).date()
+    not_practiced = [
+        scenario for scenario in candidates if scenario.scenario_id not in last_practiced
+    ]
+    if not_practiced:
+        return ScenarioRecommendationResponse(
+            scenario=_daily_pick(
+                not_practiced,
+                user_id=user_id,
+                recommendation_date=today,
+            ),
+            reason="NOT_PRACTICED",
+        )
+
+    oldest_at = min(last_practiced[scenario.scenario_id] for scenario in candidates)
+    longest_absent = [
+        scenario
+        for scenario in candidates
+        if last_practiced[scenario.scenario_id] == oldest_at
+    ]
+    return ScenarioRecommendationResponse(
+        scenario=_daily_pick(
+            longest_absent,
+            user_id=user_id,
+            recommendation_date=today,
+        ),
+        reason="LONGEST_ABSENT",
+    )
 
 
 async def delete_custom_scenario(

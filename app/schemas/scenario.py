@@ -25,6 +25,18 @@ class ScenarioListResponse(BaseModel):
     scenarios: list[ScenarioInfo]
 
 
+ScenarioRecommendationReason = Literal[
+    "CUSTOM_NOT_PRACTICED",
+    "NOT_PRACTICED",
+    "LONGEST_ABSENT",
+]
+
+
+class ScenarioRecommendationResponse(BaseModel):
+    scenario: ScenarioInfo
+    reason: ScenarioRecommendationReason
+
+
 class ExampleTurn(BaseModel):
     speaker: Literal["ai", "user"]
     text: str
