@@ -552,3 +552,91 @@ async def test_concurrent_request_rereads_row_inside_lock(monkeypatch) -> None:
     assert storage.uploads == [], "앞선 요청이 이미 구웠으면 다시 굽지 않는다"
     assert tts.open_calls == []
     assert resp.audio_url
+
+
+
+def _wire_prebake(monkeypatch, row, *, storage=None, tts=None, qwen=None):
+    storage = storage or _FakeStorage()
+    tts = tts or _FakeTTSClient()
+    db = _FakeDB(row)
+
+    class _SessionCtx:
+        async def __aenter__(self): return db
+        async def __aexit__(self, *a): return False
+
+    monkeypatch.setattr(example_service, "get_settings", lambda: _settings(True))
+    monkeypatch.setattr(example_service, "AsyncSessionLocal", lambda: _SessionCtx())
+    monkeypatch.setattr(example_service, "ElevenLabsTTSClient", lambda _s: tts)
+    monkeypatch.setattr(example_service, "RecordingStorageService", lambda _s: storage)
+    off = qwen or _FakeQwenClient(enabled=False, ready=False)
+    monkeypatch.setattr(example_service, "QwenTTSClient", lambda _s: off)
+    monkeypatch.setattr(example_service, "is_deleted", lambda _r: False)
+    return db, storage, tts
+
+
+async def test_prebake_generates_and_stores(monkeypatch) -> None:
+    row = _custom_row(example_dialogue=_DIALOGUE)
+    db, storage, tts = _wire_prebake(monkeypatch, row)
+
+    await example_service.bake_example_audio(42)
+
+    assert len(storage.uploads) == 1
+    assert row.example_audio_url == storage.uploads[0][0]
+    assert db.commits >= 1
+
+
+async def test_prebake_skips_when_already_baked(monkeypatch) -> None:
+    row = _custom_row(example_dialogue=_DIALOGUE, example_audio_url="examples/42-abc.wav")
+    _, storage, tts = _wire_prebake(monkeypatch, row)
+
+    await example_service.bake_example_audio(42)
+
+    assert storage.uploads == []
+    assert tts.open_calls == []
+
+
+async def test_prebake_swallows_failure(monkeypatch) -> None:
+    row = _custom_row(example_dialogue=_DIALOGUE)
+
+    class _BoomTTS:
+        async def open(self, voice_id=None):
+            raise RuntimeError("TTS 폭발")
+
+    _wire_prebake(monkeypatch, row, tts=_BoomTTS())
+
+    await example_service.bake_example_audio(42)  # 예외가 새어나오면 실패
+
+    assert row.example_audio_url is None
+
+
+async def test_prebaked_audio_makes_request_a_cache_hit(monkeypatch) -> None:
+    row = _preset_row()
+    tts, storage = _wire(monkeypatch)
+    _wire_qwen(monkeypatch, _FakeQwenClient(enabled=False, ready=False))
+
+    first = await get_example_conversation(_FakeDB(row), 1, user_id=7)  # 여기서 구워짐
+    calls_after_bake = list(tts.open_calls)
+    second = await get_example_conversation(_FakeDB(row), 1, user_id=7)
+
+    assert second.audio_url == first.audio_url
+    assert tts.open_calls == calls_after_bake, "두 번째는 합성하지 않는다"
+    assert len(storage.uploads) == 1
+
+
+async def test_metric_records_trigger(monkeypatch) -> None:
+    metrics = []
+    monkeypatch.setattr(example_service, "log_metric", lambda n, **kw: metrics.append((n, kw)))
+    _wire(monkeypatch)
+    _wire_qwen(monkeypatch, _FakeQwenClient(enabled=False, ready=False))
+
+    await get_example_conversation(_FakeDB(_preset_row()), 1, user_id=7)
+
+    assert metrics and metrics[0][0] == "example_tts"
+    assert metrics[0][1]["trigger"] == "request"
+
+    metrics.clear()
+    row = _custom_row(example_dialogue=_DIALOGUE)
+    _wire_prebake(monkeypatch, row)
+    monkeypatch.setattr(example_service, "log_metric", lambda n, **kw: metrics.append((n, kw)))
+    await example_service.bake_example_audio(42)
+    assert metrics[0][1]["trigger"] == "prebake"
