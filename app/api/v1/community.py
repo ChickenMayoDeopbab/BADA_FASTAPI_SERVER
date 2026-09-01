@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response, status
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deps.auth import get_current_user_id
 from app.deps.db import get_db
 from app.deps.redis import get_redis
+from app.deps.spring import get_spring_client
 from app.schemas.community import (
     CommentCreateRequest,
     CommentListResponse,
@@ -42,6 +43,7 @@ from app.services.scenario_share import (
     PostMissingError,
 )
 from app.services.scenario_share import copy_attached_scenario as svc_copy_scenario
+from app.services.spring_client import SpringInternalClient
 
 router = APIRouter(prefix="/api/v1/community", tags=["community"])
 
@@ -209,11 +211,25 @@ async def clear_reaction(
 async def create_comment(
     post_id: int,
     body: CommentCreateRequest,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     user_id: int = Depends(get_current_user_id),
+    spring: SpringInternalClient = Depends(get_spring_client),
 ) -> CommentResponse:
     try:
-        return await svc_create_comment(db, post_id, body, user_id)
+        comment, notification_event = await svc_create_comment(
+            db, post_id, body, user_id
+        )
+        if notification_event is not None:
+            background_tasks.add_task(
+                spring.notify_community_notification,
+                notification_type=notification_event.notification_type,
+                recipient_user_id=notification_event.recipient_user_id,
+                actor_user_id=notification_event.actor_user_id,
+                post_id=notification_event.post_id,
+                comment_id=notification_event.comment_id,
+            )
+        return comment
     except PostNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

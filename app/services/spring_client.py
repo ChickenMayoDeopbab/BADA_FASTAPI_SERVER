@@ -99,3 +99,73 @@ class SpringInternalClient:
             last_error,
             extra={"session_id": session_id, "reason": reason.value},
         )
+
+    async def notify_community_notification(
+        self,
+        *,
+        notification_type: str,
+        recipient_user_id: int,
+        actor_user_id: int,
+        post_id: int,
+        comment_id: int,
+    ) -> None:
+        url = f"{self._base_url}/internal/v1/notifications/community"
+        payload = {
+            "type": notification_type,
+            "recipientUserId": recipient_user_id,
+            "actorUserId": actor_user_id,
+            "postId": post_id,
+            "commentId": comment_id,
+        }
+        log_context = {
+            "notification_type": notification_type,
+            "recipient_user_id": recipient_user_id,
+            "actor_user_id": actor_user_id,
+            "post_id": post_id,
+            "comment_id": comment_id,
+        }
+
+        last_error: httpx.HTTPError | None = None
+        for attempt in range(_RETRY_ATTEMPTS):
+            try:
+                async with httpx.AsyncClient(
+                    timeout=5.0, transport=self._transport
+                ) as client:
+                    response = await client.post(
+                        url,
+                        json=payload,
+                        headers={"X-Internal-Secret": self._secret},
+                    )
+                    response.raise_for_status()
+                logger.info("커뮤니티 알림 콜백 성공", extra=log_context)
+                return
+            except httpx.HTTPStatusError as error:
+                if error.response.status_code < 500:
+                    logger.error(
+                        "커뮤니티 알림 콜백 400번대 에러, 재시도 안 함: %s",
+                        error,
+                        extra=log_context,
+                    )
+                    return
+                last_error = error
+            except httpx.HTTPError as error:
+                last_error = error
+
+            if attempt < _RETRY_ATTEMPTS - 1:
+                delay = _RETRY_BASE_DELAY_SECONDS * (2**attempt)
+                logger.warning(
+                    "커뮤니티 알림 콜백 실패(%d/%d), %.1fs 후 재시도: %s",
+                    attempt + 1,
+                    _RETRY_ATTEMPTS,
+                    delay,
+                    last_error,
+                    extra=log_context,
+                )
+                await asyncio.sleep(delay)
+
+        logger.error(
+            "커뮤니티 알림 콜백 최종 실패(%d회): %s",
+            _RETRY_ATTEMPTS,
+            last_error,
+            extra=log_context,
+        )
