@@ -1,5 +1,6 @@
 import asyncio
 import json
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
 import pytest
@@ -418,6 +419,10 @@ class _FakeQwenClient:
         self._pcm = pcm
         self.calls: list[tuple[str, str]] = []
 
+    @asynccontextmanager
+    async def connect(self):
+        yield self
+
     async def healthy(self) -> bool:
         return self.enabled and self._ready
 
@@ -483,6 +488,36 @@ async def test_qwen_unhealthy_skips_synth_entirely(monkeypatch) -> None:
 
     assert qwen.calls == []
     assert tts.open_calls
+
+
+async def test_cache_hit_skips_health_check(monkeypatch) -> None:
+    _wire(monkeypatch)
+    qwen = _FakeQwenClient()
+    checked = []
+    orig = qwen.healthy
+
+    async def _spy():
+        checked.append(1)
+        return await orig()
+
+    qwen.healthy = _spy
+    _wire_qwen(monkeypatch, qwen)
+
+    await get_example_conversation(
+        _FakeDB(_preset_row(example_audio_url=_eleven_key())), 1, user_id=7
+    )
+
+    assert checked == [], "캐시 히트면 Qwen 헬스체크를 하지 않아야 한다"
+
+
+async def test_qwen_key_ignores_elevenlabs_voice_ids() -> None:
+    a = example_service._audio_key(1, _DIALOGUE, "voice-A", "user-A", qwen=True)
+    b = example_service._audio_key(1, _DIALOGUE, "voice-B", "user-B", qwen=True)
+    assert a == b, "voice_id 변경이 Qwen 캐시를 무효화하면 안 된다"
+
+    c = example_service._audio_key(1, _DIALOGUE, "voice-A", "user-A")
+    d = example_service._audio_key(1, _DIALOGUE, "voice-B", "user-B")
+    assert c != d
 
 
 async def test_existing_eleven_cache_kept_when_qwen_becomes_available(monkeypatch) -> None:
