@@ -1015,14 +1015,44 @@ class VoicePipeline:
                     out.append((lo, hi))
         return out
 
-    def _pick_segments(self, candidates, avti_by_turn: dict[int, float]) -> list[dict]:
-        """칭찬할 구간과 아쉬운 구간을 함께 고른다."""
-        clean = self._intersect(candidates, self._user_turn_intervals)
-        picked: list[dict] = []
+    def _spoken_turns(
+        self, avti_by_turn: dict[int, float]
+    ) -> list[tuple[int, tuple[float, float]]]:
+        """말한 턴만 (턴 번호, 구간) 으로. 번호는 AVTI 키와 맞춰 그대로 둔다.
 
+        STT 가 아무것도 못 받아적은 턴은 마이크만 열려 있었을 뿐이라 뺀다.
+        예외는 AVTI 가 나온 턴 — 그 값은 3초 넘게 이어진 목소리에서만 나오므로
+        말은 했는데 문장이 못 넘어온 경우다(끝에서 세션이 끊길 때).
+        """
+        turns: list[tuple[int, tuple[float, float]]] = []
         for index, (start, end) in enumerate(self._user_turn_intervals, start=1):
             if end - start <= 0:
                 continue
+            said = ""
+            if index - 1 < len(self._user_turn_texts):
+                said = self._user_turn_texts[index - 1].strip()
+            if not said and avti_by_turn.get(index) is None:
+                logger.info(
+                    "발화 없는 턴 - 구간 피드백 후보에서 제외",
+                    extra={
+                        "session_id": self._session_id,
+                        "turn": index,
+                        "start": round(start, 2),
+                        "end": round(end, 2),
+                    },
+                )
+                continue
+            turns.append((index, (start, end)))
+        return turns
+
+    def _pick_segments(self, candidates, avti_by_turn: dict[int, float]) -> list[dict]:
+        """칭찬할 구간과 아쉬운 구간을 함께 고른다. 발화 없는 턴은 제외한다."""
+        turns = self._spoken_turns(avti_by_turn)
+        intervals = [span for _, span in turns]
+        clean = self._intersect(candidates, intervals)
+        picked: list[dict] = []
+
+        for index, (start, end) in turns:
             avti = avti_by_turn.get(index)
             band = voice_band(avti)
             if band is Band.NEEDS_WORK:
@@ -1059,19 +1089,21 @@ class VoicePipeline:
         if not chosen:
             chosen = [
                 {**seg, "type": _SEG_GOOD, "reason": "fallback", "avti": None}
-                for seg in self._pick_good_segments(candidates)
+                for seg in self._pick_good_segments(candidates, intervals)
             ]
         chosen.sort(key=lambda p: p["start"])
         return chosen
 
-    def _pick_good_segments(self, candidates) -> list[dict]:
-        overlap = self._intersect(candidates, self._user_turn_intervals)
+    def _pick_good_segments(self, candidates, turn_intervals=None) -> list[dict]:
+        """마지막 보루. turn_intervals 를 주면 그 턴들 안에서만 고른다."""
+        turn_intervals = (
+            self._user_turn_intervals if turn_intervals is None else turn_intervals
+        )
+        overlap = self._intersect(candidates, turn_intervals)
         overlap.sort(key=lambda se: se[1] - se[0], reverse=True)
         long_enough = [se for se in overlap if se[1] - se[0] >= 1.0]  # min_good_sec
         fragments = [se for se in overlap if se[1] - se[0] < 1.0]
-        turns = sorted(
-            self._user_turn_intervals, key=lambda se: se[1] - se[0], reverse=True
-        )
+        turns = sorted(turn_intervals, key=lambda se: se[1] - se[0], reverse=True)
 
         good: list[tuple[float, float]] = []
         for pool in (long_enough, fragments, turns):
