@@ -13,6 +13,7 @@ from app.db.base import Base
 from app.db.external import external_metadata, users_table
 from app.deps.auth import get_current_user_id
 from app.deps.db import get_db
+from app.deps.spring import get_spring_client
 
 DEFAULT_USERS = (
     {"user_id": 7, "name": "사용자1", "profile_image": "profiles/7.png", "role": "USER"},
@@ -40,10 +41,19 @@ class FakeRedis:
 
 
 @dataclass
+class FakeSpringClient:
+    notifications: list[dict] = field(default_factory=list)
+
+    async def notify_community_notification(self, **notification) -> None:
+        self.notifications.append(notification)
+
+
+@dataclass
 class Env:
     client: httpx.AsyncClient
     sessions: async_sessionmaker[AsyncSession]
     redis: FakeRedis
+    spring: FakeSpringClient
     queries: list[str] = field(default_factory=list)
     _current: dict = field(default_factory=dict)
 
@@ -84,12 +94,14 @@ async def community_app(
 
     current = {"user_id": user_id}
     fake_redis = redis or FakeRedis()
+    fake_spring = FakeSpringClient()
 
     app = FastAPI()
     app.include_router(community_router)
     app.state.redis = fake_redis
     app.dependency_overrides[get_db] = _get_db
     app.dependency_overrides[get_current_user_id] = lambda: current["user_id"]
+    app.dependency_overrides[get_spring_client] = lambda: fake_spring
 
     transport = httpx.ASGITransport(app=app)
     try:
@@ -98,6 +110,7 @@ async def community_app(
                 client=client,
                 sessions=session_factory,
                 redis=fake_redis,
+                spring=fake_spring,
                 queries=queries,
                 _current=current,
             )

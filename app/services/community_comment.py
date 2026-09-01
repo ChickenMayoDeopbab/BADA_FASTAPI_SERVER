@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.enums import CommunityNotificationType
 from app.core.timeutil import now_utc
 from app.db.external import users_table
 from app.db.models import PostCommentORM
@@ -29,8 +32,18 @@ class InvalidParentCommentError(Exception):
     """답글의 부모로 쓸 수 없는 댓글,없거나, 삭제됐거나, 다른 글이거나, 답글인거"""
 
 
+@dataclass(frozen=True)
+class CommunityNotificationEvent:
+    notification_type: CommunityNotificationType
+    recipient_user_id: int
+    actor_user_id: int
+    post_id: int
+    comment_id: int
 
-async def _check_parent(db: AsyncSession, post_id: int, parent_id: int) -> None:
+
+async def _check_parent(
+    db: AsyncSession, post_id: int, parent_id: int
+) -> PostCommentORM:
     """답글 깊이를 1단으로 고정"""
     parent = await db.get(PostCommentORM, parent_id)
     if parent is None or parent.deleted_at is not None:
@@ -39,15 +52,17 @@ async def _check_parent(db: AsyncSession, post_id: int, parent_id: int) -> None:
         raise InvalidParentCommentError
     if parent.parent_comment_id is not None:
         raise InvalidParentCommentError
+    return parent
 
 
 async def create_comment(
     db: AsyncSession, post_id: int, body: CommentCreateRequest, user_id: int
-) -> CommentResponse:
+) -> tuple[CommentResponse, CommunityNotificationEvent | None]:
     """댓글 생성"""
-    await alive_post(db, post_id)
+    post = await alive_post(db, post_id)
+    parent = None
     if body.parent_comment_id is not None:
-        await _check_parent(db, post_id, body.parent_comment_id)
+        parent = await _check_parent(db, post_id, body.parent_comment_id)
 
     now = now_utc()
     row = PostCommentORM(
@@ -61,13 +76,28 @@ async def create_comment(
     db.add(row)
     await db.commit()
 
-    return CommentResponse(
+    response = CommentResponse(
         comment_id=row.comment_id,
         parent_comment_id=row.parent_comment_id,
         content=row.content,
         author=await load_author(db, user_id),
         created_at=row.created_at,
         updated_at=row.updated_at,
+    )
+    recipient_user_id = post.user_id if parent is None else parent.user_id
+    if recipient_user_id == user_id:
+        return response, None
+
+    return response, CommunityNotificationEvent(
+        notification_type=(
+            CommunityNotificationType.COMMENT
+            if parent is None
+            else CommunityNotificationType.REPLY
+        ),
+        recipient_user_id=recipient_user_id,
+        actor_user_id=user_id,
+        post_id=post_id,
+        comment_id=row.comment_id,
     )
 
 

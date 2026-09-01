@@ -133,6 +133,31 @@ async def test_notify_session_closed_sends_correct_request() -> None:
         }
 
 
+async def test_notify_community_notification_sends_correct_request() -> None:
+    with _MockSpring(status_code=200) as spring:
+        client = _client_for(spring.base_url)
+
+        await client.notify_community_notification(
+            notification_type="REPLY",
+            recipient_user_id=7,
+            actor_user_id=8,
+            post_id=10,
+            comment_id=25,
+        )
+
+        captured = spring.captured
+        assert captured is not None, "mock Spring이 요청을 못 받음"
+        assert captured["path"] == "/internal/v1/notifications/community"
+        assert captured["headers"].get("X-Internal-Secret") == _SECRET
+        assert captured["body"] == {
+            "type": "REPLY",
+            "recipientUserId": 7,
+            "actorUserId": 8,
+            "postId": 10,
+            "commentId": 25,
+        }
+
+
 async def test_trailing_slash_in_base_url_is_normalized() -> None:
     with _MockSpring(status_code=200) as spring:
         client = _client_for(spring.base_url + "/")
