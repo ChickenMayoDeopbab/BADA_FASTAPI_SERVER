@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from enum import StrEnum
 
-__all__ = ["Band", "voice_band", "is_safe", "split_title"]
+__all__ = ["Band", "voice_band", "is_safe", "polish", "split_title"]
 
 
 class Band(StrEnum):
@@ -46,8 +46,24 @@ _LABEL_TITLES = {
     "잘했어요", "아쉬웠어요", "good", "improve",
 }
 
+_MIND_STATE = re.compile(
+    r"자신감[^.!?]{0,6}(?:없|부족|떨어)"
+    r"|자신\s*없"
+    r"|(?:긴장|불안|초조|위축|주눅|소심|겁먹)"
+    r"(?!\s*하지\s*않|\s*되지\s*않|\s*없이|\s*하지\s*마|\s*안\s*하)"
+)
+_HEDGED = re.compile(r"들렸|들릴|들리|느꼈|느낄|느껴|것\s*같|수\s*있|거예요|거에요")
+
 _MAX_TITLE_LEN = 30
 _MAX_CONTENT_LEN = 150
+
+
+def _asserts_mind_state(text: str) -> bool:
+    """마음 상태를 추측도 없이 단정한 문장이 섞여 있는지."""
+    for sentence in re.split(r"(?<=[.!?])\s+", text):
+        if _MIND_STATE.search(sentence) and not _HEDGED.search(sentence):
+            return True
+    return False
 
 
 def is_safe(title: str, content: str) -> bool:
@@ -59,8 +75,38 @@ def is_safe(title: str, content: str) -> bool:
         return False  # 무엇에 대한 얘긴지 알 수 없는 제목
     if len(title) > _MAX_TITLE_LEN or len(content) > _MAX_CONTENT_LEN:
         return False
+    if _asserts_mind_state(title) or _asserts_mind_state(content):
+        return False
     joined = f"{title} {content}"
     return not _HARD_BANNED.search(joined) and not _VOICE_PATHOLOGY.search(joined)
+
+
+_REDUPLICATIONS = ("또박또박", "차근차근", "조곤조곤")
+
+
+def _redup_pattern(word: str) -> re.Pattern[str]:
+    """'또박또박' → 또/박 만 3~5글자로 이어진 덩어리. 정상형은 그대로 다시 쓰인다."""
+    half = word[: len(word) // 2]
+    return re.compile(rf"(?<![가-힣])[{half}]{{3,5}}(?![가-힣])")
+
+
+_REDUP_FIXES = [(_redup_pattern(word), word) for word in _REDUPLICATIONS]
+
+_PLAIN_WORDING = [
+    (re.compile(r"(?:잘\s*)?(?:닿지|전달되지|전해지지)\s*(?:못했|않았)"), "잘 들리지 않았"),
+    (re.compile(r"(?:잘\s*)?(?:닿지|전달되지|전해지지)\s*(?:못하|않)"), "잘 들리지 않"),
+]
+
+
+def polish(text: str) -> str:
+    out = text.strip()
+    if not out:
+        return out
+    for pattern, word in _REDUP_FIXES:
+        out = pattern.sub(word, out)
+    for pattern, repl in _PLAIN_WORDING:
+        out = pattern.sub(repl, out)
+    return re.sub(r"\s{2,}", " ", out).strip()
 
 
 def split_title(text: str) -> tuple[str, str]:

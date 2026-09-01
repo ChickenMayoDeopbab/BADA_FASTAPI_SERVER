@@ -7,7 +7,7 @@ from google.genai import errors, types
 
 from app.core.config import get_settings
 from app.schemas.llm import AiEmotion, LLMEvent, LLMEventType, TurnContext
-from app.services.feedback_points import split_title
+from app.services.feedback_points import polish, split_title
 from app.services.llm_prompt import build_contents, build_system_prompt
 
 logger = logging.getLogger(__name__)
@@ -19,6 +19,9 @@ _CONTROL_TAGS: dict[str, LLMEventType] = {
     "[STEP_DONE]": LLMEventType.STEP_DONE,
     "[END_CALL]": LLMEventType.END_CALL,
 }
+
+# 모델이 입력의 구간 표시('[칭찬할 구간]')를 제목에 그대로 옮겨 적는 경우
+_SEGMENT_LABEL_PREFIX = re.compile(r"^\s*\[[^\]]{0,16}\]\s*")
 
 _SUGGEST_TAG = "[SUGGEST]"
 _ALL_TAGS = (*_CONTROL_TAGS, _SUGGEST_TAG)
@@ -236,6 +239,7 @@ class LLMClient:
             "  좋은 예: '용건을 먼저 말했어요' / '주소를 말할 때 흔들렸어요'\n"
             "           '날짜를 정해서 갔어요' / '되묻는 말에 바로 답했어요'\n"
             "  나쁜 예: '칭찬' / '아쉬움' / '잘했어요' / '아쉬웠어요'\n"
+            "  입력에 붙은 '[칭찬할 구간]' 같은 표시는 제목에 옮겨 적지 마.\n"
             "           → 무엇에 대한 얘긴지 알 수 없다. 절대 쓰지 마.\n"
             "\n"
             "내용 규칙:\n"
@@ -244,8 +248,16 @@ class LLMClient:
             "- 짚어줄 구간은 '다음엔 ~해봐요' 로 끝낸다.\n"
             "- 목소리 얘기는 '상대방이 ~하게 느꼈을 것 같아요' 처럼 "
             "듣는 사람 입장으로. 몸 상태를 단정하지 마.\n"
+            "- 마음 상태도 단정하지 마. '자신감이 부족했어요' / '긴장했어요' 는 "
+            "조언이 아니라 낙인이다. 꼭 그 얘기를 해야 하면 "
+            "'상대방에게 자신 없게 들렸을 수 있어요' 처럼 "
+            "상대가 어떻게 들었을지로 돌리거나 '~것 같아요' 로 추측해서 쓴다.\n"
             "- 숫자, 지표 이름, 점수를 쓰지 마.\n"
             "- 어려운 말 없이 초등학생도 이해할 단어만. 겁주는 말투 금지.\n"
+            "- 비유로 돌려 말하지 마. '상대방에게 닿지 않았어요' 같은 말 대신 "
+            "'상대방이 잘 듣지 못했을 것 같아요' 처럼 실제로 어떻게 들렸는지 그대로 쓴다.\n"
+            "- 국어사전에 있는 말만. 흉내말은 모양을 줄이지 말고 그대로 "
+            "('또박또박', '차근차근'). '또또박' 처럼 글자를 흘리면 없는 말이 된다.\n"
         )
 
         try:
@@ -257,7 +269,9 @@ class LLMClient:
                     safety_settings=_SAFETY_SETTINGS,
                     temperature=0.6,
                     max_output_tokens=512,
-                    thinking_config=self._thinking_config(),
+                    # 형식 맞추기라 추론이 필요 없다. 안 끄면 생각 토큰이 512를
+                    # 다 먹고 문구가 MAX_TOKENS 로 잘려 나간다.
+                    thinking_config=types.ThinkingConfig(thinking_budget=0),
                 ),
             )
         except asyncio.CancelledError:
@@ -287,7 +301,8 @@ class LLMClient:
                     title, content = split_title(text.replace("|", " ").strip())
             else:
                 title, content = split_title(text.strip('"“”'))
-            pairs.append((title, content))
+            title = _SEGMENT_LABEL_PREFIX.sub("", title)
+            pairs.append((polish(title), polish(content)))
         pairs = pairs[:n]
         pairs.extend([("", "")] * (n - len(pairs)))
         return pairs
