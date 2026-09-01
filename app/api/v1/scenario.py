@@ -11,6 +11,7 @@ from app.schemas.scenario import (
     CustomSessionRequest,
     ExampleConversationResponse,
     ScenarioListResponse,
+    ScenarioRecommendationResponse,
 )
 from app.services.example_service import (
     ScenarioNotFoundError,
@@ -29,6 +30,9 @@ from app.services.scenario_service import (
 )
 from app.services.scenario_service import (
     delete_custom_scenario as svc_delete_custom_scenario,
+)
+from app.services.scenario_service import (
+    get_recommended_scenario as svc_get_recommended_scenario,
 )
 from app.services.scenario_service import (
     get_scenarios as svc_get_scenarios,
@@ -59,6 +63,29 @@ async def list_scenarios(
     user_id: int = Depends(get_current_user_id),
 ) -> ScenarioListResponse:
     return await svc_get_scenarios(db, category, user_id)
+
+
+@router.get(
+    "/recommendation",
+    response_model=ScenarioRecommendationResponse,
+    summary="오늘의 훈련 시나리오 추천",
+    description=(
+        "본인의 활성 시나리오 중 미연습 커스텀, 미연습 시나리오, "
+        "가장 오래전에 연습한 시나리오 순으로 하나를 추천합니다."
+    ),
+)
+async def recommend_scenario(
+    db: AsyncSession = Depends(get_db),
+    user_id: int = Depends(get_current_user_id),
+) -> ScenarioRecommendationResponse:
+    recommendation = await svc_get_recommended_scenario(db, user_id)
+    if recommendation is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="추천할 시나리오를 찾을 수 없습니다.",
+        )
+    return recommendation
+
 
 @router.get(
     "/{scenario_id}/example",
