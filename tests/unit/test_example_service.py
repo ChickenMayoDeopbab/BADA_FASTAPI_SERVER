@@ -63,15 +63,22 @@ class _FakeStorage:
 
 
 class _FakeDB:
-    def __init__(self, row: object | None = None) -> None:
+    def __init__(self, row: object | None = None, refresh_sets_url: str | None = None) -> None:
         self._row = row
         self.commits = 0
+        self.refreshes = 0
+        self.refresh_sets_url = refresh_sets_url
 
     async def get(self, _model: object, _pk: int) -> object | None:
         return self._row
 
     async def commit(self) -> None:
         self.commits += 1
+
+    async def refresh(self, obj: object, attrs: list[str] | None = None) -> None:
+        self.refreshes += 1
+        if self.refresh_sets_url is not None:
+            obj.example_audio_url = self.refresh_sets_url
 
 
 _DIALOGUE = [
@@ -530,5 +537,18 @@ async def test_existing_eleven_cache_kept_when_qwen_becomes_available(monkeypatc
 
     assert storage.uploads == []
     assert qwen.calls == []
+    assert tts.open_calls == []
+    assert resp.audio_url
+
+
+async def test_concurrent_request_rereads_row_inside_lock(monkeypatch) -> None:
+    tts, storage = _wire(monkeypatch)
+    _wire_qwen(monkeypatch, _FakeQwenClient())
+    db = _FakeDB(_preset_row(), refresh_sets_url=_eleven_key())
+
+    resp = await get_example_conversation(db, 1, user_id=7)
+
+    assert db.refreshes == 1
+    assert storage.uploads == [], "앞선 요청이 이미 구웠으면 다시 굽지 않는다"
     assert tts.open_calls == []
     assert resp.audio_url
