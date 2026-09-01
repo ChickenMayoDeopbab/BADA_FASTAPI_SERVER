@@ -640,3 +640,69 @@ async def test_metric_records_trigger(monkeypatch) -> None:
     monkeypatch.setattr(example_service, "log_metric", lambda n, **kw: metrics.append((n, kw)))
     await example_service.bake_example_audio(42)
     assert metrics[0][1]["trigger"] == "prebake"
+
+
+async def test_prebake_generates_dialogue_via_llm_when_absent(monkeypatch) -> None:
+    payload = [
+        {"speaker": "ai", "text": "네, 안녕하세요."},
+        {"speaker": "user", "text": "예약하려고요."},
+    ]
+    row = _custom_row(example_dialogue=None)
+    _, storage, _ = _wire_prebake(monkeypatch, row)
+    monkeypatch.setattr(example_service, "AsyncAnthropic", _fake_anthropic(payload))
+
+    await example_service.bake_example_audio(42)
+
+    assert row.example_dialogue == payload, "대본이 생성·저장돼야 한다"
+    assert len(storage.uploads) == 1
+    assert row.example_audio_url == storage.uploads[0][0]
+
+
+async def test_dialogue_generated_once_when_prebake_and_request_race(monkeypatch) -> None:
+    payload = [
+        {"speaker": "ai", "text": "네, 안녕하세요."},
+        {"speaker": "user", "text": "예약하려고요."},
+    ]
+    shared = {"example_dialogue": None, "example_audio_url": None}
+    calls = []
+
+    class _Messages:
+        async def create(self, **_kw):
+            calls.append(1)
+            await asyncio.sleep(0)
+            return SimpleNamespace(
+                content=[SimpleNamespace(text=json.dumps(payload, ensure_ascii=False))]
+            )
+
+    class _Anthropic:
+        def __init__(self, api_key: str) -> None:
+            self.messages = _Messages()
+
+    class _SessionDB:
+
+        def __init__(self) -> None:
+            self.row = _custom_row(**shared)
+
+        async def get(self, _model, _pk):
+            return self.row
+
+        async def refresh(self, obj, attrs=None):
+            for k, v in shared.items():
+                setattr(obj, k, v)
+
+        async def commit(self):
+            for k in shared:
+                shared[k] = getattr(self.row, k)
+
+    tts, storage = _wire(monkeypatch)
+    _wire_qwen(monkeypatch, _FakeQwenClient(enabled=False, ready=False))
+    monkeypatch.setattr(example_service, "AsyncAnthropic", _Anthropic)
+    monkeypatch.setattr(example_service, "PRESET_MAP", {})
+
+    await asyncio.gather(
+        get_example_conversation(_SessionDB(), 42, user_id=7),
+        get_example_conversation(_SessionDB(), 42, user_id=7),
+    )
+
+    assert calls == [1], f"LLM 을 {len(calls)}번 불렀다 — 락 밖에서 대본을 만들고 있다"
+    assert len(storage.uploads) == 1, "대본이 하나면 오디오도 하나여야 한다"
