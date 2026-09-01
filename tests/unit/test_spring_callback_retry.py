@@ -75,3 +75,21 @@ async def test_network_error_is_retried() -> None:
     client, calls = _client(_handler)
     await _notify(client)
     assert len(calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_community_callback_failure_is_retried_and_swallowed(caplog) -> None:
+    import logging
+
+    client, calls = _client(lambda _n, _req: httpx.Response(500))
+    with caplog.at_level(logging.ERROR, logger="app.services.spring_client"):
+        await client.notify_community_notification(
+            notification_type="COMMENT",
+            recipient_user_id=7,
+            actor_user_id=8,
+            post_id=10,
+            comment_id=25,
+        )
+
+    assert len(calls) == 3
+    assert any("커뮤니티 알림 콜백 최종 실패" in record.getMessage() for record in caplog.records)
