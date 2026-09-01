@@ -166,3 +166,74 @@ async def test_synth_without_connect_opens_per_call() -> None:
     for _ in range(3):
         await c.synth("ai", "안녕하세요")
     assert opened == 3
+
+
+async def test_synth_retries_on_5xx_then_succeeds() -> None:
+    calls = 0
+
+    def _handler(_r: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(503) if calls < 3 else httpx.Response(200, content=b"\x01\x02")
+
+    assert await _client(_handler).synth("ai", "안녕하세요") == b"\x01\x02"
+    assert calls == 3
+
+
+async def test_synth_does_not_retry_on_4xx() -> None:
+    calls = 0
+
+    def _handler(_r: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(404)
+
+    with pytest.raises(QwenTTSUnavailableError):
+        await _client(_handler).synth("ai", "안녕하세요")
+    assert calls == 1, "4xx 는 재시도해도 같다"
+
+
+async def test_synth_does_not_retry_on_timeout() -> None:
+    calls = 0
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        raise httpx.ReadTimeout("slow", request=request)
+
+    with pytest.raises(QwenTTSUnavailableError):
+        await _client(_handler).synth("ai", "안녕하세요")
+    assert calls == 1, "이미 타임아웃만큼 기다렸다 — 재시도하면 최악 지연이 배가 된다"
+
+
+async def test_connect_failure_becomes_unavailable_error() -> None:
+    c = _client(lambda _r: httpx.Response(200, content=b"\x01\x02"))
+
+    def _boom(_timeout):
+        raise OSError("socket 고갈")
+
+    c._client = _boom
+    with pytest.raises(QwenTTSUnavailableError):
+        async with c.connect():
+            pass
+
+
+async def test_connect_holds_semaphore_for_whole_dialogue() -> None:
+    import asyncio
+
+    order: list[str] = []
+
+    async def _handler(_r: httpx.Request) -> httpx.Response:
+        await asyncio.sleep(0.01)
+        return httpx.Response(200, content=b"\x01\x02")
+
+    async def dialogue(tag: str, turns: int) -> None:
+        c = _client(_handler)
+        async with c.connect() as s:
+            for i in range(turns):
+                await s.synth("ai", "안녕하세요")
+                order.append(f"{tag}{i}")
+
+    await asyncio.gather(dialogue("A", 3), dialogue("B", 3))
+    joined = "".join(order)
+    assert joined in ("A0A1A2B0B1B2", "B0B1B2A0A1A2"), f"대화가 섞였다: {joined}"
