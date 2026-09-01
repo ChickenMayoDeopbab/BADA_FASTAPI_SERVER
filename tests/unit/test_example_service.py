@@ -7,8 +7,7 @@ import pytest
 from app.core.tts_voices import EXAMPLE_USER_VOICE_ID, VOICE_REGISTRY, pick_example_user_voice
 from app.services import example_service
 from app.services.example_service import ScenarioNotFoundError, get_example_conversation
-
-# --- user 역할 보이스 선택 ---
+from app.services.qwen_tts import QwenTTSUnavailableError
 
 
 def test_user_voice_default_when_no_collision() -> None:
@@ -20,8 +19,6 @@ def test_user_voice_avoids_collision_with_ai_voice() -> None:
     assert picked != EXAMPLE_USER_VOICE_ID
     assert picked in {v.voice_id for v in VOICE_REGISTRY}
 
-
-# --- 페이크 ---
 
 
 class _FakeTTSSession:
@@ -88,6 +85,9 @@ def _settings(s3: bool = True) -> SimpleNamespace:
         s3_bucket="bucket" if s3 else None,
         anthropic_api_key="k",
         llm_analysis_model="m",
+        qwen_tts_url=None,
+        qwen_tts_timeout=30.0,
+        qwen_tts_health_timeout=1.0,
     )
 
 
@@ -136,9 +136,6 @@ def _fake_anthropic(payload: object) -> type:
     return _Client
 
 
-# --- 프리셋: 생성/캐시 ---
-
-
 async def test_preset_first_call_generates_audio(monkeypatch) -> None:
     tts, storage = _wire(monkeypatch)
     row = _preset_row()
@@ -163,7 +160,7 @@ async def test_audio_concatenates_turns_with_silence_gap(monkeypatch) -> None:
     await get_example_conversation(_FakeDB(_preset_row()), 1, user_id=7)
 
     _key, pcm = storage.uploads[0]
-    gap = int(16_000 * 0.4) * 2  # 400ms, 16kHz 16bit mono
+    gap = int(16_000 * 0.4) * 2
     assert len(pcm) == 2 + gap + 2
 
 
@@ -404,3 +401,99 @@ async def test_parallel_synthesis_preserves_turn_order(monkeypatch) -> None:
     gap = b"\x00" * (int(16_000 * 0.4) * 2)
     expected = gap.join(turn["text"].encode() for turn in dialogue)
     assert pcm == expected
+
+
+class _FakeQwenClient:
+    def __init__(
+        self,
+        *,
+        enabled: bool = True,
+        ready: bool = True,
+        fail_at: int | None = None,
+        pcm: bytes = b"\x09\x09",
+    ) -> None:
+        self.enabled = enabled
+        self._ready = ready
+        self._fail_at = fail_at
+        self._pcm = pcm
+        self.calls: list[tuple[str, str]] = []
+
+    async def healthy(self) -> bool:
+        return self.enabled and self._ready
+
+    async def synth(self, voice: str, text: str) -> bytes:
+        index = len(self.calls)
+        self.calls.append((voice, text))
+        if self._fail_at is not None and index == self._fail_at:
+            raise QwenTTSUnavailableError("boom")
+        return self._pcm
+
+
+def _wire_qwen(monkeypatch, client: _FakeQwenClient) -> _FakeQwenClient:
+    monkeypatch.setattr(example_service, "QwenTTSClient", lambda _s: client)
+    return client
+
+
+def _eleven_key() -> str:
+    return example_service._audio_key(
+        1, _DIALOGUE, "voice-default", pick_example_user_voice("voice-default")
+    )
+
+
+async def test_qwen_disabled_uses_elevenlabs_with_plain_key(monkeypatch) -> None:
+    tts, storage = _wire(monkeypatch)
+    _wire_qwen(monkeypatch, _FakeQwenClient(enabled=False, ready=False))
+
+    await get_example_conversation(_FakeDB(_preset_row()), 1, user_id=7)
+
+    assert tts.open_calls == ["voice-default", pick_example_user_voice("voice-default")]
+    key, _ = storage.uploads[0]
+    assert not key.endswith("-q.wav")
+
+
+async def test_qwen_healthy_uses_qwen_with_suffixed_key(monkeypatch) -> None:
+    tts, storage = _wire(monkeypatch)
+    qwen = _wire_qwen(monkeypatch, _FakeQwenClient())
+
+    await get_example_conversation(_FakeDB(_preset_row()), 1, user_id=7)
+
+    assert [voice for voice, _ in qwen.calls] == ["ai", "user"]
+    assert tts.open_calls == []
+    key, _ = storage.uploads[0]
+    assert key.endswith("-q.wav")
+
+
+async def test_qwen_mid_turn_failure_refalls_back_whole_dialogue(monkeypatch) -> None:
+    tts, storage = _wire(monkeypatch)
+    _wire_qwen(monkeypatch, _FakeQwenClient(fail_at=1))
+
+    await get_example_conversation(_FakeDB(_preset_row()), 1, user_id=7)
+
+    assert tts.open_calls == ["voice-default", pick_example_user_voice("voice-default")]
+    key, pcm = storage.uploads[0]
+    assert not key.endswith("-q.wav")
+    assert b"\x09" not in pcm
+
+
+async def test_qwen_unhealthy_skips_synth_entirely(monkeypatch) -> None:
+    tts, _ = _wire(monkeypatch)
+    qwen = _wire_qwen(monkeypatch, _FakeQwenClient(ready=False))
+
+    await get_example_conversation(_FakeDB(_preset_row()), 1, user_id=7)
+
+    assert qwen.calls == []
+    assert tts.open_calls
+
+
+async def test_existing_eleven_cache_kept_when_qwen_becomes_available(monkeypatch) -> None:
+    tts, storage = _wire(monkeypatch)
+    qwen = _wire_qwen(monkeypatch, _FakeQwenClient())
+
+    resp = await get_example_conversation(
+        _FakeDB(_preset_row(example_audio_url=_eleven_key())), 1, user_id=7
+    )
+
+    assert storage.uploads == []
+    assert qwen.calls == []
+    assert tts.open_calls == []
+    assert resp.audio_url
