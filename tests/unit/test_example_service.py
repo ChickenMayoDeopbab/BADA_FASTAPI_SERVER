@@ -63,11 +63,17 @@ class _FakeStorage:
 
 
 class _FakeDB:
-    def __init__(self, row: object | None = None, refresh_sets_url: str | None = None) -> None:
+    def __init__(
+        self,
+        row: object | None = None,
+        refresh_sets_url: str | None = None,
+        refresh_marks_deleted: bool = False,
+    ) -> None:
         self._row = row
         self.commits = 0
         self.refreshes = 0
         self.refresh_sets_url = refresh_sets_url
+        self.refresh_marks_deleted = refresh_marks_deleted
 
     async def get(self, _model: object, _pk: int) -> object | None:
         return self._row
@@ -79,6 +85,8 @@ class _FakeDB:
         self.refreshes += 1
         if self.refresh_sets_url is not None:
             obj.example_audio_url = self.refresh_sets_url
+        if self.refresh_marks_deleted:
+            obj.deleted_at = "2026-09-01T00:00:00Z"
 
 
 _DIALOGUE = [
@@ -706,3 +714,76 @@ async def test_dialogue_generated_once_when_prebake_and_request_race(monkeypatch
 
     assert calls == [1], f"LLM 을 {len(calls)}번 불렀다 — 락 밖에서 대본을 만들고 있다"
     assert len(storage.uploads) == 1, "대본이 하나면 오디오도 하나여야 한다"
+
+
+async def test_deleted_during_lock_wait_skips_synthesis(monkeypatch) -> None:
+    row = _custom_row(example_dialogue=_DIALOGUE)
+    tts, storage = _wire(monkeypatch)
+    _wire_qwen(monkeypatch, _FakeQwenClient(enabled=False, ready=False))
+    monkeypatch.setattr(example_service, "PRESET_MAP", {})
+    db = _FakeDB(row, refresh_marks_deleted=True)
+
+    resp = await get_example_conversation(db, 42, user_id=7)
+
+    assert tts.open_calls == [], "지워진 시나리오를 합성하고 있다"
+    assert storage.uploads == []
+    assert resp.audio_url is None
+
+
+async def test_prebake_queue_wait_is_outside_timeout(monkeypatch) -> None:
+    monkeypatch.setattr(example_service, "_PREBAKE_TIMEOUT_SEC", 0.45)
+    baked: list[int] = []
+
+    class _SlowTTS:
+        async def open(self, voice_id=None):
+            await asyncio.sleep(0.3)  # 첫 작업이 세마포어를 오래 점유한다
+
+            class _S:
+                async def begin(self, emotion=None) -> None:
+                    return None
+
+                async def stream(self, src):
+                    async for _ in src:
+                        pass
+                    yield b"\x01\x02"
+
+                async def aclose(self) -> None:
+                    return None
+
+            return _S()
+
+    rows = {i: _custom_row(scenario_id=i, example_dialogue=_DIALOGUE) for i in (1, 2)}
+
+    class _Ctx:
+        def __init__(self, sid): self.sid = sid
+        async def __aenter__(self):
+            db = _FakeDB(rows[self.sid])
+            return db
+        async def __aexit__(self, *a): return False
+
+    seq = iter([1, 2])
+    monkeypatch.setattr(example_service, "get_settings", lambda: _settings(True))
+    monkeypatch.setattr(example_service, "AsyncSessionLocal", lambda: _Ctx(next(seq)))
+    monkeypatch.setattr(example_service, "ElevenLabsTTSClient", lambda _s: _SlowTTS())
+    monkeypatch.setattr(example_service, "RecordingStorageService",
+                        lambda _s: _RecordingSpy(baked))
+    monkeypatch.setattr(example_service, "QwenTTSClient",
+                        lambda _s: _FakeQwenClient(enabled=False, ready=False))
+    monkeypatch.setattr(example_service, "is_deleted", lambda _r: False)
+
+    await asyncio.gather(example_service.bake_example_audio(1),
+                         example_service.bake_example_audio(2))
+
+    assert len(baked) == 2, f"줄서기 대기가 타임아웃을 먹어 {2 - len(baked)}건이 취소됐다"
+
+
+class _RecordingSpy:
+    def __init__(self, sink: list) -> None:
+        self._sink = sink
+
+    def upload_wav(self, key: str, pcm: bytes) -> str | None:
+        self._sink.append(key)
+        return key
+
+    def presigned_url(self, key: str, expires_in: int = 600) -> str | None:
+        return f"https://signed.test/{key}"
