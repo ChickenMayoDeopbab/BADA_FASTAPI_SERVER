@@ -12,10 +12,12 @@ from anthropic.types import MessageParam
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
+from app.core.metrics import log_metric, now_ms
 from app.core.preset_scenarios import PRESET_MAP
 from app.core.tts_voices import pick_example_user_voice
 from app.db.models import ScenarioORM, is_deleted
 from app.schemas.scenario import ExampleConversationResponse, ExampleTurn
+from app.services.qwen_tts import QwenTTSClient, QwenTTSUnavailableError
 from app.services.recording_storage import RecordingStorageService
 from app.services.tts import ElevenLabsTTSClient
 
@@ -128,11 +130,30 @@ async def _synthesize(
     return _TURN_GAP_PCM.join(parts)
 
 
-def _audio_key(scenario_id: int, dialogue: list[dict], ai_voice: str, user_voice: str) -> str:
+async def _synthesize_qwen(qwen_client: QwenTTSClient, dialogue: list[dict]) -> bytes:
+    """GPU 서버로 합성"""
+    parts: list[bytes] = []
+    async with qwen_client.connect() as session:  # 턴마다 TCP 재연결하지 않게
+        for turn in dialogue:
+            voice = "ai" if turn["speaker"] == "ai" else "user"
+            parts.append(await session.synth(voice, turn["text"]))
+    return _TURN_GAP_PCM.join(parts)
+
+
+def _audio_key(
+    scenario_id: int,
+    dialogue: list[dict],
+    ai_voice: str,
+    user_voice: str,
+    *,
+    qwen: bool = False,
+) -> str:
     """대본이나 보이스가 바뀌면 키가 달라져 캐시가 자동 무효화"""
-    payload = json.dumps([dialogue, ai_voice, user_voice], ensure_ascii=False)
+    voices = ["qwen-ai", "qwen-user"] if qwen else [ai_voice, user_voice]
+    payload = json.dumps([dialogue, *voices], ensure_ascii=False)
     digest = hashlib.sha1(payload.encode()).hexdigest()[:8]
-    return f"examples/{scenario_id}-{digest}.wav"
+    suffix = "-q" if qwen else ""
+    return f"examples/{scenario_id}-{digest}{suffix}.wav"
 
 
 async def _resolve_dialogue(
@@ -177,19 +198,52 @@ async def get_example_conversation(
 
     ai_voice = (row.tts_voice_id if row is not None else None) or settings.elevenlabs_voice_id
     user_voice = pick_example_user_voice(ai_voice)
-    key = _audio_key(scenario_id, dialogue, ai_voice, user_voice)
     storage = RecordingStorageService(settings)
+
+    key_qwen = _audio_key(scenario_id, dialogue, ai_voice, user_voice, qwen=True)
+    key_eleven = _audio_key(scenario_id, dialogue, ai_voice, user_voice)
 
     lock = _generation_locks.setdefault(scenario_id, asyncio.Lock())
     async with lock:
-        if row is not None and row.example_audio_url and row.example_audio_url.endswith(key):
-            return ExampleConversationResponse(
-                scenario_id=scenario_id, dialogue=turns, audio_url=storage.presigned_url(key)
-            )
+        cached = row.example_audio_url if row is not None else None
+        for candidate in (key_qwen, key_eleven):
+            if cached and cached.endswith(candidate):
+                return ExampleConversationResponse(
+                    scenario_id=scenario_id,
+                    dialogue=turns,
+                    audio_url=storage.presigned_url(candidate),
+                )
 
-        tts_client = ElevenLabsTTSClient(settings)
-        pcm = await _synthesize(tts_client, dialogue, ai_voice, user_voice)
+        qwen_client = QwenTTSClient(settings)
+        use_qwen = await qwen_client.healthy()
+
+        started = now_ms()
+        engine, reason, pcm = "eleven", None, None
+        if use_qwen:
+            try:
+                pcm = await _synthesize_qwen(qwen_client, dialogue)
+                engine = "qwen"
+            except QwenTTSUnavailableError as exc:
+                reason = "synth_failed"
+                logger.warning("Qwen TTS 합성 실패 — ElevenLabs로 전체 재합성: %s", exc)
+        else:
+            reason = "unhealthy" if qwen_client.enabled else "disabled"
+
+        if pcm is None:
+            engine = "eleven"
+            tts_client = ElevenLabsTTSClient(settings)
+            pcm = await _synthesize(tts_client, dialogue, ai_voice, user_voice)
+
+        key = key_qwen if engine == "qwen" else key_eleven
         stored_key = storage.upload_wav(key, pcm)
+        log_metric(
+            "example_tts",
+            scenario_id=scenario_id,
+            engine=engine,
+            fallback_reason=reason,
+            turns=len(dialogue),
+            duration_ms=round(now_ms() - started, 1),
+        )
 
         if row is not None and stored_key:
             row.example_audio_url = stored_key

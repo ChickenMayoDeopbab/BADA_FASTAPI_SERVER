@@ -56,6 +56,10 @@ class Settings(BaseSettings):
     elevenlabs_speaker_boost: bool = False
     elevenlabs_speed: float = 1.0
 
+    qwen_tts_url: str | None = None
+    qwen_tts_timeout: float = 30.0
+    qwen_tts_health_timeout: float = 1.0
+
     # Internal callback
     spring_boot_internal_url: str
 
