@@ -15,6 +15,7 @@ from app.schemas.scenario import (
 )
 from app.services.example_service import (
     ScenarioNotFoundError,
+    bake_example_audio,
 )
 from app.services.example_service import (
     get_example_conversation as svc_get_example_conversation,
@@ -170,6 +171,7 @@ async def create_custom_scenario(
         ) from e
 
     background.add_task(generate_scenario_thumbnail, response.scenario.scenario_id)
+    background.add_task(bake_example_audio, response.scenario.scenario_id)
     return response
 
 

@@ -15,6 +15,7 @@ from app.core.config import Settings, get_settings
 from app.core.metrics import log_metric, now_ms
 from app.core.preset_scenarios import PRESET_MAP
 from app.core.tts_voices import pick_example_user_voice
+from app.db.base import AsyncSessionLocal
 from app.db.models import ScenarioORM, is_deleted
 from app.schemas.scenario import ExampleConversationResponse, ExampleTurn
 from app.services.qwen_tts import QwenTTSClient, QwenTTSUnavailableError
@@ -27,6 +28,8 @@ _SAMPLE_RATE = 16_000
 _TURN_GAP_MS = 400
 _TURN_GAP_PCM = b"\x00" * (_SAMPLE_RATE * _TURN_GAP_MS // 1000 * 2)
 _TTS_MAX_CONCURRENCY = 3  # ElevenLabs 플랜별 동시 연결 한도 보호
+# 대본 생성(LLM) + 12턴 합성(실측 ~60초)에 여유를 둔 상한
+_PREBAKE_TIMEOUT_SEC = 180.0
 
 # 사용 중인 요청(지역변수)만 락을 강참조 → 요청이 끝나면 GC가 엔트리를 자동 제거
 _generation_locks: weakref.WeakValueDictionary[int, asyncio.Lock] = weakref.WeakValueDictionary()
@@ -196,10 +199,26 @@ async def get_example_conversation(
     if not settings.s3_bucket:
         return ExampleConversationResponse(scenario_id=scenario_id, dialogue=turns, audio_url=None)
 
+    storage = RecordingStorageService(settings)
+    stored_key = await _ensure_audio(db, settings, row, scenario_id, dialogue, storage,
+                                     trigger="request")
+    audio_url = storage.presigned_url(stored_key) if stored_key else None
+    return ExampleConversationResponse(scenario_id=scenario_id, dialogue=turns, audio_url=audio_url)
+
+
+async def _ensure_audio(
+    db: AsyncSession,
+    settings: Settings,
+    row: ScenarioORM | None,
+    scenario_id: int,
+    dialogue: list[dict],
+    storage: RecordingStorageService,
+    *,
+    trigger: str,
+) -> str | None:
+    """캐시에 없으면 합성해 저장하고 S3 키를 반환"""
     ai_voice = (row.tts_voice_id if row is not None else None) or settings.elevenlabs_voice_id
     user_voice = pick_example_user_voice(ai_voice)
-    storage = RecordingStorageService(settings)
-
     key_qwen = _audio_key(scenario_id, dialogue, ai_voice, user_voice, qwen=True)
     key_eleven = _audio_key(scenario_id, dialogue, ai_voice, user_voice)
 
@@ -210,11 +229,7 @@ async def get_example_conversation(
         cached = row.example_audio_url if row is not None else None
         for candidate in (key_qwen, key_eleven):
             if cached and cached.endswith(candidate):
-                return ExampleConversationResponse(
-                    scenario_id=scenario_id,
-                    dialogue=turns,
-                    audio_url=storage.presigned_url(candidate),
-                )
+                return candidate
 
         qwen_client = QwenTTSClient(settings)
         use_qwen = await qwen_client.healthy()
@@ -241,6 +256,7 @@ async def get_example_conversation(
         log_metric(
             "example_tts",
             scenario_id=scenario_id,
+            trigger=trigger,
             engine=engine,
             fallback_reason=reason,
             turns=len(dialogue),
@@ -250,6 +266,21 @@ async def get_example_conversation(
         if row is not None and stored_key:
             row.example_audio_url = stored_key
             await db.commit()
+        return stored_key
 
-    audio_url = storage.presigned_url(stored_key) if stored_key else None
-    return ExampleConversationResponse(scenario_id=scenario_id, dialogue=turns, audio_url=audio_url)
+
+async def bake_example_audio(scenario_id: int) -> None:
+    """커스텀 시나리오 생성 직후 예시 오디오를 미리 생성"""
+    settings = get_settings()
+    if not settings.s3_bucket:
+        return
+    try:
+        async with asyncio.timeout(_PREBAKE_TIMEOUT_SEC), AsyncSessionLocal() as db:
+            row = await db.get(ScenarioORM, scenario_id)
+            if row is None or is_deleted(row) or row.example_audio_url:
+                return
+            dialogue = await _resolve_dialogue(db, settings, row, None)
+            await _ensure_audio(db, settings, row, scenario_id, dialogue,
+                                RecordingStorageService(settings), trigger="prebake")
+    except Exception:
+        logger.exception("시나리오 %s 예시 오디오 미리 굽기 실패", scenario_id)
