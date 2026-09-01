@@ -3,6 +3,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from types import SimpleNamespace
 
+from app.core.enums import CommunityNotificationType, ReactionKind
 from app.schemas.frames import EndReason
 from app.schemas.training_analysis import (
     AnalysisQualityStatus,
@@ -138,7 +139,7 @@ async def test_notify_community_notification_sends_correct_request() -> None:
         client = _client_for(spring.base_url)
 
         await client.notify_community_notification(
-            notification_type="REPLY",
+            notification_type=CommunityNotificationType.REPLY,
             recipient_user_id=7,
             actor_user_id=8,
             post_id=10,
@@ -155,6 +156,34 @@ async def test_notify_community_notification_sends_correct_request() -> None:
             "actorUserId": 8,
             "postId": 10,
             "commentId": 25,
+            "reactionId": None,
+            "reactionKind": None,
+        }
+
+
+async def test_notify_reaction_notification_sends_event_identity() -> None:
+    with _MockSpring(status_code=200) as spring:
+        client = _client_for(spring.base_url)
+
+        await client.notify_community_notification(
+            notification_type=CommunityNotificationType.REACTION,
+            recipient_user_id=7,
+            actor_user_id=8,
+            post_id=10,
+            reaction_id=31,
+            reaction_kind=ReactionKind.LIKE,
+        )
+
+        captured = spring.captured
+        assert captured is not None, "mock Spring이 요청을 못 받음"
+        assert captured["body"] == {
+            "type": "REACTION",
+            "recipientUserId": 7,
+            "actorUserId": 8,
+            "postId": 10,
+            "commentId": None,
+            "reactionId": 31,
+            "reactionKind": "LIKE",
         }
 
 

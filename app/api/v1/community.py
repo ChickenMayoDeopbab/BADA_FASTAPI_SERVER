@@ -35,7 +35,9 @@ from app.services.community_post import get_post as svc_get_post
 from app.services.community_post import list_posts as svc_list_posts
 from app.services.community_post import update_post as svc_update_post
 from app.services.community_reaction import clear_reaction as svc_clear_reaction
-from app.services.community_reaction import set_reaction as svc_set_reaction
+from app.services.community_reaction import (
+    set_reaction_with_notification as svc_set_reaction,
+)
 from app.services.post_attachment import AttachmentInvalidError
 from app.services.scenario_share import (
     NothingToCopyError,
@@ -169,11 +171,26 @@ async def delete_post(
 async def set_reaction(
     post_id: int,
     body: ReactionRequest,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     user_id: int = Depends(get_current_user_id),
+    spring: SpringInternalClient = Depends(get_spring_client),
 ) -> ReactionStateResponse:
     try:
-        return await svc_set_reaction(db, post_id, user_id=user_id, kind=body.kind)
+        reaction, notification_event = await svc_set_reaction(
+            db, post_id, user_id=user_id, kind=body.kind
+        )
+        if notification_event is not None:
+            background_tasks.add_task(
+                spring.notify_community_notification,
+                notification_type=notification_event.notification_type,
+                recipient_user_id=notification_event.recipient_user_id,
+                actor_user_id=notification_event.actor_user_id,
+                post_id=notification_event.post_id,
+                reaction_id=notification_event.reaction_id,
+                reaction_kind=notification_event.reaction_kind,
+            )
+        return reaction
     except PostNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
