@@ -218,11 +218,11 @@ async def get_example_conversation(
         use_qwen = await qwen_client.healthy()
 
         started = now_ms()
-        engine, reason, pcm, key = "eleven", None, None, key_eleven
+        engine, reason, pcm = "eleven", None, None
         if use_qwen:
             try:
                 pcm = await _synthesize_qwen(qwen_client, dialogue)
-                engine, key = "qwen", key_qwen
+                engine = "qwen"
             except QwenTTSUnavailableError as exc:
                 reason = "synth_failed"
                 logger.warning("Qwen TTS 합성 실패 — ElevenLabs로 전체 재합성: %s", exc)
@@ -230,9 +230,11 @@ async def get_example_conversation(
             reason = "unhealthy" if qwen_client.enabled else "disabled"
 
         if pcm is None:
+            engine = "eleven"
             tts_client = ElevenLabsTTSClient(settings)
             pcm = await _synthesize(tts_client, dialogue, ai_voice, user_voice)
 
+        key = key_qwen if engine == "qwen" else key_eleven
         stored_key = storage.upload_wav(key, pcm)
         log_metric(
             "example_tts",
