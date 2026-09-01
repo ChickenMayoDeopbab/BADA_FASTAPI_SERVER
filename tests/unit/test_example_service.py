@@ -63,11 +63,17 @@ class _FakeStorage:
 
 
 class _FakeDB:
-    def __init__(self, row: object | None = None, refresh_sets_url: str | None = None) -> None:
+    def __init__(
+        self,
+        row: object | None = None,
+        refresh_sets_url: str | None = None,
+        refresh_marks_deleted: bool = False,
+    ) -> None:
         self._row = row
         self.commits = 0
         self.refreshes = 0
         self.refresh_sets_url = refresh_sets_url
+        self.refresh_marks_deleted = refresh_marks_deleted
 
     async def get(self, _model: object, _pk: int) -> object | None:
         return self._row
@@ -79,6 +85,8 @@ class _FakeDB:
         self.refreshes += 1
         if self.refresh_sets_url is not None:
             obj.example_audio_url = self.refresh_sets_url
+        if self.refresh_marks_deleted:
+            obj.deleted_at = "2026-09-01T00:00:00Z"
 
 
 _DIALOGUE = [
@@ -552,3 +560,230 @@ async def test_concurrent_request_rereads_row_inside_lock(monkeypatch) -> None:
     assert storage.uploads == [], "앞선 요청이 이미 구웠으면 다시 굽지 않는다"
     assert tts.open_calls == []
     assert resp.audio_url
+
+
+
+def _wire_prebake(monkeypatch, row, *, storage=None, tts=None, qwen=None):
+    storage = storage or _FakeStorage()
+    tts = tts or _FakeTTSClient()
+    db = _FakeDB(row)
+
+    class _SessionCtx:
+        async def __aenter__(self): return db
+        async def __aexit__(self, *a): return False
+
+    monkeypatch.setattr(example_service, "get_settings", lambda: _settings(True))
+    monkeypatch.setattr(example_service, "AsyncSessionLocal", lambda: _SessionCtx())
+    monkeypatch.setattr(example_service, "ElevenLabsTTSClient", lambda _s: tts)
+    monkeypatch.setattr(example_service, "RecordingStorageService", lambda _s: storage)
+    off = qwen or _FakeQwenClient(enabled=False, ready=False)
+    monkeypatch.setattr(example_service, "QwenTTSClient", lambda _s: off)
+    monkeypatch.setattr(example_service, "is_deleted", lambda _r: False)
+    return db, storage, tts
+
+
+async def test_prebake_generates_and_stores(monkeypatch) -> None:
+    row = _custom_row(example_dialogue=_DIALOGUE)
+    db, storage, tts = _wire_prebake(monkeypatch, row)
+
+    await example_service.bake_example_audio(42)
+
+    assert len(storage.uploads) == 1
+    assert row.example_audio_url == storage.uploads[0][0]
+    assert db.commits >= 1
+
+
+async def test_prebake_skips_when_already_baked(monkeypatch) -> None:
+    row = _custom_row(example_dialogue=_DIALOGUE, example_audio_url="examples/42-abc.wav")
+    _, storage, tts = _wire_prebake(monkeypatch, row)
+
+    await example_service.bake_example_audio(42)
+
+    assert storage.uploads == []
+    assert tts.open_calls == []
+
+
+async def test_prebake_swallows_failure(monkeypatch) -> None:
+    row = _custom_row(example_dialogue=_DIALOGUE)
+
+    class _BoomTTS:
+        async def open(self, voice_id=None):
+            raise RuntimeError("TTS 폭발")
+
+    _wire_prebake(monkeypatch, row, tts=_BoomTTS())
+
+    await example_service.bake_example_audio(42)  # 예외가 새어나오면 실패
+
+    assert row.example_audio_url is None
+
+
+async def test_prebaked_audio_makes_request_a_cache_hit(monkeypatch) -> None:
+    row = _preset_row()
+    tts, storage = _wire(monkeypatch)
+    _wire_qwen(monkeypatch, _FakeQwenClient(enabled=False, ready=False))
+
+    first = await get_example_conversation(_FakeDB(row), 1, user_id=7)  # 여기서 구워짐
+    calls_after_bake = list(tts.open_calls)
+    second = await get_example_conversation(_FakeDB(row), 1, user_id=7)
+
+    assert second.audio_url == first.audio_url
+    assert tts.open_calls == calls_after_bake, "두 번째는 합성하지 않는다"
+    assert len(storage.uploads) == 1
+
+
+async def test_metric_records_trigger(monkeypatch) -> None:
+    metrics = []
+    monkeypatch.setattr(example_service, "log_metric", lambda n, **kw: metrics.append((n, kw)))
+    _wire(monkeypatch)
+    _wire_qwen(monkeypatch, _FakeQwenClient(enabled=False, ready=False))
+
+    await get_example_conversation(_FakeDB(_preset_row()), 1, user_id=7)
+
+    assert metrics and metrics[0][0] == "example_tts"
+    assert metrics[0][1]["trigger"] == "request"
+
+    metrics.clear()
+    row = _custom_row(example_dialogue=_DIALOGUE)
+    _wire_prebake(monkeypatch, row)
+    monkeypatch.setattr(example_service, "log_metric", lambda n, **kw: metrics.append((n, kw)))
+    await example_service.bake_example_audio(42)
+    assert metrics[0][1]["trigger"] == "prebake"
+
+
+async def test_prebake_generates_dialogue_via_llm_when_absent(monkeypatch) -> None:
+    payload = [
+        {"speaker": "ai", "text": "네, 안녕하세요."},
+        {"speaker": "user", "text": "예약하려고요."},
+    ]
+    row = _custom_row(example_dialogue=None)
+    _, storage, _ = _wire_prebake(monkeypatch, row)
+    monkeypatch.setattr(example_service, "AsyncAnthropic", _fake_anthropic(payload))
+
+    await example_service.bake_example_audio(42)
+
+    assert row.example_dialogue == payload, "대본이 생성·저장돼야 한다"
+    assert len(storage.uploads) == 1
+    assert row.example_audio_url == storage.uploads[0][0]
+
+
+async def test_dialogue_generated_once_when_prebake_and_request_race(monkeypatch) -> None:
+    payload = [
+        {"speaker": "ai", "text": "네, 안녕하세요."},
+        {"speaker": "user", "text": "예약하려고요."},
+    ]
+    shared = {"example_dialogue": None, "example_audio_url": None}
+    calls = []
+
+    class _Messages:
+        async def create(self, **_kw):
+            calls.append(1)
+            await asyncio.sleep(0)
+            return SimpleNamespace(
+                content=[SimpleNamespace(text=json.dumps(payload, ensure_ascii=False))]
+            )
+
+    class _Anthropic:
+        def __init__(self, api_key: str) -> None:
+            self.messages = _Messages()
+
+    class _SessionDB:
+
+        def __init__(self) -> None:
+            self.row = _custom_row(**shared)
+
+        async def get(self, _model, _pk):
+            return self.row
+
+        async def refresh(self, obj, attrs=None):
+            for k, v in shared.items():
+                setattr(obj, k, v)
+
+        async def commit(self):
+            for k in shared:
+                shared[k] = getattr(self.row, k)
+
+    tts, storage = _wire(monkeypatch)
+    _wire_qwen(monkeypatch, _FakeQwenClient(enabled=False, ready=False))
+    monkeypatch.setattr(example_service, "AsyncAnthropic", _Anthropic)
+    monkeypatch.setattr(example_service, "PRESET_MAP", {})
+
+    await asyncio.gather(
+        get_example_conversation(_SessionDB(), 42, user_id=7),
+        get_example_conversation(_SessionDB(), 42, user_id=7),
+    )
+
+    assert calls == [1], f"LLM 을 {len(calls)}번 불렀다 — 락 밖에서 대본을 만들고 있다"
+    assert len(storage.uploads) == 1, "대본이 하나면 오디오도 하나여야 한다"
+
+
+async def test_deleted_during_lock_wait_skips_synthesis(monkeypatch) -> None:
+    row = _custom_row(example_dialogue=_DIALOGUE)
+    tts, storage = _wire(monkeypatch)
+    _wire_qwen(monkeypatch, _FakeQwenClient(enabled=False, ready=False))
+    monkeypatch.setattr(example_service, "PRESET_MAP", {})
+    db = _FakeDB(row, refresh_marks_deleted=True)
+
+    resp = await get_example_conversation(db, 42, user_id=7)
+
+    assert tts.open_calls == [], "지워진 시나리오를 합성하고 있다"
+    assert storage.uploads == []
+    assert resp.audio_url is None
+
+
+async def test_prebake_queue_wait_is_outside_timeout(monkeypatch) -> None:
+    monkeypatch.setattr(example_service, "_PREBAKE_TIMEOUT_SEC", 0.45)
+    baked: list[int] = []
+
+    class _SlowTTS:
+        async def open(self, voice_id=None):
+            await asyncio.sleep(0.3)  # 첫 작업이 세마포어를 오래 점유한다
+
+            class _S:
+                async def begin(self, emotion=None) -> None:
+                    return None
+
+                async def stream(self, src):
+                    async for _ in src:
+                        pass
+                    yield b"\x01\x02"
+
+                async def aclose(self) -> None:
+                    return None
+
+            return _S()
+
+    rows = {i: _custom_row(scenario_id=i, example_dialogue=_DIALOGUE) for i in (1, 2)}
+
+    class _Ctx:
+        def __init__(self, sid): self.sid = sid
+        async def __aenter__(self):
+            db = _FakeDB(rows[self.sid])
+            return db
+        async def __aexit__(self, *a): return False
+
+    seq = iter([1, 2])
+    monkeypatch.setattr(example_service, "get_settings", lambda: _settings(True))
+    monkeypatch.setattr(example_service, "AsyncSessionLocal", lambda: _Ctx(next(seq)))
+    monkeypatch.setattr(example_service, "ElevenLabsTTSClient", lambda _s: _SlowTTS())
+    monkeypatch.setattr(example_service, "RecordingStorageService",
+                        lambda _s: _RecordingSpy(baked))
+    monkeypatch.setattr(example_service, "QwenTTSClient",
+                        lambda _s: _FakeQwenClient(enabled=False, ready=False))
+    monkeypatch.setattr(example_service, "is_deleted", lambda _r: False)
+
+    await asyncio.gather(example_service.bake_example_audio(1),
+                         example_service.bake_example_audio(2))
+
+    assert len(baked) == 2, f"줄서기 대기가 타임아웃을 먹어 {2 - len(baked)}건이 취소됐다"
+
+
+class _RecordingSpy:
+    def __init__(self, sink: list) -> None:
+        self._sink = sink
+
+    def upload_wav(self, key: str, pcm: bytes) -> str | None:
+        self._sink.append(key)
+        return key
+
+    def presigned_url(self, key: str, expires_in: int = 600) -> str | None:
+        return f"https://signed.test/{key}"

@@ -11,6 +11,7 @@ from google import genai
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.concurrency import loop_semaphore
 from app.core.config import Settings, get_settings
 from app.core.enums import FileType
 from app.db.base import AsyncSessionLocal
@@ -23,7 +24,7 @@ _DEFAULT_MIME = "image/png"
 _IMAGE_MAX_CONCURRENCY = 2
 _TIMEOUT_SEC = 90.0
 
-_image_semaphore = asyncio.Semaphore(_IMAGE_MAX_CONCURRENCY)
+_image_semaphore = loop_semaphore(_IMAGE_MAX_CONCURRENCY)
 
 _THUMBNAIL_PROMPT_SYSTEM = """You write image-generation prompts for thumbnails in a Korean \
 phone call training app.
@@ -162,7 +163,7 @@ async def generate_scenario_thumbnail(scenario_id: int) -> None:
         return
 
     try:
-        async with asyncio.timeout(_TIMEOUT_SEC), _image_semaphore:
+        async with asyncio.timeout(_TIMEOUT_SEC), _image_semaphore():
             await _generate_and_store(scenario_id, settings)
     except Exception:
         logger.exception("시나리오 %s 썸네일 생성 실패", scenario_id)

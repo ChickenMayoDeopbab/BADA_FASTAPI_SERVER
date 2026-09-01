@@ -1,3 +1,6 @@
+
+import asyncio
+
 from anthropic import APIError
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,6 +18,7 @@ from app.schemas.scenario import (
 )
 from app.services.example_service import (
     ScenarioNotFoundError,
+    bake_example_audio,
 )
 from app.services.example_service import (
     get_example_conversation as svc_get_example_conversation,
@@ -169,8 +173,17 @@ async def create_custom_scenario(
             detail=f"응답 파싱 오류: {str(e)}",
         ) from e
 
-    background.add_task(generate_scenario_thumbnail, response.scenario.scenario_id)
+    background.add_task(_post_create_tasks, response.scenario.scenario_id)
     return response
+
+
+async def _post_create_tasks(scenario_id: int) -> None:
+    """시나리오 생성 후 작업들을 동시에 실행"""
+    await asyncio.gather(
+        generate_scenario_thumbnail(scenario_id),
+        bake_example_audio(scenario_id),
+        return_exceptions=True,
+    )
 
 
 @router.delete(
