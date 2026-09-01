@@ -133,9 +133,10 @@ async def _synthesize(
 async def _synthesize_qwen(qwen_client: QwenTTSClient, dialogue: list[dict]) -> bytes:
     """GPU 서버로 합성"""
     parts: list[bytes] = []
-    for turn in dialogue:
-        voice = "ai" if turn["speaker"] == "ai" else "user"
-        parts.append(await qwen_client.synth(voice, turn["text"]))
+    async with qwen_client.connect() as session:  # 턴마다 TCP 재연결하지 않게
+        for turn in dialogue:
+            voice = "ai" if turn["speaker"] == "ai" else "user"
+            parts.append(await session.synth(voice, turn["text"]))
     return _TURN_GAP_PCM.join(parts)
 
 
@@ -147,12 +148,9 @@ def _audio_key(
     *,
     qwen: bool = False,
 ) -> str:
-    """대본이나 보이스가 바뀌면 키가 달라져 캐시가 자동 무효화.
-
-    엔진이 다르면 목소리도 다르므로 Qwen 결과에만 접미사를 붙인다.
-    ElevenLabs 키를 그대로 두어 기존 캐시가 무효화되지 않게 했다.
-    """
-    payload = json.dumps([dialogue, ai_voice, user_voice], ensure_ascii=False)
+    """대본이나 보이스가 바뀌면 키가 달라져 캐시가 자동 무효화"""
+    voices = ["qwen-ai", "qwen-user"] if qwen else [ai_voice, user_voice]
+    payload = json.dumps([dialogue, *voices], ensure_ascii=False)
     digest = hashlib.sha1(payload.encode()).hexdigest()[:8]
     suffix = "-q" if qwen else ""
     return f"examples/{scenario_id}-{digest}{suffix}.wav"
@@ -202,8 +200,6 @@ async def get_example_conversation(
     user_voice = pick_example_user_voice(ai_voice)
     storage = RecordingStorageService(settings)
 
-    qwen_client = QwenTTSClient(settings)
-    use_qwen = await qwen_client.healthy()
     key_qwen = _audio_key(scenario_id, dialogue, ai_voice, user_voice, qwen=True)
     key_eleven = _audio_key(scenario_id, dialogue, ai_voice, user_voice)
 
@@ -217,6 +213,9 @@ async def get_example_conversation(
                     dialogue=turns,
                     audio_url=storage.presigned_url(candidate),
                 )
+
+        qwen_client = QwenTTSClient(settings)
+        use_qwen = await qwen_client.healthy()
 
         started = now_ms()
         engine, reason, pcm, key = "eleven", None, None, key_eleven
