@@ -218,7 +218,9 @@ async def _resolve_and_bake(
     lock = _generation_locks.setdefault(scenario_id, asyncio.Lock())
     async with lock:
         if row is not None:
-            await db.refresh(row, ["example_dialogue", "example_audio_url"])
+            await db.refresh(row, ["deleted_at", "example_dialogue", "example_audio_url"])
+            if is_deleted(row):
+                return row.example_dialogue or [], None
         dialogue = await _resolve_dialogue(db, settings, row, seed)
         if storage is None:
             return dialogue, None
@@ -293,8 +295,7 @@ async def bake_example_audio(scenario_id: int) -> None:
     if not settings.s3_bucket:
         return
     try:
-        async with (asyncio.timeout(_PREBAKE_TIMEOUT_SEC), _prebake_semaphore(),
-                    AsyncSessionLocal() as db):
+        async with _prebake_semaphore(), asyncio.timeout(_PREBAKE_TIMEOUT_SEC), AsyncSessionLocal() as db:
             row = await db.get(ScenarioORM, scenario_id)
             if row is None or is_deleted(row) or row.example_audio_url:
                 return
