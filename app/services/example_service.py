@@ -205,6 +205,8 @@ async def get_example_conversation(
 
     lock = _generation_locks.setdefault(scenario_id, asyncio.Lock())
     async with lock:
+        if row is not None:
+            await db.refresh(row, ["example_audio_url"])
         cached = row.example_audio_url if row is not None else None
         for candidate in (key_qwen, key_eleven):
             if cached and cached.endswith(candidate):
