@@ -32,6 +32,13 @@ class ReactionKind(StrEnum):
     LIKE = "LIKE"       # 좋아요
 
 
+class CommunityNotificationType(StrEnum):
+    """커뮤니티 알림 유형"""
+
+    COMMENT = "COMMENT"
+    REPLY = "REPLY"
+
+
 class AttachmentKind(StrEnum):
     """게시글에 첨부 가능한거"""
 

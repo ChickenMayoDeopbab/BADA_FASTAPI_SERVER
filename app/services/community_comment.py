@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.enums import CommunityNotificationType
 from app.core.timeutil import now_utc
 from app.db.external import users_table
 from app.db.models import PostCommentORM
@@ -34,7 +34,7 @@ class InvalidParentCommentError(Exception):
 
 @dataclass(frozen=True)
 class CommunityNotificationEvent:
-    notification_type: Literal["COMMENT", "REPLY"]
+    notification_type: CommunityNotificationType
     recipient_user_id: int
     actor_user_id: int
     post_id: int
@@ -89,7 +89,11 @@ async def create_comment(
         return response, None
 
     return response, CommunityNotificationEvent(
-        notification_type="COMMENT" if parent is None else "REPLY",
+        notification_type=(
+            CommunityNotificationType.COMMENT
+            if parent is None
+            else CommunityNotificationType.REPLY
+        ),
         recipient_user_id=recipient_user_id,
         actor_user_id=user_id,
         post_id=post_id,

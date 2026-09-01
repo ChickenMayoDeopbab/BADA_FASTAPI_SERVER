@@ -4,6 +4,7 @@ import logging
 import httpx
 
 from app.core.config import Settings
+from app.core.enums import CommunityNotificationType
 from app.schemas.frames import EndReason
 from app.schemas.training_analysis import TrainingAnalysisPayload
 
@@ -103,13 +104,14 @@ class SpringInternalClient:
     async def notify_community_notification(
         self,
         *,
-        notification_type: str,
+        notification_type: CommunityNotificationType,
         recipient_user_id: int,
         actor_user_id: int,
         post_id: int,
         comment_id: int,
     ) -> None:
         url = f"{self._base_url}/internal/v1/notifications/community"
+        # Spring CommunityNotificationRequest가 Jackson 기본 camelCase 필드를 사용한다.
         payload = {
             "type": notification_type,
             "recipientUserId": recipient_user_id,
