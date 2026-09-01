@@ -2,32 +2,21 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import weakref
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 import httpx
 
+from app.core.concurrency import loop_semaphore
 from app.core.config import Settings
 
 logger = logging.getLogger(__name__)
 
 
-_semaphores: weakref.WeakKeyDictionary[
-    asyncio.AbstractEventLoop, asyncio.Semaphore
-] = weakref.WeakKeyDictionary()
-
+_semaphore = loop_semaphore(1)
 
 _RETRY_ATTEMPTS = 3
 _RETRY_BASE_DELAY = 0.5
-
-
-def _semaphore() -> asyncio.Semaphore:
-    loop = asyncio.get_running_loop()
-    sem = _semaphores.get(loop)
-    if sem is None:
-        sem = _semaphores[loop] = asyncio.Semaphore(1)
-    return sem
 
 
 class QwenTTSUnavailableError(Exception):

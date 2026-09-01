@@ -11,6 +11,7 @@ from anthropic import AsyncAnthropic
 from anthropic.types import MessageParam
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.concurrency import loop_semaphore
 from app.core.config import Settings, get_settings
 from app.core.metrics import log_metric, now_ms
 from app.core.preset_scenarios import PRESET_MAP
@@ -27,23 +28,10 @@ logger = logging.getLogger(__name__)
 _SAMPLE_RATE = 16_000
 _TURN_GAP_MS = 400
 _TURN_GAP_PCM = b"\x00" * (_SAMPLE_RATE * _TURN_GAP_MS // 1000 * 2)
-_TTS_MAX_CONCURRENCY = 3  # ElevenLabs 플랜별 동시 연결 한도 보호
+_TTS_MAX_CONCURRENCY = 3
 # 대본 생성(LLM) + 12턴 합성(실측 ~60초)에 여유를 둔 상한
 _PREBAKE_TIMEOUT_SEC = 180.0
-# 미리 굽기는 시나리오 생성마다 예약된다. 제한이 없으면 동시 생성 수만큼 합성이 겹쳐
-# ElevenLabs 동시 연결 한도(_TTS_MAX_CONCURRENCY 는 한 번의 합성 안에서만 적용)를 넘는다.
-# 세마포어는 처음 쓰인 루프에 바인딩되므로 루프별로 지연 생성한다.
-_prebake_semaphores: weakref.WeakKeyDictionary[
-    asyncio.AbstractEventLoop, asyncio.Semaphore
-] = weakref.WeakKeyDictionary()
-
-
-def _prebake_semaphore() -> asyncio.Semaphore:
-    loop = asyncio.get_running_loop()
-    sem = _prebake_semaphores.get(loop)
-    if sem is None:
-        sem = _prebake_semaphores[loop] = asyncio.Semaphore(1)
-    return sem
+_prebake_semaphore = loop_semaphore(1)
 
 # 사용 중인 요청(지역변수)만 락을 강참조 → 요청이 끝나면 GC가 엔트리를 자동 제거
 _generation_locks: weakref.WeakValueDictionary[int, asyncio.Lock] = weakref.WeakValueDictionary()
