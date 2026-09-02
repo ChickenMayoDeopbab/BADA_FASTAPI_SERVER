@@ -152,6 +152,16 @@ async def get_scenarios(
     copied.sort(key=_by_recency, reverse=True)
     custom_rows = mine + copied
 
+    count_stmt = (
+        select(FeedbackORM.scenario_id, func.count().label("practice_count"))
+        .where(FeedbackORM.user_id == user_id)
+        .group_by(FeedbackORM.scenario_id)
+    )
+    count_result = await db.execute(count_stmt)
+    practice_counts = {
+        int(scenario_id): int(count) for scenario_id, count in count_result.all()
+    }
+
     storage = _image_storage(rows)
     infos = [
         ScenarioInfo(
@@ -165,6 +175,7 @@ async def get_scenarios(
             tts_voice_id=row.tts_voice_id,
             ai_prompt=row.ai_prompt,
             is_custom=False,
+            practice_count=practice_counts.get(row.scenario_id, 0),
         )
         for row, seed in preset_rows
     ]
@@ -181,6 +192,7 @@ async def get_scenarios(
             ai_prompt=row.ai_prompt,
             is_custom=True,
             is_copied=row.origin_scenario_id is not None,
+            practice_count=practice_counts.get(row.scenario_id, 0),
         )
         for row, row_category in custom_rows
     )

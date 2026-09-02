@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.core.enums import FileType, ScenarioCategory
-from app.db.models import FileORM
+from app.db.models import FeedbackORM, FileORM
 from app.services import scenario_image_service, scenario_service
 from app.services.scenario_image_service import (
     _build_image_prompt,
@@ -294,8 +294,9 @@ class _FakeDB:
     def __init__(self, rows: list) -> None:
         self._rows = rows
 
-    async def execute(self, _stmt: object):
-        rows = self._rows
+    async def execute(self, stmt: object):
+        # get_scenarios의 연습 횟수 집계 쿼리 — 이 테스트에서는 기록이 없다.
+        rows = [] if FeedbackORM.__tablename__ in str(stmt) else self._rows
 
         class _R:
             def scalars(self):

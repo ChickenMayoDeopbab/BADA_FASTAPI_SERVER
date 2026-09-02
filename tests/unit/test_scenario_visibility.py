@@ -10,7 +10,7 @@ from sqlalchemy.sql.selectable import Select
 from app.api.v1.scenario import router as scenario_router
 from app.core.enums import ScenarioCategory
 from app.core.preset_scenarios import PRESET_MAP, PRESET_SCENARIOS
-from app.db.models import ScenarioORM
+from app.db.models import FeedbackORM, ScenarioORM
 from app.db.seed import seed_preset_scenarios
 from app.deps.auth import get_current_user_id
 from app.deps.db import get_db
@@ -32,10 +32,14 @@ class _FakeResult:
 
 class _FakeDB:
 
-    def __init__(self, rows: list) -> None:
+    def __init__(self, rows: list, practice: list[tuple[int, int]] | None = None) -> None:
         self._rows = rows
+        self._practice = practice or []
 
-    async def execute(self, _stmt: object) -> _FakeResult:
+    async def execute(self, stmt: object) -> _FakeResult:
+        # get_scenarios는 시나리오 조회와 연습 횟수 집계 두 번을 부른다.
+        if FeedbackORM.__tablename__ in str(stmt):
+            return _FakeResult(self._practice)
         return _FakeResult(self._rows)
 
 

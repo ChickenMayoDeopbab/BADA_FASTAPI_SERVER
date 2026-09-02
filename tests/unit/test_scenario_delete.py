@@ -10,6 +10,7 @@ from app.api.v1.scenario import router as scenario_router
 from app.core.enums import ScenarioCategory
 from app.core.preset_scenarios import PRESET_MAP, PRESET_SCENARIOS
 from app.core.security import require_internal_secret
+from app.db.models import FeedbackORM
 from app.db.seed import seed_preset_scenarios
 from app.deps.auth import get_current_user_id
 from app.deps.db import get_db
@@ -47,7 +48,10 @@ class _FakeDB:
     async def commit(self) -> None:
         self.commits += 1
 
-    async def execute(self, _stmt: object) -> _FakeResult:
+    async def execute(self, stmt: object) -> _FakeResult:
+        # get_scenarios의 연습 횟수 집계 쿼리 — 이 테스트에서는 기록이 없다.
+        if FeedbackORM.__tablename__ in str(stmt):
+            return _FakeResult([])
         return _FakeResult(list(self.rows.values()))
 
 
