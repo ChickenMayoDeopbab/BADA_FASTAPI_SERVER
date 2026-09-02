@@ -18,7 +18,6 @@ class AiEmotion(StrEnum):
 
     NEUTRAL = "NEUTRAL"         # 평상시
     FRIENDLY = "FRIENDLY"       # 긍정
-    ANNOYED = "ANNOYED"         # 약간 짜증냄
     ANGRY = "ANGRY"             # 화남
     APOLOGETIC = "APOLOGETIC"   # 미안함
 
