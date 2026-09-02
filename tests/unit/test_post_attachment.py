@@ -7,6 +7,7 @@ from app.core.enums import AttachmentKind
 from app.db.external import training_records_table
 from app.db.models import PostORM, ScenarioORM
 from app.schemas.community import AttachmentRequest, PostCreateRequest
+from app.services import post_attachment
 from app.services.community_post import create_post as svc_create_post
 from app.services.post_attachment import AttachmentInvalidError
 from tests.unit.community_env import Env, community_app, create_post
@@ -74,6 +75,56 @@ async def test_post_carries_my_custom_scenario() -> None:
         attachments = detail.json()["attachments"]
         assert [a["kind"] for a in attachments] == ["SCENARIO"]
         assert attachments[0]["scenario"]["title"] == "병원 예약 전화"
+
+
+async def _post_with_scenario(env: Env, scenario_id: int) -> int:
+    resp = await env.client.post(
+        "/api/v1/community/posts",
+        json={
+            "title": "제목",
+            "content": "내용",
+            "attachments": [{"kind": "SCENARIO", "ref_id": scenario_id}],
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()["post_id"]
+
+
+@pytest.mark.asyncio
+async def test_scenario_without_a_thumbnail_reports_none() -> None:
+    async with community_app() as env:
+        scenario_id = await _add_scenario(env, _scenario(user_id=7))
+        post_id = await _post_with_scenario(env, scenario_id)
+
+        detail = await env.client.get(f"/api/v1/community/posts/{post_id}")
+
+        assert detail.json()["attachments"][0]["scenario"]["scenario_image"] is None
+
+
+@pytest.mark.asyncio
+async def test_thumbnail_key_is_signed_before_it_goes_out(monkeypatch) -> None:
+    key = "scenario-images/1-deadbeef.png"
+    signed = "https://bucket.example/scenario-images/x.png?X-Amz-Signature=abc"
+    calls: list[tuple[str, int]] = []
+
+    class _Storage:
+        def presigned_url(self, image_key: str, expires_in: int = 600) -> str:
+            calls.append((image_key, expires_in))
+            return signed
+
+    monkeypatch.setattr(post_attachment, "build_storage", lambda _settings: _Storage())
+
+    async with community_app() as env:
+        row = _scenario(user_id=7)
+        row.scenario_image = key
+        scenario_id = await _add_scenario(env, row)
+        post_id = await _post_with_scenario(env, scenario_id)
+
+        detail = await env.client.get(f"/api/v1/community/posts/{post_id}")
+
+        assert detail.json()["attachments"][0]["scenario"]["scenario_image"] == signed
+        assert calls, "썸네일 서명이 한 번도 요청되지 않았다"
+        assert set(calls) == {(key, 3600)}, "매번 1시간 만료로 새로 서명한다"
 
 
 @pytest.mark.asyncio

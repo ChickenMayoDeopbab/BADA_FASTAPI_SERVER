@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -18,7 +19,12 @@ from app.schemas.community import (
     PostAttachment,
 )
 from app.services.morphed_recording import build_storage, morphed_url
+from app.services.recording_storage import RecordingStorageService
 from app.workers.voice_morph_worker import schedule_morph
+
+logger = logging.getLogger(__name__)
+
+_IMAGE_URL_TTL_SEC = 3600
 
 
 class AttachmentInvalidError(Exception):
@@ -106,16 +112,39 @@ async def kinds_by_post(db: AsyncSession, post_ids: list[int]) -> dict[int, list
     return found
 
 
+def _image_url(storage: RecordingStorageService, image_key: str) -> str | None:
+    """썸네일 재생 URL. 서명이 실패해도 첨부 전체를 날리지는 않는다."""
+    try:
+        return storage.presigned_url(image_key, expires_in=_IMAGE_URL_TTL_SEC)
+    except Exception as e:
+        logger.warning(
+            "썸네일 URL 서명 실패, 이미지 없이 응답: %s: %s",
+            type(e).__name__,
+            e,
+            extra={"s3_key": image_key},
+        )
+        return None
+
+
 async def _scenario_block(
     db: AsyncSession, ref_id: int, viewer_id: int
 ) -> AttachedScenario | None:
     row = await db.get(ScenarioORM, ref_id)
     if row is None:
         return None
+
+    # 컬럼에 담긴 건 URL 이 아니라 S3 키라 매번 새로 서명해서 내려준다.
+    image = None
+    if row.scenario_image:
+        image = await asyncio.to_thread(
+            _image_url, build_storage(get_settings()), row.scenario_image
+        )
+
     return AttachedScenario(
         title=row.title,
         content=row.content,
         category=row.category,
+        scenario_image=image,
         is_available=row.deleted_at is None,
         is_mine=row.user_id == viewer_id,
     )

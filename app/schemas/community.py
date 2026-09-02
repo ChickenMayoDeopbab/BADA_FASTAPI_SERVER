@@ -60,6 +60,7 @@ class AttachedScenario(BaseModel):
     title: str
     content: str
     category: str
+    scenario_image: str | None = None
     is_available: bool = True
     is_mine: bool = False
 
