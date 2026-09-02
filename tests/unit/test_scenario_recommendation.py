@@ -21,7 +21,9 @@ class _FakeDB:
         return _HistoryResult(self._history)
 
 
-def _scenario(scenario_id: int, *, is_custom: bool = False) -> ScenarioInfo:
+def _scenario(
+    scenario_id: int, *, is_custom: bool = False, practice_count: int = 0
+) -> ScenarioInfo:
     return ScenarioInfo(
         scenario_id=scenario_id,
         title=f"시나리오 {scenario_id}",
@@ -31,6 +33,7 @@ def _scenario(scenario_id: int, *, is_custom: bool = False) -> ScenarioInfo:
         personalities=ALL_PERSONALITIES,
         ai_prompt="prompt",
         is_custom=is_custom,
+        practice_count=practice_count,
     )
 
 
@@ -193,3 +196,17 @@ async def test_no_visible_candidate_returns_none(monkeypatch) -> None:
     )
 
     assert recommendation is None
+
+
+async def test_recommendation_carries_practice_count(monkeypatch) -> None:
+    _patch_icon_storage(monkeypatch)
+    _stub_candidates(monkeypatch, [_scenario(1, practice_count=4)])
+
+    recommendation = await scenario_service.get_recommended_scenario(
+        _FakeDB([(1, datetime(2026, 8, 1, tzinfo=UTC))]),
+        user_id=7,
+        recommendation_date=date(2026, 9, 1),
+    )
+
+    assert recommendation is not None
+    assert recommendation.scenario.practice_count == 4

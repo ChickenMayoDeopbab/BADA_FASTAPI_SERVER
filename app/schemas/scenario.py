@@ -20,6 +20,7 @@ class ScenarioInfo(BaseModel):
     ai_prompt: str
     is_custom: bool
     is_copied: bool = False
+    practice_count: int = 0
 
 class ScenarioListResponse(BaseModel):
     scenarios: list[ScenarioInfo]

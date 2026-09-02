@@ -4,7 +4,12 @@ import pytest
 
 from app.core.enums import ScenarioCategory
 from app.services.scenario_service import get_scenarios
-from tests.unit.test_scenario_visibility import _custom_row, _FakeDB, _preset_rows
+from tests.unit.test_scenario_visibility import (
+    _custom_row,
+    _FakeDB,
+    _preset_ids,
+    _preset_rows,
+)
 
 
 def _mine(scenario_id: int, day: int, user_id: int = 1):
@@ -105,3 +110,64 @@ async def test_row_without_created_at_does_not_break_sorting() -> None:
     resp = await get_scenarios(_FakeDB(rows), None, user_id=1)
 
     assert {s.scenario_id for s in _customs(resp)} == {101, 102}
+
+
+# --- 연습 횟수(practice_count) ---
+
+def _counting_db(rows: list, practice: list[tuple[int, int]] | None = None):
+    """execute 호출 횟수를 세는 _FakeDB."""
+
+    class _CountingDB(_FakeDB):
+        def __init__(self) -> None:
+            super().__init__(rows, practice)
+            self.execute_calls = 0
+
+        async def execute(self, stmt: object):
+            self.execute_calls += 1
+            return await super().execute(stmt)
+
+    return _CountingDB()
+
+
+@pytest.mark.asyncio
+async def test_practice_count_is_filled_for_presets_and_customs() -> None:
+    preset_id = _preset_ids()[0]
+    rows = [*_preset_rows(), _mine(101, day=1)]
+    db = _FakeDB(rows, practice=[(preset_id, 2), (101, 5)])
+
+    resp = await get_scenarios(db, None, user_id=1)
+
+    counts = {s.scenario_id: s.practice_count for s in resp.scenarios}
+    assert counts[preset_id] == 2
+    assert counts[101] == 5
+
+
+@pytest.mark.asyncio
+async def test_scenario_without_feedback_counts_zero() -> None:
+    rows = [*_preset_rows(), _mine(101, day=1)]
+
+    resp = await get_scenarios(_FakeDB(rows), None, user_id=1)
+
+    assert all(s.practice_count == 0 for s in resp.scenarios)
+
+
+@pytest.mark.asyncio
+async def test_history_for_invisible_scenario_is_ignored() -> None:
+    rows = [*_preset_rows(), _mine(101, day=1)]
+    db = _FakeDB(rows, practice=[(101, 3), (999, 7)])
+
+    resp = await get_scenarios(db, None, user_id=1)
+
+    assert 999 not in {s.scenario_id for s in resp.scenarios}
+    assert {s.scenario_id: s.practice_count for s in resp.scenarios}[101] == 3
+
+
+@pytest.mark.asyncio
+async def test_preset_fallback_is_zero_without_extra_query() -> None:
+    db = _counting_db([])
+
+    resp = await get_scenarios(db, None, user_id=1)
+
+    assert resp.scenarios, "DB가 비면 프리셋으로 폴백해야 한다"
+    assert all(s.practice_count == 0 for s in resp.scenarios)
+    assert db.execute_calls == 1, "폴백 경로에서 집계 쿼리가 나가면 안 된다"
