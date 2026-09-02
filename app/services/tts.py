@@ -18,14 +18,12 @@ logger = logging.getLogger(__name__)
 _EMOTION_VOICE_OVERRIDES: dict[AiEmotion, dict] = {
     AiEmotion.NEUTRAL:    {},
     AiEmotion.FRIENDLY:   {"stability": 0.40, "style": 0.30, "speed": 1.03},
-    AiEmotion.ANNOYED:    {"stability": 0.45, "style": 0.20, "speed": 1.05},
     AiEmotion.ANGRY:      {"stability": 0.30, "style": 0.50, "speed": 1.08},
     AiEmotion.APOLOGETIC: {"stability": 0.60, "style": 0.10, "speed": 0.96},
 }
 
 # 난이도 하 전용
 _LOW_EMOTION_VOICE_OVERRIDES: dict[AiEmotion, dict] = {
-    AiEmotion.ANNOYED: {"stability": 0.60, "style": 0.10, "speed": 1.00},
     AiEmotion.ANGRY:   {"stability": 0.60, "style": 0.15, "speed": 1.00},
 }
 

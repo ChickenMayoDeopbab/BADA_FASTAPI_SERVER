@@ -129,7 +129,7 @@ def _settings_for(emotion, difficulty=None) -> dict:
     return session._voice_settings_for(emotion)
 
 
-@pytest.mark.parametrize("emotion", [AiEmotion.ANGRY, AiEmotion.ANNOYED])
+@pytest.mark.parametrize("emotion", [AiEmotion.ANGRY])
 def test_low_difficulty_calms_negative_emotions(emotion) -> None:
     normal = _settings_for(emotion)
     calmed = _settings_for(emotion, Difficulty.LOW)

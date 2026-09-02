@@ -68,3 +68,59 @@ async def test_self_comment_and_reply_do_not_create_notifications() -> None:
         )
 
         assert env.spring.notifications == []
+
+
+async def test_new_reaction_notifies_post_author() -> None:
+    async with community_app(user_id=7) as env:
+        post_id = await create_post(env)
+        env.login(8)
+
+        response = await env.client.put(
+            f"/api/v1/community/posts/{post_id}/reaction",
+            json={"kind": "LIKE"},
+        )
+
+        assert response.status_code == 200
+        assert len(env.spring.notifications) == 1
+        notification = env.spring.notifications[0]
+        assert notification == {
+            "notification_type": "REACTION",
+            "recipient_user_id": 7,
+            "actor_user_id": 8,
+            "post_id": post_id,
+            "reaction_id": notification["reaction_id"],
+            "reaction_kind": "LIKE",
+        }
+        assert notification["reaction_id"] > 0
+
+
+async def test_reaction_kind_change_does_not_create_another_notification() -> None:
+    async with community_app(user_id=7) as env:
+        post_id = await create_post(env)
+        env.login(8)
+        await env.client.put(
+            f"/api/v1/community/posts/{post_id}/reaction",
+            json={"kind": "CHEER"},
+        )
+        env.spring.notifications.clear()
+
+        response = await env.client.put(
+            f"/api/v1/community/posts/{post_id}/reaction",
+            json={"kind": "RELATE"},
+        )
+
+        assert response.status_code == 200
+        assert env.spring.notifications == []
+
+
+async def test_self_reaction_does_not_create_notification() -> None:
+    async with community_app(user_id=7) as env:
+        post_id = await create_post(env)
+
+        response = await env.client.put(
+            f"/api/v1/community/posts/{post_id}/reaction",
+            json={"kind": "CHEER"},
+        )
+
+        assert response.status_code == 200
+        assert env.spring.notifications == []

@@ -5,10 +5,16 @@ from app.services.llm import LLMClient
 from app.services.pipeline import VoicePipeline
 
 
-def _pipeline(turns: list[tuple[float, float]]) -> VoicePipeline:
+def _pipeline(
+    turns: list[tuple[float, float]],
+    texts: list[str] | None = None,
+) -> VoicePipeline:
     p = VoicePipeline.__new__(VoicePipeline)
+    p._session_id = "test-session"
     p._user_turn_intervals = turns
-    p._user_turn_texts = [f"발화{i}" for i in range(len(turns))]
+    p._user_turn_texts = (
+        texts if texts is not None else [f"발화{i}" for i in range(len(turns))]
+    )
     return p
 
 
@@ -74,6 +80,48 @@ def test_never_returns_empty_when_turns_exist() -> None:
     """고를 근거가 없어도 구간이 비지 않는다."""
     p = _pipeline([(0.0, 4.0)])
     assert p._pick_segments([], {1: 4.0})
+
+
+# --- 발화 없는 구간 제외 --------------------------------------------------
+
+
+def test_turn_without_transcript_is_not_picked() -> None:
+    """마이크만 열려 있던 구간 — 받아적힌 말이 없으면 안 고른다."""
+    p = _pipeline([(0.0, 10.82)], texts=[""])
+    assert p._pick_segments([], {}) == []
+
+
+def test_turn_without_transcript_is_not_rescued_by_fallback() -> None:
+    """떨림 없는 구간이 겹쳐도 발화가 없으면 폴백까지 막는다."""
+    p = _pipeline([(0.0, 10.82)], texts=[""])
+    assert p._pick_segments([(0.0, 10.82)], {}) == []
+
+
+def test_whitespace_only_transcript_counts_as_silence() -> None:
+    p = _pipeline([(0.0, 10.0)], texts=["   "])
+    assert p._pick_segments([(0.0, 10.0)], {}) == []
+
+
+def test_turn_without_transcript_survives_when_avti_measured() -> None:
+    """AVTI 는 3초 넘게 이어진 목소리에서만 나온다 — 말은 했는데 문장이 못 넘어온 턴."""
+    p = _pipeline([(0.0, 10.0)], texts=[""])
+    segs = p._pick_segments([(0.5, 9.0)], {1: 8.3})
+    assert [s["type"] for s in segs] == ["IMPROVE"]
+
+
+def test_silent_turn_dropped_but_spoken_turn_keeps_its_number() -> None:
+    """빈 턴을 빼도 남은 턴의 번호는 그대로 — AVTI 키와 어긋나지 않는다."""
+    p = _pipeline([(0.0, 4.0), (5.0, 12.0)], texts=["", "네 맞아요"])
+    segs = p._pick_segments([(5.5, 11.0)], {2: 8.3})
+    assert [s["turn"] for s in segs] == [2]
+    assert segs[0]["type"] == "IMPROVE"
+    assert segs[0]["avti"] == 8.3
+
+
+def test_all_turns_silent_yields_no_segments() -> None:
+    """한마디도 인식되지 않은 통화는 구간 피드백 자체가 없다."""
+    p = _pipeline([(0.0, 4.0), (5.0, 12.0)], texts=["", ""])
+    assert p._pick_segments([(0.5, 3.5), (5.5, 11.0)], {}) == []
 
 
 # --- 구간 문구 파싱 ------------------------------------------------------

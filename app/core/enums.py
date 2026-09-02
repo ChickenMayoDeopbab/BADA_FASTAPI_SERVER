@@ -37,6 +37,7 @@ class CommunityNotificationType(StrEnum):
 
     COMMENT = "COMMENT"
     REPLY = "REPLY"
+    REACTION = "REACTION"
 
 
 class AttachmentKind(StrEnum):

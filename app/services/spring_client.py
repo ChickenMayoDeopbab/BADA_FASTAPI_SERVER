@@ -4,7 +4,7 @@ import logging
 import httpx
 
 from app.core.config import Settings
-from app.core.enums import CommunityNotificationType
+from app.core.enums import CommunityNotificationType, ReactionKind
 from app.schemas.frames import EndReason
 from app.schemas.training_analysis import TrainingAnalysisPayload
 
@@ -108,7 +108,9 @@ class SpringInternalClient:
         recipient_user_id: int,
         actor_user_id: int,
         post_id: int,
-        comment_id: int,
+        comment_id: int | None = None,
+        reaction_id: int | None = None,
+        reaction_kind: ReactionKind | None = None,
     ) -> None:
         url = f"{self._base_url}/internal/v1/notifications/community"
         # Spring CommunityNotificationRequest가 Jackson 기본 camelCase 필드를 사용한다.
@@ -118,6 +120,8 @@ class SpringInternalClient:
             "actorUserId": actor_user_id,
             "postId": post_id,
             "commentId": comment_id,
+            "reactionId": reaction_id,
+            "reactionKind": reaction_kind,
         }
         log_context = {
             "notification_type": notification_type,
@@ -125,6 +129,8 @@ class SpringInternalClient:
             "actor_user_id": actor_user_id,
             "post_id": post_id,
             "comment_id": comment_id,
+            "reaction_id": reaction_id,
+            "reaction_kind": reaction_kind,
         }
 
         last_error: httpx.HTTPError | None = None

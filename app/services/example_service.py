@@ -19,7 +19,11 @@ from app.core.tts_voices import pick_example_user_voice
 from app.db.base import AsyncSessionLocal
 from app.db.models import ScenarioORM, is_deleted
 from app.schemas.scenario import ExampleConversationResponse, ExampleTurn
-from app.services.qwen_tts import QwenTTSClient, QwenTTSUnavailableError
+from app.services.qwen_tts import (
+    QwenTTSClient,
+    QwenTTSUnavailableError,
+    realtime_slot_active,
+)
 from app.services.recording_storage import RecordingStorageService
 from app.services.tts import ElevenLabsTTSClient
 
@@ -252,7 +256,8 @@ async def _bake_locked(
             return candidate
 
     qwen_client = QwenTTSClient(settings)
-    use_qwen = await qwen_client.healthy()
+    slot_busy = realtime_slot_active()
+    use_qwen = False if slot_busy else await qwen_client.healthy()
 
     started = now_ms()
     engine, reason, pcm = "eleven", None, None
@@ -263,6 +268,8 @@ async def _bake_locked(
         except QwenTTSUnavailableError as exc:
             reason = "synth_failed"
             logger.warning("Qwen TTS 합성 실패 — ElevenLabs로 전체 재합성: %s", exc)
+    elif slot_busy:
+        reason = "busy"
     else:
         reason = "unhealthy" if qwen_client.enabled else "disabled"
 

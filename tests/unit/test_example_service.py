@@ -505,6 +505,28 @@ async def test_qwen_unhealthy_skips_synth_entirely(monkeypatch) -> None:
     assert tts.open_calls
 
 
+async def test_realtime_slot_busy_skips_qwen_without_health_check(monkeypatch) -> None:
+    tts, storage = _wire(monkeypatch)
+    qwen = _wire_qwen(monkeypatch, _FakeQwenClient())
+    checked: list[int] = []
+    orig = qwen.healthy
+
+    async def _spy():
+        checked.append(1)
+        return await orig()
+
+    qwen.healthy = _spy
+    monkeypatch.setattr(example_service, "realtime_slot_active", lambda: True)
+
+    await get_example_conversation(_FakeDB(_preset_row()), 1, user_id=7)
+
+    assert checked == [], "실시간 통화가 슬롯을 잡고 있으면 헬스체크 없이 즉시 폴백"
+    assert qwen.calls == []
+    assert tts.open_calls, "ElevenLabs 로 합성돼야 한다"
+    key, _ = storage.uploads[0]
+    assert not key.endswith("-q.wav")
+
+
 async def test_cache_hit_skips_health_check(monkeypatch) -> None:
     _wire(monkeypatch)
     qwen = _FakeQwenClient()

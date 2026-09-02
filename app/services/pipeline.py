@@ -31,6 +31,12 @@ from app.schemas.llm import AiEmotion, LLMEventType, TurnContext
 from app.services.feedback_points import Band, is_safe, voice_band
 from app.services.feedback_service import save_feedback
 from app.services.llm import LLMClient
+from app.services.qwen_tts import (
+    QwenRealtimeTTSClient,
+    QwenRealtimeTTSSession,
+    QwenTTSUnavailableError,
+    try_acquire_realtime_tts,
+)
 from app.services.recording_storage import RecordingStorageService
 from app.services.session import (
     build_turn_context,
@@ -152,6 +158,7 @@ class VoicePipeline:
         self._llm = LLMClient()
         self._difficulty = parse_difficulty(session)
         self._tts = ElevenLabsTTSClient(settings, self._difficulty)
+        self._qwen_tts: QwenRealtimeTTSClient | None = None
         self._recording_storage = RecordingStorageService(settings)
 
         self._audio_queue: asyncio.Queue[bytes | None] = asyncio.Queue()
@@ -196,6 +203,7 @@ class VoicePipeline:
 
     async def run(self) -> None:
         """진입점"""
+        await self._init_qwen_tts()
         warmup_task = asyncio.create_task(self._llm.warmup())
         tasks: list[asyncio.Task] = [
             asyncio.create_task(self._recv_loop()),
@@ -226,6 +234,7 @@ class VoicePipeline:
             with suppress(asyncio.CancelledError):
                 await closing
             await self._teardown(*tasks, warmup_task)
+            self._release_qwen_slot()
 
     async def _recv_loop(self) -> None:
         # 수신
@@ -384,9 +393,14 @@ class VoicePipeline:
         text_q: asyncio.Queue[str | None] = asyncio.Queue()
         emotion_ready = asyncio.Event()
         ai_parts: list[str] = []
-        flags = {"step_done": False, "end_call": False, "error": False}
+        flags = {
+            "step_done": False,
+            "end_call": False,
+            "error": False,
+            "tts_engine": "qwen" if getattr(self, "_qwen_tts", None) else "eleven",
+        }
         usage: dict[str, int | None] = {"prompt": None, "cached": None}
-        box: dict[str, TTSSession | None] = {"tts": None}
+        box: dict[str, TTSSession | QwenRealtimeTTSSession | None] = {"tts": None}
         suggestion_box: dict[str, str | None] = {"text": None}
 
         async def ensure_tts(emotion: AiEmotion) -> None:
@@ -475,6 +489,14 @@ class VoicePipeline:
         except asyncio.CancelledError:
             flags["cancelled"] = True
             raise
+        except QwenTTSUnavailableError as exc:
+            flags["tts_failed"] = True
+            self._switch_to_eleven("synth_failed")
+            logger.warning(
+                "Qwen TTS 실패 — 이번 턴은 건너뛰고 ElevenLabs로 전환: %s",
+                exc,
+                extra={"session_id": self._session_id},
+            )
         except Exception:
             logger.exception("턴 실행 중 예외", extra={"session_id": self._session_id})
             flags["error"] = True
@@ -508,8 +530,47 @@ class VoicePipeline:
             self._history.append({"role": "assistant", "text": ai_text})
             await self._send_json(transcript_frame(TranscriptRole.AI, ai_text))
 
-    async def _open_tts(self) -> TTSSession:
-        """시나리오 보이스로 연결함 실패 시 기본 보이스로"""
+    async def _init_qwen_tts(self) -> None:
+        """elevenlabs 갈지 qwen 쓸지"""
+        client, skip_reason = await try_acquire_realtime_tts(self._settings)
+        self._qwen_tts = client
+        log_metric(
+            "realtime_tts_engine",
+            session_id=self._session_id,
+            engine="qwen" if client is not None else "eleven",
+            skip_reason=skip_reason,
+        )
+
+    def _switch_to_eleven(self, reason: str) -> None:
+        """통화 중 Qwen 장애 시 elevenlabs로 전환"""
+        qwen = getattr(self, "_qwen_tts", None)
+        if qwen is None:
+            return
+        qwen.release_slot()
+        self._qwen_tts = None
+        log_metric(
+            "realtime_tts_switch", session_id=self._session_id, reason=reason
+        )
+
+    def _release_qwen_slot(self) -> None:
+        qwen = getattr(self, "_qwen_tts", None)
+        if qwen is not None:
+            qwen.release_slot()
+            self._qwen_tts = None
+
+    async def _open_tts(self) -> TTSSession | QwenRealtimeTTSSession:
+        """시나리오 보이스 연결"""
+        qwen = getattr(self, "_qwen_tts", None)
+        if qwen is not None:
+            try:
+                return await qwen.open()
+            except QwenTTSUnavailableError:
+                logger.warning(
+                    "Qwen TTS 세션 열기 실패 — ElevenLabs 로 전환",
+                    exc_info=True,
+                    extra={"session_id": self._session_id},
+                )
+                self._switch_to_eleven("open_failed")
         voice_id_override = getattr(self, "_voice_id_override", None)
         if voice_id_override is None:
             return await self._tts.open()
@@ -523,7 +584,9 @@ class VoicePipeline:
             return await self._tts.open()
 
     async def _cleanup_turn_tts(
-        self, connect_task: asyncio.Task, used: TTSSession | None
+        self,
+        connect_task: asyncio.Task,
+        used: TTSSession | QwenRealtimeTTSSession | None,
     ) -> None:
         """턴이 끝나거나 취소되면 TTS ws 닫기"""
         if used is not None:
@@ -576,7 +639,11 @@ class VoicePipeline:
             and self._current_step >= self._script_len
         )
         will_close = flags["error"] or flags["end_call"] or scenario_finished
-        fallback = not will_close and (flags.get("watchdog", False) or not ai_text)
+        fallback = not will_close and (
+            flags.get("watchdog", False)
+            or flags.get("tts_failed", False)
+            or not ai_text
+        )
         log_metric(
             "voice_turn",
             session_id=self._session_id,
@@ -584,6 +651,8 @@ class VoicePipeline:
             error=flags["error"],
             watchdog=flags.get("watchdog", False),
             fallback=fallback,
+            tts_engine=flags.get("tts_engine"),
+            tts_failed=flags.get("tts_failed", False),
             llm_prompt_tokens=usage["prompt"],
             llm_cached_tokens=usage["cached"],
             **timings.as_metrics(),
@@ -1015,14 +1084,44 @@ class VoicePipeline:
                     out.append((lo, hi))
         return out
 
-    def _pick_segments(self, candidates, avti_by_turn: dict[int, float]) -> list[dict]:
-        """칭찬할 구간과 아쉬운 구간을 함께 고른다."""
-        clean = self._intersect(candidates, self._user_turn_intervals)
-        picked: list[dict] = []
+    def _spoken_turns(
+        self, avti_by_turn: dict[int, float]
+    ) -> list[tuple[int, tuple[float, float]]]:
+        """말한 턴만 (턴 번호, 구간) 으로. 번호는 AVTI 키와 맞춰 그대로 둔다.
 
+        STT 가 아무것도 못 받아적은 턴은 마이크만 열려 있었을 뿐이라 뺀다.
+        예외는 AVTI 가 나온 턴 — 그 값은 3초 넘게 이어진 목소리에서만 나오므로
+        말은 했는데 문장이 못 넘어온 경우다(끝에서 세션이 끊길 때).
+        """
+        turns: list[tuple[int, tuple[float, float]]] = []
         for index, (start, end) in enumerate(self._user_turn_intervals, start=1):
             if end - start <= 0:
                 continue
+            said = ""
+            if index - 1 < len(self._user_turn_texts):
+                said = self._user_turn_texts[index - 1].strip()
+            if not said and avti_by_turn.get(index) is None:
+                logger.info(
+                    "발화 없는 턴 - 구간 피드백 후보에서 제외",
+                    extra={
+                        "session_id": self._session_id,
+                        "turn": index,
+                        "start": round(start, 2),
+                        "end": round(end, 2),
+                    },
+                )
+                continue
+            turns.append((index, (start, end)))
+        return turns
+
+    def _pick_segments(self, candidates, avti_by_turn: dict[int, float]) -> list[dict]:
+        """칭찬할 구간과 아쉬운 구간을 함께 고른다. 발화 없는 턴은 제외한다."""
+        turns = self._spoken_turns(avti_by_turn)
+        intervals = [span for _, span in turns]
+        clean = self._intersect(candidates, intervals)
+        picked: list[dict] = []
+
+        for index, (start, end) in turns:
             avti = avti_by_turn.get(index)
             band = voice_band(avti)
             if band is Band.NEEDS_WORK:
@@ -1059,19 +1158,21 @@ class VoicePipeline:
         if not chosen:
             chosen = [
                 {**seg, "type": _SEG_GOOD, "reason": "fallback", "avti": None}
-                for seg in self._pick_good_segments(candidates)
+                for seg in self._pick_good_segments(candidates, intervals)
             ]
         chosen.sort(key=lambda p: p["start"])
         return chosen
 
-    def _pick_good_segments(self, candidates) -> list[dict]:
-        overlap = self._intersect(candidates, self._user_turn_intervals)
+    def _pick_good_segments(self, candidates, turn_intervals=None) -> list[dict]:
+        """마지막 보루. turn_intervals 를 주면 그 턴들 안에서만 고른다."""
+        turn_intervals = (
+            self._user_turn_intervals if turn_intervals is None else turn_intervals
+        )
+        overlap = self._intersect(candidates, turn_intervals)
         overlap.sort(key=lambda se: se[1] - se[0], reverse=True)
         long_enough = [se for se in overlap if se[1] - se[0] >= 1.0]  # min_good_sec
         fragments = [se for se in overlap if se[1] - se[0] < 1.0]
-        turns = sorted(
-            self._user_turn_intervals, key=lambda se: se[1] - se[0], reverse=True
-        )
+        turns = sorted(turn_intervals, key=lambda se: se[1] - se[0], reverse=True)
 
         good: list[tuple[float, float]] = []
         for pool in (long_enough, fragments, turns):
