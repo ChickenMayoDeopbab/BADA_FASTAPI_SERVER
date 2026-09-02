@@ -35,6 +35,7 @@ ScenarioRecommendationReason = Literal[
 class ScenarioRecommendationResponse(BaseModel):
     scenario: ScenarioInfo
     reason: ScenarioRecommendationReason
+    category_icon_url: str | None = None
 
 
 class ExampleTurn(BaseModel):

@@ -26,6 +26,7 @@ from app.schemas.scenario import (
     GenerateDetailScenario,
     ScenarioInfo,
     ScenarioListResponse,
+    ScenarioRecommendationReason,
     ScenarioRecommendationResponse,
     ScriptTurnContext,
 )
@@ -37,6 +38,13 @@ logger = logging.getLogger(__name__)
 _OLDEST = datetime.min.replace(tzinfo=UTC)
 
 _IMAGE_URL_TTL_SEC = 3600
+
+_CATEGORY_ICON_KEYS: dict[ScenarioCategory, str] = {
+    ScenarioCategory.WORK: "scenario_profile/9c59b8ee-46d0-4207-bed0-ab7136104fef",
+    ScenarioCategory.DAILY: "scenario_profile/0c11a382-99b6-457d-80c1-4c00915c5e6c",
+    ScenarioCategory.SCHOOL: "scenario_profile/78b33292-2156-4665-86b7-80e0ca3535d5",
+    ScenarioCategory.OTHER: "scenario_profile/29bdac11-0f65-4689-8ad8-f64d06f3d7b6",
+}
 
 
 def _image_storage(rows: Sequence[ScenarioORM]) -> RecordingStorageService | None:
@@ -58,6 +66,32 @@ def _image_url(storage: RecordingStorageService | None, key: str | None) -> str 
             extra={"s3_key": key},
         )
         return None
+
+
+def _category_icon_url(category: ScenarioCategory) -> str | None:
+    key = _CATEGORY_ICON_KEYS[category]
+    try:
+        storage = RecordingStorageService(get_settings())
+        return storage.presigned_url(key, expires_in=_IMAGE_URL_TTL_SEC)
+    except Exception as e:
+        logger.warning(
+            "카테고리 아이콘 URL 서명 실패, 아이콘 없이 응답: %s: %s",
+            type(e).__name__,
+            e,
+            extra={"category": category.value, "s3_key": key},
+        )
+        return None
+
+
+def _recommendation_response(
+    scenario: ScenarioInfo,
+    reason: ScenarioRecommendationReason,
+) -> ScenarioRecommendationResponse:
+    return ScenarioRecommendationResponse(
+        scenario=scenario,
+        reason=reason,
+        category_icon_url=_category_icon_url(scenario.category),
+    )
 
 
 async def get_scenarios(
@@ -199,7 +233,7 @@ async def get_recommended_scenario(
         if scenario.is_custom and scenario.scenario_id not in last_practiced
     ]
     if custom_not_practiced:
-        return ScenarioRecommendationResponse(
+        return _recommendation_response(
             scenario=custom_not_practiced[0],
             reason="CUSTOM_NOT_PRACTICED",
         )
@@ -209,7 +243,7 @@ async def get_recommended_scenario(
         scenario for scenario in candidates if scenario.scenario_id not in last_practiced
     ]
     if not_practiced:
-        return ScenarioRecommendationResponse(
+        return _recommendation_response(
             scenario=_daily_pick(
                 not_practiced,
                 user_id=user_id,
@@ -224,7 +258,7 @@ async def get_recommended_scenario(
         for scenario in candidates
         if last_practiced[scenario.scenario_id] == oldest_at
     ]
-    return ScenarioRecommendationResponse(
+    return _recommendation_response(
         scenario=_daily_pick(
             longest_absent,
             user_id=user_id,
