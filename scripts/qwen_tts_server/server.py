@@ -1,4 +1,12 @@
-# 집 PC에 배포된 서버 사본 변경 금지
+"""집 PC Qwen3-TTS 서버 (WSL2, systemd qwen-tts.service 로 상주).
+
+배포 위치: /home/uhihi/Qwen3-TTS-streaming/server.py (레포의 이 파일이 원본).
+계약:
+  GET  /health          → {ready, voices, busy}
+  POST /v1/tts          {voice, text} → raw PCM 16kHz mono 일괄 (예시 대화 배치용)
+  POST /v1/tts/stream   {voice, text} → chunked raw PCM 16kHz mono (실시간 통화용, 계획 0043)
+"""
+
 import json
 import logging
 import math
@@ -17,10 +25,10 @@ from qwen_tts import Qwen3TTSModel
 
 MODEL_ID = "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
 VOICES_F = os.environ.get("VOICES_FILE", "/mnt/c/qwen-out/voices.json")
-OUT_SR = 16000
-EMIT = 2
-MAX_CHARS = 300
-STREAM_LOCK_TIMEOUT = 8.0
+OUT_SR = 16000  # 파이프라인이 pcm_16000
+EMIT = 2  # 런타임 변경 금지 — 바꾸면 재컴파일
+MAX_CHARS = 300  # 긴 텍스트는 호출측이 문장 단위로 쪼개서 보낼 것
+STREAM_LOCK_TIMEOUT = 8.0  # 호출측 read 타임아웃(10s)보다 짧게 — busy 를 서버가 먼저 끊는다
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 log = logging.getLogger("tts")
@@ -50,9 +58,15 @@ def _synth(voice: str, text: str) -> bytes:
 
 
 class _StreamResampler:
-    """청크 리샘플"""
+    """청크 단위 리샘플(24k→16k) — 청크 경계 아티팩트를 막는다.
 
-    CTX = 480
+    방출 구간 좌우에 항상 ctx 샘플 이상의 실제 신호를 두고 리샘플하므로, 결과는
+    전체를 한 번에 리샘플한 것과 (필터 폭 ≪ ctx 인 한) 동일하다. 방출은 입력
+    스텝(24k→16k 이면 3)의 배수 단위로만 해서 출력 인덱스가 정확히 정렬된다.
+    대가는 ctx 만큼의 지연(20ms) 하나뿐이다.
+    """
+
+    CTX = 480  # 20ms@24k — 리샘플 필터 폭 대비 충분히 넓게
 
     def __init__(self, in_sr: int) -> None:
         g = math.gcd(in_sr, OUT_SR)
@@ -94,8 +108,14 @@ class _StreamResampler:
 
 
 def _stream_pcm(voice: str, text: str):
+    """문장 하나를 생성되는 대로 16kHz PCM 청크로 흘린다. 락은 여기서 잡고 푼다.
+
+    락을 핸들러가 아니라 제너레이터 안에서 잡는 이유: 응답이 시작되기 전에
+    연결이 끊기면 제너레이터는 실행조차 안 되는데, 핸들러에서 잡으면 그 경우
+    락이 영영 안 풀린다. 여기서 잡으면 락은 항상 try/finally 안에서만 산다.
+    """
     if not S["lock"].acquire(timeout=STREAM_LOCK_TIMEOUT):
-        raise RuntimeError("busy")
+        raise RuntimeError("busy")  # 스트림 중단 → 호출측이 불완전 응답으로 감지하고 폴백
     gen = None
     try:
         t = time.perf_counter()
@@ -119,6 +139,7 @@ def _stream_pcm(voice: str, text: str):
         log.info("stream 완료 voice=%s chars=%d %.2fs → %.2fs audio",
                  voice, len(text), time.perf_counter() - t, sent / OUT_SR)
     except GeneratorExit:
+        # 클라 중단 — 생성 도중 끊으면 CUDA 그래프 상태를 장담 못 하므로 끝까지 소진
         if gen is not None:
             for _ in gen:
                 pass
@@ -136,7 +157,7 @@ async def lifespan(app: FastAPI):
         MODEL_ID, device_map="cuda:0", dtype=torch.bfloat16,
         attn_implementation="flash_attention_2")
     S["model"].enable_streaming_optimizations()
-    for v in S["voices"]:
+    for v in S["voices"]:  # 보이스마다 컴파일 1회(~90초)
         t = time.perf_counter()
         _synth(v, "네, 안녕하세요.")
         log.info("워밍업 %s %.1fs", v, time.perf_counter() - t)
@@ -168,7 +189,7 @@ def health():
 @app.post("/v1/tts")
 def tts(r: Req):
     _validate(r)
-    if not S["lock"].acquire(timeout=120):
+    if not S["lock"].acquire(timeout=120):  # 동시성 1 — 2 이상이면 CUDA 그래프가 깨진다
         raise HTTPException(503, "busy")
     try:
         t = time.perf_counter()
@@ -183,6 +204,7 @@ def tts(r: Req):
 
 @app.post("/v1/tts/stream")
 def tts_stream(r: Req):
+    """실시간 통화용 — 문장 하나를 chunked 로 흘림"""
     _validate(r)
     return StreamingResponse(_stream_pcm(r.voice, r.text), media_type="audio/L16",
                              headers={"X-Sample-Rate": str(OUT_SR)})

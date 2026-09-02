@@ -50,6 +50,8 @@ dev = [
 [tool.ruff]
 target-version = "py312"
 line-length = 120
+# 집 PC 에서 회수한 일회성 실험 스크립트 — 원본 보존이 목적이라 lint 대상에서 뺀다 (계획 0045)
+extend-exclude = ["scripts/qwen_tts_experiments"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "A", "SIM"]
