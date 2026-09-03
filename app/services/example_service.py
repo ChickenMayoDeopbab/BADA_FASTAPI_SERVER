@@ -22,7 +22,7 @@ from app.schemas.scenario import ExampleConversationResponse, ExampleTurn
 from app.services.qwen_tts import (
     QwenTTSClient,
     QwenTTSUnavailableError,
-    realtime_slot_active,
+    has_free_worker,
 )
 from app.services.recording_storage import RecordingStorageService
 from app.services.tts import ElevenLabsTTSClient
@@ -256,7 +256,7 @@ async def _bake_locked(
             return candidate
 
     qwen_client = QwenTTSClient(settings)
-    slot_busy = realtime_slot_active()
+    slot_busy = not has_free_worker(settings)
     use_qwen = False if slot_busy else await qwen_client.healthy()
 
     started = now_ms()

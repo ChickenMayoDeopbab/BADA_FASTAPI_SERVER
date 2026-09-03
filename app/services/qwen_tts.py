@@ -8,7 +8,6 @@ from contextlib import asynccontextmanager
 
 import httpx
 
-from app.core.concurrency import loop_semaphore
 from app.core.config import Settings
 from app.schemas.llm import AiEmotion
 from app.services.tts import _SentenceBuffer
@@ -16,12 +15,9 @@ from app.services.tts import _SentenceBuffer
 logger = logging.getLogger(__name__)
 
 
-_semaphore = loop_semaphore(1)
-
 _RETRY_ATTEMPTS = 3
 _RETRY_BASE_DELAY = 0.5
 
-# 배치 경로 슬롯 대기 상한 — 실시간 통화가 슬롯을 길게 점유할 수 있어 무한 대기를 막는다
 _SLOT_WAIT_TIMEOUT = 90.0
 
 # 실시간 경로 전용 — 첫 청크 실측 ~181ms 라 read 갭 10초면 행업 감지로 충분
@@ -34,45 +30,52 @@ class QwenTTSUnavailableError(Exception):
     """합성 실패"""
 
 
-class _RealtimeSlot:
-    """실시간 통화의 GPU 슬롯 점유 상태"""
-
-    __slots__ = ("held",)
-
-    def __init__(self) -> None:
-        self.held = False
-
-
-_realtime_slots: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, _RealtimeSlot] = (
+_worker_pools: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Queue[str]] = (
     weakref.WeakKeyDictionary()
 )
 
 
-def _realtime_slot() -> _RealtimeSlot:
+def worker_urls(settings: Settings) -> list[str]:
+    """워커 URL 목록"""
+    raw = settings.qwen_tts_urls or settings.qwen_tts_url or ""
+    return [part.strip().rstrip("/") for part in raw.split(",") if part.strip()]
+
+
+def _pool(settings: Settings) -> asyncio.Queue[str]:
+    """이벤트 루프별 가용 워커 큐"""
     loop = asyncio.get_running_loop()
-    slot = _realtime_slots.get(loop)
-    if slot is None:
-        slot = _realtime_slots[loop] = _RealtimeSlot()
-    return slot
+    pool = _worker_pools.get(loop)
+    if pool is None:
+        pool = _worker_pools[loop] = asyncio.Queue()
+        for url in worker_urls(settings):
+            pool.put_nowait(url)
+    return pool
 
 
-def realtime_slot_active() -> bool:
-    """실시간 통화가 슬롯을 잡고 있는지"""
-    return _realtime_slot().held
+def has_free_worker(settings: Settings) -> bool:
+    """빈 워커가 있는지 확인"""
+    if not worker_urls(settings):
+        return False
+    try:
+        return not _pool(settings).empty()
+    except RuntimeError:
+        return False
 
 
 @asynccontextmanager
-async def _hold_slot() -> AsyncIterator[None]:
-    """배치 경로의 슬롯 획득"""
-    semaphore = _semaphore()
+async def _hold_worker(settings: Settings) -> AsyncIterator[str]:
+    """워커 하나를 잡고 그 URL을 반환"""
+    if not worker_urls(settings):
+        raise QwenTTSUnavailableError("qwen_tts_url 미설정")
+    pool = _pool(settings)
     try:
-        await asyncio.wait_for(semaphore.acquire(), timeout=_SLOT_WAIT_TIMEOUT)
+        url = await asyncio.wait_for(pool.get(), timeout=_SLOT_WAIT_TIMEOUT)
     except TimeoutError:
-        raise QwenTTSUnavailableError("GPU 슬롯 대기 시간 초과") from None
+        raise QwenTTSUnavailableError("GPU 워커 대기 시간 초과") from None
     try:
-        yield
+        yield url
     finally:
-        semaphore.release()
+        pool.put_nowait(url)
 
 
 class QwenTTSClient:
@@ -82,12 +85,16 @@ class QwenTTSClient:
         self,
         settings: Settings,
         transport: httpx.AsyncBaseTransport | None = None,
+        base_url: str | None = None,
     ) -> None:
-        self._base_url = (settings.qwen_tts_url or "").rstrip("/")
+        self._settings = settings
+        urls = worker_urls(settings)
+        self._base_url = (base_url or (urls[0] if urls else "")).rstrip("/")
         self._synth_timeout = settings.qwen_tts_timeout
         self._health_timeout = settings.qwen_tts_health_timeout
         self._transport = transport
         self._session: httpx.AsyncClient | None = None
+        self._session_url: str | None = None
 
     @property
     def enabled(self) -> bool:
@@ -99,17 +106,19 @@ class QwenTTSClient:
     @asynccontextmanager
     async def connect(self) -> AsyncIterator[QwenTTSClient]:
         """여러 턴을 합성할 때 커넥션 재사용"""
-        async with _hold_slot():
+        async with _hold_worker(self._settings) as url:
             try:
                 client = self._client(self._synth_timeout)
                 await client.__aenter__()
             except Exception as exc:
                 raise QwenTTSUnavailableError(f"connect: {type(exc).__name__}: {exc}") from exc
             self._session = client
+            self._session_url = url
             try:
                 yield self
             finally:
                 self._session = None
+                self._session_url = None
                 try:
                     await client.aclose()
                 except Exception:
@@ -128,19 +137,23 @@ class QwenTTSClient:
             logger.info("Qwen TTS 헬스체크 실패 — ElevenLabs로 폴백", exc_info=True)
             return False
 
-    async def _post(self, client: httpx.AsyncClient, voice: str, text: str) -> bytes:
+    async def _post(
+        self, client: httpx.AsyncClient, base_url: str, voice: str, text: str
+    ) -> bytes:
         response = await client.post(
-            f"{self._base_url}/v1/tts", json={"voice": voice, "text": text}
+            f"{base_url}/v1/tts", json={"voice": voice, "text": text}
         )
         response.raise_for_status()
         return response.content
 
-    async def _attempt(self, client: httpx.AsyncClient, voice: str, text: str) -> bytes:
+    async def _attempt(
+        self, client: httpx.AsyncClient, base_url: str, voice: str, text: str
+    ) -> bytes:
         """일시적 실패는 재시도"""
         last: Exception | None = None
         for attempt in range(_RETRY_ATTEMPTS):
             try:
-                pcm = await self._post(client, voice, text)
+                pcm = await self._post(client, base_url, voice, text)
                 if not pcm:
                     raise QwenTTSUnavailableError("빈 응답")
                 return pcm
@@ -163,9 +176,14 @@ class QwenTTSClient:
         if not self.enabled:
             raise QwenTTSUnavailableError("qwen_tts_url 미설정")
         if self._session is not None:
-            return await self._attempt(self._session, voice, text)
-        async with _hold_slot(), self._client(self._synth_timeout) as client:
-            return await self._attempt(client, voice, text)
+            return await self._attempt(
+                self._session, self._session_url or self._base_url, voice, text
+            )
+        async with (
+            _hold_worker(self._settings) as url,
+            self._client(self._synth_timeout) as client,
+        ):
+            return await self._attempt(client, url, voice, text)
 
 
 class QwenRealtimeTTSSession:
@@ -230,10 +248,13 @@ class QwenRealtimeTTSClient:
         self,
         settings: Settings,
         transport: httpx.AsyncBaseTransport | None = None,
+        base_url: str | None = None,
     ) -> None:
-        self._base_url = (settings.qwen_tts_url or "").rstrip("/")
+        self._settings = settings
+        urls = worker_urls(settings)
+        self._base_url = (base_url or (urls[0] if urls else "")).rstrip("/")
         self._transport = transport
-        self._slot_held = False
+        self._worker_url: str | None = None
 
     async def open(self, voice_id: str | None = None) -> QwenRealtimeTTSSession:
         """턴마다 호출"""
@@ -246,34 +267,34 @@ class QwenRealtimeTTSClient:
         return QwenRealtimeTTSSession(client, self._base_url)
 
     def release_slot(self) -> None:
-        """통화 종료"""
-        if not self._slot_held:
+        """통화 종료, 잡고 있던 워커를 풀에 되돌림"""
+        url = self._worker_url
+        if url is None:
             return
-        self._slot_held = False
-        _realtime_slot().held = False
-        _semaphore().release()
+        self._worker_url = None
+        _pool(self._settings).put_nowait(url)
 
 
 async def try_acquire_realtime_tts(
     settings: Settings,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> tuple[QwenRealtimeTTSClient | None, str | None]:
-    """통화 시작 시 1회"""
-    if not (settings.qwen_tts_realtime_enabled and settings.qwen_tts_url):
+    """통화 시작 시 워커 하나 통화에 배치"""
+    if not (settings.qwen_tts_realtime_enabled and worker_urls(settings)):
         return None, "disabled"
-    semaphore = _semaphore()
-    if semaphore.locked():
-        return None, "busy"
-    await semaphore.acquire()
+    pool = _pool(settings)
     try:
-        healthy = await QwenTTSClient(settings, transport).healthy()
+        url = pool.get_nowait()
+    except asyncio.QueueEmpty:
+        return None, "busy"
+    try:
+        healthy = await QwenTTSClient(settings, transport, base_url=url).healthy()
     except BaseException:
-        semaphore.release()
+        pool.put_nowait(url)
         raise
     if not healthy:
-        semaphore.release()
+        pool.put_nowait(url)
         return None, "unhealthy"
-    client = QwenRealtimeTTSClient(settings, transport)
-    client._slot_held = True
-    _realtime_slot().held = True
+    client = QwenRealtimeTTSClient(settings, transport, base_url=url)
+    client._worker_url = url
     return client, None
