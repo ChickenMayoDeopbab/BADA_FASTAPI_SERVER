@@ -6,8 +6,8 @@
   - end_frame : 종료 트리거 → end 프레임(feedback 동봉) 송신까지 = 사용자 체감 지연
   - callback  : 종료 트리거 → Spring 콜백 완료까지 (praise LLM 포함)
 
-praise(잘한 점 LLM)는 end 프레임 이후에 실행되어야 하며(파이프라인 주석 참조),
-이 순서가 깨지면 CHECK 로 표시한다.
+Spring 콜백은 end 프레임보다 먼저 완료되어야 하며, 이 순서가 깨지면
+CHECK 로 표시한다.
 
 실행:
   python -m tests.perf.feedback_bench --durations 30,60,180 --runs 5
@@ -90,8 +90,9 @@ class FakeSpring:
     def __init__(self) -> None:
         self.notified_at: float | None = None
 
-    async def notify_session_closed(self, *args, **kwargs) -> None:
+    async def notify_session_closed(self, *args, **kwargs) -> bool:
         self.notified_at = time.perf_counter()
+        return True
 
 
 def build_pipeline(ws, storage, tremor, llm, spring, pcm: bytes, duration_s: float) -> VoicePipeline:
@@ -110,7 +111,7 @@ def build_pipeline(ws, storage, tremor, llm, spring, pcm: bytes, duration_s: flo
     p._tremor_buf = bytearray(pcm)
     p._llm = llm
     p._spring = spring
-    # AVTI 는 end 프레임/콜백 뒤에서 떼어놓고 도는 섀도 작업이라 벤치에서는 꺼둔다.
+    # AVTI 자체 성능은 별도 측정하므로 비활성화한다.
     p._settings = SimpleNamespace(avti_enabled=False)
     # 사용자 턴 3개 (good_segments 후보와 겹치도록 녹음 전체에 분산)
     p._user_turn_intervals = [
@@ -138,7 +139,8 @@ async def run_once(duration_s: float, upload_delay_s: float, praise_delay_s: flo
 
     order_ok = (
         ws.end_at is not None
-        and (llm.called_at is None or ws.end_at <= llm.called_at)
+        and spring.notified_at is not None
+        and spring.notified_at <= ws.end_at
     )
     return {
         "upload": storage.elapsed,
@@ -174,8 +176,8 @@ async def main() -> None:
         print(f"\n=== 녹음 {dur:.0f}s × {args.runs}회 ===")
         print_table([(k, summarize(v)) for k, v in samples.items()])
         segs = (last_feedback or {}).get("good_segments") or []
-        print(f"good_segments {len(segs)}개, end 프레임 → praise 순서: "
-              f"{'PASS' if all_order_ok else 'CHECK (end 프레임보다 praise 가 먼저 실행됨!)'}")
+        print(f"good_segments {len(segs)}개, Spring 콜백 → end 프레임 순서: "
+              f"{'PASS' if all_order_ok else 'CHECK (콜백 전에 end 프레임이 전송됨!)'}")
 
 
 if __name__ == "__main__":

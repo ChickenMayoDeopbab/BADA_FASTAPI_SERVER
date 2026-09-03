@@ -24,8 +24,8 @@ def _client(handler) -> tuple[SpringInternalClient, list]:
     return client, calls
 
 
-async def _notify(client: SpringInternalClient) -> None:
-    await client.notify_session_closed(
+async def _notify(client: SpringInternalClient) -> bool:
+    return await client.notify_session_closed(
         "sess-retry",
         reason=EndReason.USER_END,
         transcript=[{"role": "user", "text": "여보세요"}],
@@ -43,8 +43,9 @@ async def test_transient_5xx_then_success(caplog) -> None:
     client, calls = _client(
         lambda n, _req: httpx.Response(500 if n < 3 else 200)
     )
-    await _notify(client)
+    succeeded = await _notify(client)
     assert len(calls) == 3
+    assert succeeded is True
 
 
 @pytest.mark.asyncio
@@ -53,16 +54,18 @@ async def test_all_attempts_fail_swallows_and_logs_error(caplog) -> None:
 
     client, calls = _client(lambda n, _req: httpx.Response(500))
     with caplog.at_level(logging.ERROR, logger="app.services.spring_client"):
-        await _notify(client)
+        succeeded = await _notify(client)
     assert len(calls) == 3
+    assert succeeded is False
     assert any("최종 실패" in r.getMessage() for r in caplog.records)
 
 
 @pytest.mark.asyncio
 async def test_4xx_is_not_retried() -> None:
     client, calls = _client(lambda n, _req: httpx.Response(400))
-    await _notify(client)
+    succeeded = await _notify(client)
     assert len(calls) == 1
+    assert succeeded is False
 
 
 @pytest.mark.asyncio
@@ -73,8 +76,9 @@ async def test_network_error_is_retried() -> None:
         return httpx.Response(200)
 
     client, calls = _client(_handler)
-    await _notify(client)
+    succeeded = await _notify(client)
     assert len(calls) == 2
+    assert succeeded is True
 
 
 @pytest.mark.asyncio
