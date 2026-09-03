@@ -9,6 +9,7 @@ from app.services.qwen_tts import QwenTTSClient, QwenTTSUnavailableError
 def _settings(url: str | None = "http://tts.test") -> SimpleNamespace:
     return SimpleNamespace(
         qwen_tts_url=url,
+        qwen_tts_urls=None,
         qwen_tts_timeout=5.0,
         qwen_tts_health_timeout=1.0,
     )
