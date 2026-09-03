@@ -332,6 +332,7 @@ async def test_seed_preset_scenarios_is_idempotent_and_syncs_existing_presets() 
         1,
         title="오래된 제목",
         content="오래된 설명",
+        scenario_image="scenario_profile/legacy-image",
         is_custom=False,
         created_at=original_created_at,
     )
@@ -343,6 +344,7 @@ async def test_seed_preset_scenarios_is_idempotent_and_syncs_existing_presets() 
     assert sorted(db.scenarios) == _preset_ids()
     assert db.scenarios[1].title == PRESET_MAP[1]["title"]
     assert db.scenarios[1].content == PRESET_MAP[1]["content"]
+    assert db.scenarios[1].scenario_image == PRESET_MAP[1]["scenario_image"]
     assert db.scenarios[1].created_at == original_created_at
     assert db.commits == 2
 

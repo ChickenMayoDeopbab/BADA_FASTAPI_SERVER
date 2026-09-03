@@ -106,7 +106,21 @@ async def get_scenarios(
         result_list = PRESET_SCENARIOS
         if category is not None:
             result_list = [scenario for scenario in result_list if scenario["category"] == category]
-        return ScenarioListResponse(scenarios=[scenario_to_info(s) for s in result_list])
+        storage = (
+            RecordingStorageService(get_settings())
+            if any(scenario["scenario_image"] for scenario in result_list)
+            else None
+        )
+        return ScenarioListResponse(
+            scenarios=[
+                scenario_to_info(scenario).model_copy(
+                    update={
+                        "scenario_image": _image_url(storage, scenario["scenario_image"]),
+                    }
+                )
+                for scenario in result_list
+            ]
+        )
 
     preset_rows: list[tuple[ScenarioORM, dict]] = []
     custom_rows: list[tuple[ScenarioORM, ScenarioCategory]] = []

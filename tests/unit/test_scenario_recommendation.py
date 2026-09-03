@@ -22,7 +22,11 @@ class _FakeDB:
 
 
 def _scenario(
-    scenario_id: int, *, is_custom: bool = False, practice_count: int = 0
+    scenario_id: int,
+    *,
+    is_custom: bool = False,
+    practice_count: int = 0,
+    scenario_image: str | None = None,
 ) -> ScenarioInfo:
     return ScenarioInfo(
         scenario_id=scenario_id,
@@ -31,6 +35,7 @@ def _scenario(
         category=ScenarioCategory.OTHER if is_custom else ScenarioCategory.DAILY,
         difficulties=ALL_DIFFICULTIES,
         personalities=ALL_PERSONALITIES,
+        scenario_image=scenario_image,
         ai_prompt="prompt",
         is_custom=is_custom,
         practice_count=practice_count,
@@ -97,7 +102,8 @@ async def test_unpracticed_custom_is_recommended_first(monkeypatch) -> None:
 
 
 async def test_recommendation_returns_presigned_category_icon(monkeypatch) -> None:
-    candidate = _scenario(1)
+    scenario_image = "https://s3.example.com/scenario-images/88-example.png?signed"
+    candidate = _scenario(1, scenario_image=scenario_image)
     _stub_candidates(monkeypatch, [candidate])
     calls = _patch_icon_storage(monkeypatch)
 
@@ -109,7 +115,9 @@ async def test_recommendation_returns_presigned_category_icon(monkeypatch) -> No
 
     key = scenario_service._CATEGORY_ICON_KEYS[ScenarioCategory.DAILY]
     assert recommendation is not None
+    assert recommendation.scenario.scenario_image == scenario_image
     assert recommendation.category_icon_url == f"https://s3.example.com/{key}?signed"
+    assert recommendation.scenario.scenario_image != recommendation.category_icon_url
     assert calls == [(key, scenario_service._IMAGE_URL_TTL_SEC)]
 
 

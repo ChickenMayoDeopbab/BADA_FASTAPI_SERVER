@@ -15,7 +15,10 @@ class ScenarioInfo(BaseModel):
     category: ScenarioCategory
     difficulties: list[Difficulty]
     personalities: list[AiPersonality]
-    scenario_image: str | None = None
+    scenario_image: str | None = Field(
+        default=None,
+        description="시나리오별 고유 이미지의 임시 접근 URL",
+    )
     tts_voice_id: str | None = None
     ai_prompt: str
     is_custom: bool
@@ -36,7 +39,10 @@ ScenarioRecommendationReason = Literal[
 class ScenarioRecommendationResponse(BaseModel):
     scenario: ScenarioInfo
     reason: ScenarioRecommendationReason
-    category_icon_url: str | None = None
+    category_icon_url: str | None = Field(
+        default=None,
+        description="시나리오 카테고리에 대응하는 공통 아이콘의 임시 접근 URL",
+    )
 
 
 class ExampleTurn(BaseModel):
