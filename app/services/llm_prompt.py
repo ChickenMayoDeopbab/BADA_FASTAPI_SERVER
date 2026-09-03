@@ -70,6 +70,14 @@ _STYLE_RULE = (
     "'하아...', '어휴', '하하' 같은 실제 소리 나는 말로만 표현한다."
 )
 
+_PLACEHOLDER_RULE = (
+    "상호명, 담당자 이름, 전화번호, 주소처럼 네가 알 수 없는 고유명사는 비워두지 말고 "
+    "상황에 어울리게 스스로 지어내서 구체적으로 말한다. 대괄호 [ ], 꺾쇠 < >, 중괄호 { } 로 "
+    "감싼 자리표시자를 대사에 절대 출력하지 않는다. 네 대사는 전부 음성으로 재생되므로 "
+    "빈칸이 있으면 사용자에게 그대로 읽힌다. "
+    "한 번 지어낸 이름과 정보는 통화가 끝날 때까지 바꾸지 않고 일관되게 유지한다."
+)
+
 _CURRENT_STEP_NOTE = (
     "현재 진행 중인 단계 번호는 사용자 발화의 마지막 줄에 '(지금 단계: N)' 형식으로 "
     "매번 제공된다. 반드시 그 단계의 목표에 맞춰 응답한다."
@@ -122,7 +130,7 @@ def build_system_prompt(ctx: TurnContext) -> str:
         f"[{_SAFETY_BOUNDARY}]\n\n"
         f"[출력 형식]\n{_EMOTION_INSTRUCTION}\n\n"
         f"[진행/종료 제어]\n{_CONTROL_TAG_INSTRUCTION}\n\n"
-        f"[표현 규칙]\n{_NUMBER_RULE}\n{_STYLE_RULE}"
+        f"[표현 규칙]\n{_NUMBER_RULE}\n{_STYLE_RULE}\n{_PLACEHOLDER_RULE}"
         f"{hint_block}"
     )
 
