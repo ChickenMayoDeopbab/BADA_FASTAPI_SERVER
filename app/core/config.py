@@ -31,7 +31,7 @@ class Settings(BaseSettings):
 
     # LLM(실시간)
     gemini_api_key: str
-    llm_realtime_model: str = "gemini-3.5-flash-lite"
+    llm_realtime_model: str = "gemini-2.5-flash-lite"
     llm_thinking_budget: int | None = None
 
     # LLM(분석)
