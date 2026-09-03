@@ -25,6 +25,7 @@ from qwen_tts import Qwen3TTSModel
 
 MODEL_ID = "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
 VOICES_F = os.environ.get("VOICES_FILE", "/mnt/c/qwen-out/voices.json")
+DEVICE = os.environ.get("TTS_DEVICE", "cuda:0")  # 워커를 GPU 별로 띄울 때 지정
 OUT_SR = 16000  # 파이프라인이 pcm_16000
 EMIT = 2  # 런타임 변경 금지 — 바꾸면 재컴파일
 MAX_CHARS = 300  # 긴 텍스트는 호출측이 문장 단위로 쪼개서 보낼 것
@@ -154,7 +155,7 @@ async def lifespan(app: FastAPI):
         S["voices"] = {k: (v["ref_audio"], v["ref_text"]) for k, v in json.load(f).items()}
     log.info("모델 로드 중...")
     S["model"] = Qwen3TTSModel.from_pretrained(
-        MODEL_ID, device_map="cuda:0", dtype=torch.bfloat16,
+        MODEL_ID, device_map=DEVICE, dtype=torch.bfloat16,
         attn_implementation="flash_attention_2")
     S["model"].enable_streaming_optimizations()
     for v in S["voices"]:  # 보이스마다 컴파일 1회(~90초)
