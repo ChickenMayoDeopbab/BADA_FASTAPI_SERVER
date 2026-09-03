@@ -102,6 +102,7 @@ def _settings(s3: bool = True) -> SimpleNamespace:
         anthropic_api_key="k",
         llm_analysis_model="m",
         qwen_tts_url=None,
+        qwen_tts_urls=None,
         qwen_tts_timeout=30.0,
         qwen_tts_health_timeout=1.0,
     )
@@ -451,6 +452,7 @@ class _FakeQwenClient:
 
 def _wire_qwen(monkeypatch, client: _FakeQwenClient) -> _FakeQwenClient:
     monkeypatch.setattr(example_service, "QwenTTSClient", lambda _s: client)
+    monkeypatch.setattr(example_service, "has_free_worker", lambda _s: True)
     return client
 
 
@@ -516,7 +518,7 @@ async def test_realtime_slot_busy_skips_qwen_without_health_check(monkeypatch) -
         return await orig()
 
     qwen.healthy = _spy
-    monkeypatch.setattr(example_service, "realtime_slot_active", lambda: True)
+    monkeypatch.setattr(example_service, "has_free_worker", lambda _s: False)
 
     await get_example_conversation(_FakeDB(_preset_row()), 1, user_id=7)
 
