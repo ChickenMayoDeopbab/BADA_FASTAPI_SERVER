@@ -81,6 +81,12 @@ class SpringInternalClient:
                 last_error = e
             except httpx.HTTPError as e:
                 last_error = e
+            except Exception:
+                logger.exception(
+                    "세션 종료 콜백 처리 중 예외",
+                    extra={"session_id": session_id, "reason": reason.value},
+                )
+                return False
 
             if attempt < _RETRY_ATTEMPTS - 1:
                 delay = _RETRY_BASE_DELAY_SECONDS * (2**attempt)

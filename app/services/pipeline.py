@@ -233,8 +233,21 @@ class VoicePipeline:
             closing.cancel()
             with suppress(asyncio.CancelledError):
                 await closing
-            await self._teardown(*tasks, warmup_task)
-            self._release_qwen_slot()
+            try:
+                await self._teardown(*tasks, warmup_task)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception(
+                    "세션 종료 처리 실패",
+                    extra={"session_id": self._session_id},
+                )
+                if self._ws_alive:
+                    await self._send_json(error_frame("SESSION_CLOSE_FAILED"))
+                    with suppress(Exception):
+                        await self._ws.close()
+            finally:
+                self._release_qwen_slot()
 
     async def _recv_loop(self) -> None:
         # 수신
@@ -916,10 +929,12 @@ class VoicePipeline:
         # 정상 종료 이벤트는 Spring 트랜잭션이 완료된 뒤에만 보낸다. 앱은 이
         # 이벤트를 기준으로 training_record 의 후속 API를 호출한다.
         if self._ws_alive:
-            if not session_closed:
-                await self._send_json(error_frame("SESSION_CLOSE_FAILED"))
-            elif reason == EndReason.ERROR:
+            if reason == EndReason.ERROR:
+                # 파이프라인 오류 종료에서는 앱이 후속 저장 API를 호출하지 않으므로
+                # 콜백 실패보다 통화의 직접 종료 원인을 우선 전달한다.
                 await self._send_json(error_frame("PIPELINE_ERROR"))
+            elif not session_closed:
+                await self._send_json(error_frame("SESSION_CLOSE_FAILED"))
             else:
                 await self._send_json(end_frame(reason, feedback))
             with suppress(Exception):
