@@ -277,6 +277,7 @@ async def test_voice_turn_metric_has_fallback_flag(monkeypatch) -> None:
     await _run(p)
     assert captured[-1]["fallback"] is True
 
+    monkeypatch.setattr(pipeline_mod, "_TURN_WATCHDOG_SECONDS", 30.0)
     p2 = _make_pipeline(_HappyLLM(), _FakeTTSClient())
     await _run(p2)
     assert captured[-1]["fallback"] is False
