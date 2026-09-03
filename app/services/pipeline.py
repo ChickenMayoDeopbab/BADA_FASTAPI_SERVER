@@ -896,20 +896,12 @@ class VoicePipeline:
             ],
         }
 
-        if self._ws_alive:
-            if reason == EndReason.ERROR:
-                await self._send_json(error_frame("PIPELINE_ERROR"))
-            else:
-                await self._send_json(end_frame(reason, feedback))
-            with suppress(Exception):
-                await self._ws.close()
-
-        # 문구는 end 프레임 뒤에서 채운다 → 사용자 체감 지연 없음.
+        # Spring의 훈련 기록에 완성된 구간 피드백을 포함하기 위해 콜백 전에 채운다.
         await self._write_segment_feedback(good_segments)
 
         await self._save_feedback(shake_count, good_segments)
 
-        await self._spring.notify_session_closed(
+        session_closed = await self._spring.notify_session_closed(
             self._session_id,
             reason=reason,
             transcript=self._history,
@@ -920,6 +912,18 @@ class VoicePipeline:
             session_type=self._session.get("type"),
             analysis=analysis,
         )
+
+        # 정상 종료 이벤트는 Spring 트랜잭션이 완료된 뒤에만 보낸다. 앱은 이
+        # 이벤트를 기준으로 training_record 의 후속 API를 호출한다.
+        if self._ws_alive:
+            if not session_closed:
+                await self._send_json(error_frame("SESSION_CLOSE_FAILED"))
+            elif reason == EndReason.ERROR:
+                await self._send_json(error_frame("PIPELINE_ERROR"))
+            else:
+                await self._send_json(end_frame(reason, feedback))
+            with suppress(Exception):
+                await self._ws.close()
 
     async def _measure_avti(
         self, recording_pcm: bytes, sustained_spans: list
