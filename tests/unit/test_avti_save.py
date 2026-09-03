@@ -72,9 +72,10 @@ class _FakeSpring:
     def __init__(self, log: list | None = None) -> None:
         self._log = log
 
-    async def notify_session_closed(self, *args, **kwargs) -> None:
+    async def notify_session_closed(self, *args, **kwargs) -> bool:
         if self._log is not None:
             self._log.append("spring")
+        return True
 
 
 class _FakeTremor:
@@ -258,9 +259,8 @@ async def test_running_task_keeps_a_reference(tmp_path, monkeypatch) -> None:
 # --- 파이프라인 연결 ----------------------------------------------------
 
 
-async def test_avti_runs_before_the_end_frame(monkeypatch) -> None:
-    """순서 계약이 바뀌었다 — 어느 구간을 칭찬/조언할지가 AVTI 로 갈리므로
-    end 프레임보다 앞에서 재야 한다."""
+async def test_avti_and_spring_callback_run_before_the_end_frame(monkeypatch) -> None:
+    """앱이 후속 API를 호출하기 전에 훈련 기록 생성이 완료되어야 한다."""
     order: list[str] = []
 
     async def _fake_run(**kwargs):
@@ -272,7 +272,7 @@ async def test_avti_runs_before_the_end_frame(monkeypatch) -> None:
     p = _pipeline(seconds=5, turns=[(1.0, 4.0)], spans=[(0.0, 4.0)], log=order)
     await p._teardown()
 
-    assert order == ["avti", "end_frame", "spring"]
+    assert order == ["avti", "spring", "end_frame"]
 
 
 async def test_pipeline_passes_whole_session_as_part_zero(monkeypatch) -> None:
@@ -317,6 +317,7 @@ async def test_null_recording_key_does_not_block_analysis(
 
     async def _capture(*args, **kwargs):
         captured.update(kwargs)
+        return True
 
     monkeypatch.setattr(
         "app.services.pipeline.run_avti",
@@ -364,6 +365,7 @@ async def test_analysis_failure_does_not_block_session_close(
     async def _capture(*args, **kwargs):
         order.append("spring")
         captured.update(kwargs)
+        return True
 
     monkeypatch.setattr(
         "app.services.pipeline.TrainingPerformanceAnalyzer.analyze",
@@ -375,7 +377,7 @@ async def test_analysis_failure_does_not_block_session_close(
 
     await p._teardown()
 
-    assert order == ["end_frame", "spring"]
+    assert order == ["spring", "end_frame"]
     assert captured["analysis"] is None
 
 
@@ -393,7 +395,7 @@ async def test_slow_avti_does_not_block_the_session(monkeypatch) -> None:
     p = _pipeline(seconds=5, turns=[(1.0, 4.0)], spans=[(0.0, 4.0)], log=order)
     await p._teardown()
 
-    assert order == ["avti", "end_frame", "spring"]
+    assert order == ["avti", "spring", "end_frame"]
 
 
 async def test_segment_text_reaches_the_callback(monkeypatch) -> None:
@@ -405,6 +407,7 @@ async def test_segment_text_reaches_the_callback(monkeypatch) -> None:
 
     async def _capture(*args, **kwargs):
         captured.update(kwargs)
+        return True
 
     monkeypatch.setattr("app.services.pipeline.run_avti", _fake_run)
 
@@ -449,6 +452,7 @@ async def test_internal_keys_never_leave_the_server(monkeypatch) -> None:
 
     async def _capture(*args, **kwargs):
         captured.update(kwargs)
+        return True
 
     monkeypatch.setattr("app.services.pipeline.run_avti", _fake_run)
 
@@ -465,6 +469,43 @@ async def test_internal_keys_never_leave_the_server(monkeypatch) -> None:
     assert all(set(s) == {"start", "end", "type"} for s in end_segments)
 
     assert all(not (internal & set(s)) for s in captured["good_segments"])
+
+
+async def test_callback_failure_sends_error_instead_of_end() -> None:
+    sent: list[dict] = []
+
+    async def _capture_frame(payload: dict) -> None:
+        sent.append(payload)
+
+    async def _fail_callback(*args, **kwargs) -> bool:
+        return False
+
+    p = _pipeline(seconds=0, turns=[], spans=[])
+    p._ws.send_json = _capture_frame
+    p._spring.notify_session_closed = _fail_callback
+
+    await p._teardown()
+
+    assert sent == [{"type": "error", "code": "SESSION_CLOSE_FAILED"}]
+
+
+async def test_pipeline_error_is_preserved_when_callback_also_fails() -> None:
+    sent: list[dict] = []
+
+    async def _capture_frame(payload: dict) -> None:
+        sent.append(payload)
+
+    async def _fail_callback(*args, **kwargs) -> bool:
+        return False
+
+    p = _pipeline(seconds=0, turns=[], spans=[])
+    p._end_reason = EndReason.ERROR
+    p._ws.send_json = _capture_frame
+    p._spring.notify_session_closed = _fail_callback
+
+    await p._teardown()
+
+    assert sent == [{"type": "error", "code": "PIPELINE_ERROR"}]
 
 
 async def _noop() -> None:

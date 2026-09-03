@@ -233,8 +233,21 @@ class VoicePipeline:
             closing.cancel()
             with suppress(asyncio.CancelledError):
                 await closing
-            await self._teardown(*tasks, warmup_task)
-            self._release_qwen_slot()
+            try:
+                await self._teardown(*tasks, warmup_task)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception(
+                    "세션 종료 처리 실패",
+                    extra={"session_id": self._session_id},
+                )
+                if self._ws_alive:
+                    await self._send_json(error_frame("SESSION_CLOSE_FAILED"))
+                    with suppress(Exception):
+                        await self._ws.close()
+            finally:
+                self._release_qwen_slot()
 
     async def _recv_loop(self) -> None:
         # 수신
@@ -896,20 +909,12 @@ class VoicePipeline:
             ],
         }
 
-        if self._ws_alive:
-            if reason == EndReason.ERROR:
-                await self._send_json(error_frame("PIPELINE_ERROR"))
-            else:
-                await self._send_json(end_frame(reason, feedback))
-            with suppress(Exception):
-                await self._ws.close()
-
-        # 문구는 end 프레임 뒤에서 채운다 → 사용자 체감 지연 없음.
+        # Spring의 훈련 기록에 완성된 구간 피드백을 포함하기 위해 콜백 전에 채운다.
         await self._write_segment_feedback(good_segments)
 
         await self._save_feedback(shake_count, good_segments)
 
-        await self._spring.notify_session_closed(
+        session_closed = await self._spring.notify_session_closed(
             self._session_id,
             reason=reason,
             transcript=self._history,
@@ -920,6 +925,20 @@ class VoicePipeline:
             session_type=self._session.get("type"),
             analysis=analysis,
         )
+
+        # 정상 종료 이벤트는 Spring 트랜잭션이 완료된 뒤에만 보낸다. 앱은 이
+        # 이벤트를 기준으로 training_record 의 후속 API를 호출한다.
+        if self._ws_alive:
+            if reason == EndReason.ERROR:
+                # 파이프라인 오류 종료에서는 앱이 후속 저장 API를 호출하지 않으므로
+                # 콜백 실패보다 통화의 직접 종료 원인을 우선 전달한다.
+                await self._send_json(error_frame("PIPELINE_ERROR"))
+            elif not session_closed:
+                await self._send_json(error_frame("SESSION_CLOSE_FAILED"))
+            else:
+                await self._send_json(end_frame(reason, feedback))
+            with suppress(Exception):
+                await self._ws.close()
 
     async def _measure_avti(
         self, recording_pcm: bytes, sustained_spans: list

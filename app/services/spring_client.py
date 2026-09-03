@@ -36,7 +36,7 @@ class SpringInternalClient:
         recording_key: str | None = None,
         session_type: str | None = None,
         analysis: TrainingAnalysisPayload | None = None,
-    ) -> None:
+    ) -> bool:
         url = f"{self._base_url}/internal/v1/sessions/{session_id}/closed"
         payload = {
             "type": session_type,
@@ -69,7 +69,7 @@ class SpringInternalClient:
                     "세션 종료 콜백 성공",
                     extra={"session_id": session_id, "reason": reason.value},
                 )
-                return
+                return True
             except httpx.HTTPStatusError as e:
                 if e.response.status_code < 500:
                     logger.error(
@@ -77,10 +77,16 @@ class SpringInternalClient:
                         e,
                         extra={"session_id": session_id, "reason": reason.value},
                     )
-                    return
+                    return False
                 last_error = e
             except httpx.HTTPError as e:
                 last_error = e
+            except Exception:
+                logger.exception(
+                    "세션 종료 콜백 처리 중 예외",
+                    extra={"session_id": session_id, "reason": reason.value},
+                )
+                return False
 
             if attempt < _RETRY_ATTEMPTS - 1:
                 delay = _RETRY_BASE_DELAY_SECONDS * (2**attempt)
@@ -100,6 +106,7 @@ class SpringInternalClient:
             last_error,
             extra={"session_id": session_id, "reason": reason.value},
         )
+        return False
 
     async def notify_community_notification(
         self,
