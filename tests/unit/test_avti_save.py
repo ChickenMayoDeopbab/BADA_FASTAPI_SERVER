@@ -489,5 +489,24 @@ async def test_callback_failure_sends_error_instead_of_end() -> None:
     assert sent == [{"type": "error", "code": "SESSION_CLOSE_FAILED"}]
 
 
+async def test_pipeline_error_is_preserved_when_callback_also_fails() -> None:
+    sent: list[dict] = []
+
+    async def _capture_frame(payload: dict) -> None:
+        sent.append(payload)
+
+    async def _fail_callback(*args, **kwargs) -> bool:
+        return False
+
+    p = _pipeline(seconds=0, turns=[], spans=[])
+    p._end_reason = EndReason.ERROR
+    p._ws.send_json = _capture_frame
+    p._spring.notify_session_closed = _fail_callback
+
+    await p._teardown()
+
+    assert sent == [{"type": "error", "code": "PIPELINE_ERROR"}]
+
+
 async def _noop() -> None:
     return None

@@ -11,12 +11,16 @@ class _FakeWS:
     def __init__(self) -> None:
         self.frames: list[dict] = []
         self.pcm: list[bytes] = []
+        self.closed = False
 
     async def send_json(self, payload: dict) -> None:
         self.frames.append(payload)
 
     async def send_bytes(self, data: bytes) -> None:
         self.pcm.append(data)
+
+    async def close(self, code: int = 1000) -> None:
+        self.closed = True
 
 
 class _FakeELSession:
@@ -229,4 +233,39 @@ async def test_run_releases_slot_on_exit(monkeypatch) -> None:
     await asyncio.wait_for(p.run(), timeout=2.0)
 
     assert qwen.released is True, "통화 종료 시 슬롯을 반납해야 한다"
+    assert p._qwen_tts is None
+
+
+async def test_run_reports_teardown_failure_and_releases_slot(monkeypatch) -> None:
+    qwen = _FakeQwenClient()
+
+    async def _acquire(_settings):
+        return qwen, None
+
+    async def _noop():
+        return None
+
+    async def _failing_teardown(*tasks):
+        for task in tasks:
+            if task is not None:
+                task.cancel()
+        raise RuntimeError("teardown failed")
+
+    monkeypatch.setattr(pipeline_mod, "try_acquire_realtime_tts", _acquire)
+    p = _make_pipeline(_HappyLLM(), _FakeELClient())
+    p._settings = SimpleNamespace()
+    p._max_duration = None
+    p._llm = SimpleNamespace(warmup=_noop)
+    p._recv_loop = _noop
+    p._stt_consumer = _noop
+    p._teardown = _failing_teardown
+    p._closing.set()
+
+    await asyncio.wait_for(p.run(), timeout=2.0)
+
+    assert p._ws.frames == [
+        {"type": "error", "code": "SESSION_CLOSE_FAILED"}
+    ]
+    assert p._ws.closed is True
+    assert qwen.released is True
     assert p._qwen_tts is None

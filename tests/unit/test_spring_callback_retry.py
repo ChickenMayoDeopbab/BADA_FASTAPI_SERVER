@@ -82,6 +82,19 @@ async def test_network_error_is_retried() -> None:
 
 
 @pytest.mark.asyncio
+async def test_unexpected_error_is_reported_as_failure() -> None:
+    def _handler(_n: int, _req: httpx.Request) -> httpx.Response:
+        raise RuntimeError("unexpected transport failure")
+
+    client, calls = _client(_handler)
+
+    succeeded = await _notify(client)
+
+    assert len(calls) == 1
+    assert succeeded is False
+
+
+@pytest.mark.asyncio
 async def test_community_callback_failure_is_retried_and_swallowed(caplog) -> None:
     import logging
 
