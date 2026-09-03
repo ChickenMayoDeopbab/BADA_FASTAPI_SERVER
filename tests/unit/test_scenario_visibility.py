@@ -95,6 +95,23 @@ def _ids(response) -> list[int]:
     return [s.scenario_id for s in response.scenarios]
 
 
+def test_preset_scenarios_use_uploaded_image_keys() -> None:
+    expected = {
+        1: "scenario_profile/1e4e4e8f-e40b-400c-a595-ef237c45a521",
+        2: "scenario_profile/ec3a6a25-7322-41bc-a073-599e030810de",
+        3: "scenario_profile/3577190b-c3c0-4f0f-b26c-2d95f945a9b0",
+        4: "scenario_profile/d83ba6c7-9b7e-4c8f-87bd-7f7a0c9f2579",
+        5: "scenario_profile/43a5533b-a5b7-44ad-b748-71940bd58909",
+        6: "scenario_profile/617aaf29-c9b5-4f42-9302-ce104d22098e",
+        7: "scenario_profile/64a95435-1b5d-4cd8-93ab-9e828faa0697",
+        8: "scenario_profile/10069719-1f94-4a3d-a1ef-940815861e43",
+    }
+
+    actual = {scenario_id: preset["scenario_image"] for scenario_id, preset in PRESET_MAP.items()}
+
+    assert actual == expected
+
+
 async def test_list_shows_presets_and_only_own_customs() -> None:
     rows = [
         *_preset_rows(),
@@ -332,6 +349,7 @@ async def test_seed_preset_scenarios_is_idempotent_and_syncs_existing_presets() 
         1,
         title="오래된 제목",
         content="오래된 설명",
+        scenario_image="scenario_profile/legacy-image",
         is_custom=False,
         created_at=original_created_at,
     )
@@ -343,6 +361,7 @@ async def test_seed_preset_scenarios_is_idempotent_and_syncs_existing_presets() 
     assert sorted(db.scenarios) == _preset_ids()
     assert db.scenarios[1].title == PRESET_MAP[1]["title"]
     assert db.scenarios[1].content == PRESET_MAP[1]["content"]
+    assert db.scenarios[1].scenario_image == PRESET_MAP[1]["scenario_image"]
     assert db.scenarios[1].created_at == original_created_at
     assert db.commits == 2
 

@@ -10,7 +10,7 @@ PRESET_SCENARIOS: list[dict] = [
         "call_target": "레스토랑 직원",
         "call_purpose": "음식점 예약",
         "ai_role": "레스토랑 예약 담당 직원",
-        "scenario_image": None,
+        "scenario_image": "scenario_profile/1e4e4e8f-e40b-400c-a595-ef237c45a521",
         "tts_voice_id": None,
         "ai_prompt": (
             "You are handling restaurant reservations over the phone. "
@@ -46,7 +46,7 @@ PRESET_SCENARIOS: list[dict] = [
         "call_target": "레스토랑 직원",
         "call_purpose": "음식점 예약 변경 또는 취소",
         "ai_role": "레스토랑 예약 담당 직원",
-        "scenario_image": None,
+        "scenario_image": "scenario_profile/ec3a6a25-7322-41bc-a073-599e030810de",
         "tts_voice_id": None,
         "ai_prompt": (
             "You are handling restaurant reservation changes and cancellations over the phone. "
@@ -82,7 +82,7 @@ PRESET_SCENARIOS: list[dict] = [
         "call_target": "병원 데스크 직원",
         "call_purpose": "병원 진료 예약",
         "ai_role": "병원 접수 데스크 직원",
-        "scenario_image": None,
+        "scenario_image": "scenario_profile/3577190b-c3c0-4f0f-b26c-2d95f945a9b0",
         "tts_voice_id": None,
         "ai_prompt": (
             "You are working at a hospital reception desk. "
@@ -117,7 +117,7 @@ PRESET_SCENARIOS: list[dict] = [
         "call_target": "병원 간호사",
         "call_purpose": "병원 진료 결과 문의",
         "ai_role": "병원 간호사",
-        "scenario_image": None,
+        "scenario_image": "scenario_profile/d83ba6c7-9b7e-4c8f-87bd-7f7a0c9f2579",
         "tts_voice_id": None,
         "ai_prompt": (
             "You are a hospital nurse answering phone inquiries about medical test results and prescriptions. "
@@ -152,7 +152,7 @@ PRESET_SCENARIOS: list[dict] = [
         "call_target": "택배 고객센터 상담원",
         "call_purpose": "배달 지연 문의",
         "ai_role": "배달 서비스 고객센터 상담원",
-        "scenario_image": None,
+        "scenario_image": "scenario_profile/43a5533b-a5b7-44ad-b748-71940bd58909",
         "tts_voice_id": None,
         "ai_prompt": (
             "You are working at a delivery service customer support center. "
@@ -188,7 +188,7 @@ PRESET_SCENARIOS: list[dict] = [
         "call_target": "쇼핑물 고객센터 상담원",
         "call_purpose": "제품 환불 및 교환 요청",
         "ai_role": "쇼핑몰 고객센터 상담원",
-        "scenario_image": None,
+        "scenario_image": "scenario_profile/617aaf29-c9b5-4f42-9302-ce104d22098e",
         "tts_voice_id": None,
         "ai_prompt": (
             "You are a shopping mall customer support agent. "
@@ -224,7 +224,7 @@ PRESET_SCENARIOS: list[dict] = [
         "call_target": "택배 고객센터 상담원",
         "call_purpose": "택배 배송 조회 및 변경",
         "ai_role": "택배 회사 고객센터 상담원",
-        "scenario_image": None,
+        "scenario_image": "scenario_profile/64a95435-1b5d-4cd8-93ab-9e828faa0697",
         "tts_voice_id": None,
         "ai_prompt": (
             "You are a courier company customer support agent. "
@@ -260,7 +260,7 @@ PRESET_SCENARIOS: list[dict] = [
         "call_target": "은행 직원",
         "call_purpose": "은행 업무 문의",
         "ai_role": "은행 고객센터 상담 직원",
-        "scenario_image": None,
+        "scenario_image": "scenario_profile/10069719-1f94-4a3d-a1ef-940815861e43",
         "tts_voice_id": None,
         "ai_prompt": (
             "You are a bank customer service representative. "

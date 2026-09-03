@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.core.enums import FileType, ScenarioCategory
+from app.core.preset_scenarios import PRESET_SCENARIOS
 from app.db.models import FeedbackORM, FileORM
 from app.services import scenario_image_service, scenario_service
 from app.services.scenario_image_service import (
@@ -335,6 +336,19 @@ async def test_list_returns_presigned_url_for_stored_key(monkeypatch, stub_setti
     assert len(resp.scenarios) == 1
     assert resp.scenarios[0].scenario_image == f"https://s3.example.com/{key}?sig=x"
     assert (key, scenario_service._IMAGE_URL_TTL_SEC) in calls
+
+
+async def test_empty_db_preset_images_are_presigned(monkeypatch, stub_settings) -> None:
+    calls = _patch_storage(monkeypatch)
+
+    resp = await get_scenarios(_FakeDB([]), None, user_id=1)
+
+    expected_keys = [scenario["scenario_image"] for scenario in PRESET_SCENARIOS]
+    assert all(scenario.scenario_image == "https://signed" for scenario in resp.scenarios)
+    assert calls == [
+        "constructed",
+        *[(key, scenario_service._IMAGE_URL_TTL_SEC) for key in expected_keys],
+    ]
 
 
 async def test_list_returns_null_image_when_key_missing(monkeypatch, stub_settings) -> None:
