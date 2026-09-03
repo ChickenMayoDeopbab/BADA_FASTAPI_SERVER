@@ -50,6 +50,7 @@ from app.services.spring_client import SpringInternalClient
 router = APIRouter(prefix="/api/v1/community", tags=["community"])
 
 
+
 @router.post(
     "/posts",
     response_model=PostDetailResponse,
