@@ -3,7 +3,7 @@ import json
 import logging
 import math
 import time
-from contextlib import suppress
+from contextlib import aclosing, suppress
 from dataclasses import dataclass
 from enum import StrEnum
 from itertools import zip_longest
@@ -516,19 +516,20 @@ class VoicePipeline:
                 target_bytes=self._coalesce_target_bytes(),
                 stats=audio,
             )
-            async for pcm in merged:
-                if not self._ws_alive:
-                    break
-                try:
-                    await self._ws.send_bytes(pcm)
-                    self._ai_pcm_bytes += len(pcm)
-                except Exception:
-                    self._ws_alive = False
-                    break
-                audio.record(pcm)
-                if timings.first_pcm_at is None:
-                    timings.first_pcm_at = now_ms()
-                timings.last_pcm_at = now_ms()
+            async with aclosing(merged):
+                async for pcm in merged:
+                    if not self._ws_alive:
+                        break
+                    try:
+                        await self._ws.send_bytes(pcm)
+                        self._ai_pcm_bytes += len(pcm)
+                    except Exception:
+                        self._ws_alive = False
+                        break
+                    audio.record(pcm)
+                    if timings.first_pcm_at is None:
+                        timings.first_pcm_at = now_ms()
+                    timings.last_pcm_at = now_ms()
             await self._send_json(speaking_end_frame())
 
         produce_task = asyncio.create_task(produce())
@@ -800,16 +801,17 @@ class VoicePipeline:
                 target_bytes=self._coalesce_target_bytes(),
                 stats=audio,
             )
-            async for pcm in merged:
-                if not self._ws_alive:
-                    break
-                try:
-                    await self._ws.send_bytes(pcm)
-                    self._ai_pcm_bytes += len(pcm)
-                except Exception:
-                    self._ws_alive = False
-                    break
-                audio.record(pcm)
+            async with aclosing(merged):
+                async for pcm in merged:
+                    if not self._ws_alive:
+                        break
+                    try:
+                        await self._ws.send_bytes(pcm)
+                        self._ai_pcm_bytes += len(pcm)
+                    except Exception:
+                        self._ws_alive = False
+                        break
+                    audio.record(pcm)
         finally:
             log_metric("fallback_audio", session_id=self._session_id, **audio.as_metrics())
             with suppress(Exception):

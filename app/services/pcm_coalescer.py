@@ -9,6 +9,7 @@ from app.core.metrics import now_ms
 
 DEFAULT_TARGET_MS = 320
 DEFAULT_LEAD_MARGIN_MS = 60.0
+DEFAULT_MAX_QUEUE = 64
 
 
 def target_bytes_for(coalesce_ms: int | None) -> int:
@@ -25,6 +26,7 @@ async def coalesce_pcm(
     lead_margin_ms: float = DEFAULT_LEAD_MARGIN_MS,
     clock: Callable[[], float] | None = None,
     stats: TurnAudioStats | None = None,
+    max_queue: int = DEFAULT_MAX_QUEUE,
 ) -> AsyncIterator[bytes]:
     clock = clock or (lambda: now_ms())
 
@@ -35,7 +37,7 @@ async def coalesce_pcm(
             yield pcm
         return
 
-    queue: asyncio.Queue[bytes | BaseException | None] = asyncio.Queue()
+    queue: asyncio.Queue[bytes | BaseException | None] = asyncio.Queue(maxsize=max(1, max_queue))
 
     async def pump() -> None:
         try:

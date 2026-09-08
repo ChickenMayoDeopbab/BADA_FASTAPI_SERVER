@@ -102,7 +102,7 @@ class TurnAudioStats:
             "audio_ms": audio_ms,
             "odd_chunks": self._odd,
             "send_wall_ms": wall,
-            "arrival_rtf": round(wall / audio_ms, 3) if audio_ms else None,
+            "arrival_rtf": round(wall / (nbytes / BYTES_PER_MS), 3) if nbytes > 0 else None,
             "max_gap_ms": round(max(intervals), 1) if intervals else None,
             "gap0_count": len(starvation_gaps(self._sends, prebuffer_ms=PREBUFFER_NONE_MS)),
             "gap300_count": len(starvation_gaps(self._sends, prebuffer_ms=PREBUFFER_S1_MS)),
