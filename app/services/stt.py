@@ -1,14 +1,19 @@
 import asyncio
 import logging
 from collections.abc import AsyncIterator
+from contextlib import suppress
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Final
 
+from google import genai
 from google.api_core.client_options import ClientOptions
 from google.api_core.exceptions import Aborted, GoogleAPICallError, OutOfRange
 from google.cloud.speech_v2 import SpeechAsyncClient
 from google.cloud.speech_v2.types import cloud_speech as cs
+from google.genai import errors as genai_errors
+from google.genai import types as genai_types
+from websockets.exceptions import ConnectionClosed
 
 logger = logging.getLogger(__name__)
 
@@ -26,12 +31,16 @@ _ABORTED_NO_REQUESTS_MARKER: Final[str] = (
 )
 
 
-class STTIdleTimeoutError(Exception):
-    """오디오 미수신으로 STT 스트림이 정상 종료된 경우(장애 아님)."""
+class STTError(Exception):
+    """STT 엔진 공통 예외"""
 
 
-class STTStreamAbortedError(Exception):
-    """요청 무수신으로 Google이 스트림을 끊은 경우(복구 가능 — 재오픈 대상, 장애 아님)."""
+class STTIdleTimeoutError(STTError):
+    """오디오 미수신으로 STT 스트림이 정상 종료"""
+
+
+class STTStreamAbortedError(STTError):
+    """스트림이 끊긴 경우"""
 
 
 def _is_idle_timeout(exc: GoogleAPICallError) -> bool:
@@ -55,6 +64,8 @@ class STTEvent:
     end_offset_sec: float | None = None
 
 class GoogleSTTClient:
+    multi_utterance: Final[bool] = False
+
     def __init__(
         self,
         project_id: str,
@@ -193,3 +204,138 @@ def _to_seconds(duration) -> float | None:
         nanos = getattr(duration, "nanos", 0)
         return duration.seconds + nanos / 1e9
     return None
+
+
+_WS_CLOSE_CODES: Final = range(1000, 1016)
+
+
+def _is_ws_closure(exc: BaseException) -> bool:
+    if isinstance(exc, ConnectionClosed):
+        return True
+    return isinstance(exc, genai_errors.APIError) and exc.code in _WS_CLOSE_CODES
+
+
+def _closure_code(exc: BaseException) -> int | None:
+    if isinstance(exc, ConnectionClosed):
+        return exc.rcvd.code if exc.rcvd is not None else None
+    return getattr(exc, "code", None)
+
+
+class GeminiLiveSTTClient:
+    """Gemini Live Transcription을 STTEvent 계약으로 감싸기"""
+
+    multi_utterance: Final[bool] = True
+
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        model: str,
+        language: str,
+        silence_duration_ms: int = 500,
+        sample_rate_hertz: int = 16000,
+    ) -> None:
+        self._model = model
+        self._language = language
+        self._silence_duration_ms = silence_duration_ms
+        self._mime_type = f"audio/pcm;rate={sample_rate_hertz}"
+        self._client = genai.Client(api_key=api_key)
+
+    def _build_config(self) -> genai_types.LiveConnectConfig:
+        return genai_types.LiveConnectConfig(
+            response_modalities=["TEXT"],
+            input_audio_transcription=genai_types.AudioTranscriptionConfig(
+                language_codes=[self._language],
+            ),
+            realtime_input_config=genai_types.RealtimeInputConfig(
+                automatic_activity_detection=genai_types.AutomaticActivityDetection(
+                    silence_duration_ms=self._silence_duration_ms,
+                ),
+            ),
+        )
+
+    async def _send_audio(
+        self,
+        session,
+        audio_queue: "asyncio.Queue[bytes | None]",
+        first_chunk: bytes | None,
+    ) -> None:
+        if first_chunk is not None:
+            await session.send_realtime_input(
+                audio=genai_types.Blob(data=first_chunk, mime_type=self._mime_type)
+            )
+        while True:
+            chunk = await audio_queue.get()
+            if chunk is AUDIO_EOS:
+                await session.send_realtime_input(audio_stream_end=True)
+                return
+            await session.send_realtime_input(
+                audio=genai_types.Blob(data=chunk, mime_type=self._mime_type)
+            )
+
+    @staticmethod
+    def _parse_message(message: genai_types.LiveServerMessage) -> list[STTEvent]:
+        events: list[STTEvent] = []
+
+        activity = message.voice_activity
+        if activity is not None:
+            kind = activity.voice_activity_type
+            if kind == genai_types.VoiceActivityType.ACTIVITY_START:
+                events.append(STTEvent(type=STTEventType.SPEECH_BEGIN))
+            elif kind == genai_types.VoiceActivityType.ACTIVITY_END:
+                events.append(STTEvent(type=STTEventType.SPEECH_END))
+
+        content = message.server_content
+        if content is not None:
+            interim = content.interim_input_transcription
+            if interim is not None and interim.text:
+                events.append(STTEvent(type=STTEventType.INTERIM, text=interim.text))
+            final = content.input_transcription
+            if final is not None and final.text:
+                events.append(STTEvent(type=STTEventType.FINAL, text=final.text))
+        return events
+
+    async def stream(
+        self,
+        audio_queue: "asyncio.Queue[bytes | None]",
+        first_chunk: bytes | None = None,
+    ) -> AsyncIterator[STTEvent]:
+        """메인 진입점"""
+        eos_sent = False
+        try:
+            async with self._client.aio.live.connect(
+                model=self._model, config=self._build_config()
+            ) as session:
+
+                async def sender() -> None:
+                    nonlocal eos_sent
+                    await self._send_audio(session, audio_queue, first_chunk)
+                    eos_sent = True
+                    await session.close()
+
+                sender_task = asyncio.create_task(sender())
+                try:
+                    async for message in session.receive():
+                        for event in self._parse_message(message):
+                            yield event
+                except (ConnectionClosed, genai_errors.APIError) as exc:
+                    if not _is_ws_closure(exc):
+                        raise
+                    if eos_sent:
+                        logger.debug("Gemini STT 스트림 정상 종료(EOS)")
+                        return
+                    logger.info("Gemini STT 연결 끊김(%s): 스트림 재오픈 대상", _closure_code(exc))
+                    raise STTStreamAbortedError from exc
+                finally:
+                    if not sender_task.done():
+                        sender_task.cancel()
+                    with suppress(asyncio.CancelledError, Exception):
+                        await sender_task
+        except genai_errors.APIError as exc:
+            logger.exception("Gemini STT API 에러")
+            raise STTError from exc
+        except asyncio.CancelledError:
+            logger.debug("Gemini STT 스트림 취소")
+            raise
+        finally:
+            logger.debug("Gemini STT 스트림 종료")
