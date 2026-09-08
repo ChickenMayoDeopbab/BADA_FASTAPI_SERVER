@@ -1,8 +1,9 @@
 import asyncio
 import json
 import logging
+import math
 import time
-from contextlib import suppress
+from contextlib import aclosing, suppress
 from dataclasses import dataclass
 from enum import StrEnum
 from itertools import zip_longest
@@ -10,6 +11,7 @@ from itertools import zip_longest
 from fastapi import WebSocket, WebSocketDisconnect
 from google.api_core.exceptions import GoogleAPICallError
 
+from app.core.audio_stats import TurnAudioStats
 from app.core.config import Settings
 from app.core.enums import SessionType
 from app.core.metrics import log_metric, now_ms
@@ -31,6 +33,7 @@ from app.schemas.llm import AiEmotion, LLMEventType, TurnContext
 from app.services.feedback_points import Band, is_safe, voice_band
 from app.services.feedback_service import save_feedback
 from app.services.llm import LLMClient
+from app.services.pcm_coalescer import DEFAULT_TARGET_MS, coalesce_pcm, target_bytes_for
 from app.services.qwen_tts import (
     QwenRealtimeTTSClient,
     QwenRealtimeTTSSession,
@@ -93,6 +96,36 @@ def _segment_fallback(kind: str) -> tuple[str, str]:
 def _clip(text: str, limit: int = 120) -> str:
     """진단 로그용 텍스트 길이 상한"""
     return text if len(text) <= limit else text[:limit] + "…"
+
+
+_PLAYBACK_NUMERIC_FIELDS = (
+    "turn",            # 클라가 센 AI 발화 턴 순번
+    "chunks",          # 받은 PCM 청크 수
+    "gaps80",          # 청크 사이 80ms 이상 재생 갭 수
+    "max_gap_ms",      # 최대 재생 갭
+    "total_gap_ms",    # 재생 갭 합
+    "played_ms",       # 실제 재생한 오디오 길이
+    "dropped_chunks",  # resetStream 등으로 버린 청크 수(잘림 판정)
+    "first_play_ms",   # 첫 청크 도착→재생 시작
+)
+_PLAYBACK_TEXT_FIELDS = ("route", "platform", "os", "app_version")
+_PLAYBACK_TEXT_MAX = 32
+
+
+def _sanitize_playback_stats(data: dict) -> dict:
+    out: dict = {}
+    for key in _PLAYBACK_NUMERIC_FIELDS:
+        value = data.get(key)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            continue
+        if isinstance(value, float) and not math.isfinite(value):
+            continue
+        out[key] = value
+    for key in _PLAYBACK_TEXT_FIELDS:
+        value = data.get(key)
+        if isinstance(value, str) and 0 < len(value) <= _PLAYBACK_TEXT_MAX and value.isprintable():
+            out[key] = value
+    return out
 
 
 class _State(StrEnum):
@@ -283,6 +316,12 @@ class VoicePipeline:
             await self._send_json({"type": "pong"})
         elif mtype == "mute":
             self._muted = bool(data.get("muted", False))
+        elif mtype == "playback_stats":
+            log_metric(
+                "client_playback",
+                session_id=self._session_id,
+                **_sanitize_playback_stats(data),
+            )
 
     async def _stt_consumer(self) -> None:
         """stt 소비 발화마다 스트림 재오픈함"""
@@ -405,6 +444,7 @@ class VoicePipeline:
         connect_task = asyncio.create_task(self._open_tts())
         text_q: asyncio.Queue[str | None] = asyncio.Queue()
         emotion_ready = asyncio.Event()
+        audio = TurnAudioStats()
         ai_parts: list[str] = []
         flags = {
             "step_done": False,
@@ -471,18 +511,25 @@ class VoicePipeline:
                     yield chunk
 
             self._state = _State.SPEAKING
-            async for pcm in tts.stream(text_source()):
-                if not self._ws_alive:
-                    break
-                try:
-                    await self._ws.send_bytes(pcm)
-                    self._ai_pcm_bytes += len(pcm)
-                except Exception:
-                    self._ws_alive = False
-                    break
-                if timings.first_pcm_at is None:
-                    timings.first_pcm_at = now_ms()
-                timings.last_pcm_at = now_ms()
+            merged = coalesce_pcm(
+                tts.stream(text_source()),
+                target_bytes=self._coalesce_target_bytes(),
+                stats=audio,
+            )
+            async with aclosing(merged):
+                async for pcm in merged:
+                    if not self._ws_alive:
+                        break
+                    try:
+                        await self._ws.send_bytes(pcm)
+                        self._ai_pcm_bytes += len(pcm)
+                    except Exception:
+                        self._ws_alive = False
+                        break
+                    audio.record(pcm)
+                    if timings.first_pcm_at is None:
+                        timings.first_pcm_at = now_ms()
+                    timings.last_pcm_at = now_ms()
             await self._send_json(speaking_end_frame())
 
         produce_task = asyncio.create_task(produce())
@@ -531,6 +578,7 @@ class VoicePipeline:
             usage,
             ctx=ctx,
             suggestion=suggestion_box["text"],
+            audio=audio,
         )
 
     async def _salvage_cancelled_turn(
@@ -626,6 +674,7 @@ class VoicePipeline:
         *,
         ctx: TurnContext,
         suggestion: str | None = None,
+        audio: TurnAudioStats | None = None,
     ) -> None:
         ai_text = "".join(ai_parts).strip()
 
@@ -669,6 +718,7 @@ class VoicePipeline:
             llm_prompt_tokens=usage["prompt"],
             llm_cached_tokens=usage["cached"],
             **timings.as_metrics(),
+            **(audio.as_metrics() if audio is not None else {}),
         )
         logger.info(
             "턴 완료 step=%s user=%r ai=%r",
@@ -729,8 +779,15 @@ class VoicePipeline:
         await self._send_json(transcript_frame(TranscriptRole.AI, _TURN_FALLBACK_TEXT))
         await self._send_json(speaking_end_frame())
 
+    def _coalesce_target_bytes(self) -> int:
+        """송출 병합 단위(바이트)"""
+        settings = getattr(self, "_settings", None)
+        coalesce_ms = getattr(settings, "tts_coalesce_ms", DEFAULT_TARGET_MS)
+        return target_bytes_for(coalesce_ms)
+
     async def _speak_fallback(self) -> None:
         session = await self._open_tts()
+        audio = TurnAudioStats()
         try:
             await session.begin(AiEmotion.NEUTRAL)
             await self._send_json(emotion_frame(AiEmotion.NEUTRAL))
@@ -739,16 +796,24 @@ class VoicePipeline:
                 yield _TURN_FALLBACK_TEXT
 
             self._state = _State.SPEAKING
-            async for pcm in session.stream(_text()):
-                if not self._ws_alive:
-                    break
-                try:
-                    await self._ws.send_bytes(pcm)
-                    self._ai_pcm_bytes += len(pcm)
-                except Exception:
-                    self._ws_alive = False
-                    break
+            merged = coalesce_pcm(
+                session.stream(_text()),
+                target_bytes=self._coalesce_target_bytes(),
+                stats=audio,
+            )
+            async with aclosing(merged):
+                async for pcm in merged:
+                    if not self._ws_alive:
+                        break
+                    try:
+                        await self._ws.send_bytes(pcm)
+                        self._ai_pcm_bytes += len(pcm)
+                    except Exception:
+                        self._ws_alive = False
+                        break
+                    audio.record(pcm)
         finally:
+            log_metric("fallback_audio", session_id=self._session_id, **audio.as_metrics())
             with suppress(Exception):
                 await session.aclose()
 
@@ -901,8 +966,6 @@ class VoicePipeline:
         feedback = {
             "shake_count": shake_count,
             "silence_total": self._silence_total,
-            # 문구는 아직 없다(end 프레임 뒤에 채운다). 판단 재료(turn·avti·reason)는
-            # 내부용이라 클라이언트로 내보내지 않는다.
             "good_segments": [
                 {"start": seg["start"], "end": seg["end"], "type": seg["type"]}
                 for seg in good_segments

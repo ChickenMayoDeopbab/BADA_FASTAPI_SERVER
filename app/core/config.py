@@ -61,6 +61,7 @@ class Settings(BaseSettings):
     qwen_tts_timeout: float = 30.0
     qwen_tts_health_timeout: float = 1.0
     qwen_tts_realtime_enabled: bool = False
+    tts_coalesce_ms: int = 320
 
     # Internal callback
     spring_boot_internal_url: str

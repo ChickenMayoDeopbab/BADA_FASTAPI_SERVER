@@ -29,6 +29,15 @@ from contextlib import suppress
 from pathlib import Path
 from urllib.parse import urlencode
 
+# 레포 루트를 경로에 넣어 `python scripts/ws_listen.py` 로도 app 모듈을 찾게 한다.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from app.core.audio_stats import (  # noqa: E402
+    GAP_THRESHOLD_MS,
+    starvation,
+    starvation_gaps,
+)
+
 _SR = 16000
 _SAMPLE_BYTES = 2
 _BYTES_PER_S = _SR * _SAMPLE_BYTES
@@ -43,8 +52,9 @@ class Recorder:
         self._chunks: list[tuple[float, bytes]] = []
         self._t0: float | None = None
 
-    def add(self, pcm: bytes) -> None:
-        now = time.perf_counter()
+    def add(self, pcm: bytes, at: float | None = None) -> None:
+        """도착한 PCM 을 기록한다. `at`(초) 를 주면 그 시각으로(테스트·재현용)."""
+        now = time.perf_counter() if at is None else at
         if self._t0 is None:
             self._t0 = now
         self._chunks.append((now - self._t0, pcm))
@@ -57,20 +67,25 @@ class Recorder:
         return b"".join(pcm for _, pcm in self._chunks)
 
     def as_heard(self) -> tuple[bytes, list[tuple[float, float]]]:
-        """재생 헤드가 굶은 만큼 무음을 끼워 넣는다. (오디오, [(재생시각, 무음길이)])"""
+        """재생 헤드가 굶은 만큼 무음을 끼워 넣는다. (오디오, [(재생시각 s, 무음길이 s)])
+
+        굶음 계산은 서버 지표(voice_turn 의 gap0/gap300_count)와 같은 함수를 쓴다 — 계층 간 비교 가능.
+        """
+        sends = [(arrived * 1000.0, len(pcm)) for arrived, pcm in self._chunks]
+        starves = starvation(sends, prebuffer_ms=self._jitter * 1000.0)
         out: list[bytes] = []
-        gaps: list[tuple[float, float]] = []
-        played = 0.0  # 지금까지 재생한 오디오 길이(s)
-        for arrived, pcm in self._chunks:
-            playhead = self._jitter + played
-            starve = arrived - playhead
-            if starve > 0:
-                out.append(b"\x00" * (int(starve * _SR) * _SAMPLE_BYTES))
-                played += starve
-                if starve >= self._gap_threshold:
-                    gaps.append((played, starve))
+        for (_, pcm), starve_ms in zip(self._chunks, starves, strict=True):
+            if starve_ms > 0:
+                out.append(b"\x00" * (int(starve_ms / 1000.0 * _SR) * _SAMPLE_BYTES))
             out.append(pcm)
-            played += len(pcm) / _BYTES_PER_S
+        gaps = [
+            (at_ms / 1000.0, dur_ms / 1000.0)
+            for at_ms, dur_ms in starvation_gaps(
+                sends,
+                prebuffer_ms=self._jitter * 1000.0,
+                threshold_ms=self._gap_threshold * 1000.0,
+            )
+        ]
         return b"".join(out), gaps
 
     def report(self) -> list[tuple[float, float]]:
@@ -199,7 +214,7 @@ async def _run_ws(args: argparse.Namespace, rec: Recorder) -> None:
                 await sender
 
 
-def main() -> None:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="mode", required=True)
 
@@ -207,7 +222,8 @@ def main() -> None:
     common.add_argument("--out", default="/tmp/ws_listen", help="출력 wav 접두사")
     common.add_argument("--jitter-ms", type=float, default=0.0,
                         help="클라 선재생 버퍼 가정(ms). 0 이면 도착 즉시 재생하는 최악 조건")
-    common.add_argument("--gap-ms", type=float, default=30.0, help="끊김으로 볼 무음 하한(ms)")
+    common.add_argument("--gap-ms", type=float, default=GAP_THRESHOLD_MS,
+                        help="끊김으로 볼 무음 하한(ms). 기본은 서버 지표와 같은 조작적 정의(80)")
     common.add_argument("--turn-timeout", type=float, default=60.0)
     common.add_argument("--play", action="store_true", help="끝나고 asheard.wav 를 ffplay 로 재생")
 
@@ -225,7 +241,11 @@ def main() -> None:
     p_ws.add_argument("--chunk-ms", type=int, default=100)
     p_ws.add_argument("--tail-silence-ms", type=int, default=800)
     p_ws.add_argument("--timeout", type=float, default=10.0)
+    return parser
 
+
+def main() -> None:
+    parser = build_parser()
     args = parser.parse_args()
     if args.mode == "ws" and not args.url and not args.session_id:
         parser.error("--url 또는 --session-id 중 하나는 필요합니다.")
