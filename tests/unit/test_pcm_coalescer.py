@@ -210,3 +210,20 @@ async def test_records_engine_chunks_into_stats() -> None:
     assert m["engine_chunks"] == 3
     assert m["pcm_chunks"] == len(out)
     assert m["odd_chunks"] == 0
+
+
+@pytest.mark.asyncio
+async def test_bounded_queue_applies_backpressure_to_engine() -> None:
+    pulled = {"n": 0}
+
+    async def src():
+        for _ in range(200):
+            pulled["n"] += 1
+            yield b"\x00" * 1600
+            await asyncio.sleep(0)
+
+    agen = coalesce_pcm(src(), target_bytes=_TARGET, clock=_clock([0.0, -1e9]), max_queue=4)
+    await anext(agen)
+    await asyncio.sleep(0.05)
+    assert pulled["n"] <= 4 + 2
+    await agen.aclose()

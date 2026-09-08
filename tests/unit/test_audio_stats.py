@@ -185,3 +185,12 @@ def test_engine_chunks_default_zero_and_counts_record_engine() -> None:
     stats.record_engine(b"\x00" * 3200)
     assert stats.as_metrics()["engine_chunks"] == 2
     assert stats.as_metrics()["pcm_chunks"] == 0
+
+
+def test_arrival_rtf_survives_audio_ms_rounding_to_zero() -> None:
+    stats = TurnAudioStats(clock=_clock([0.0, 100.0]))
+    stats.record(b"\x00")
+    stats.record(b"\x00")
+    m = stats.as_metrics()
+    assert m["audio_ms"] == 0.1
+    assert m["arrival_rtf"] == round(100.0 / (2 / 32), 3)

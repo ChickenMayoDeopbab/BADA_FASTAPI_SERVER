@@ -119,7 +119,7 @@ async def test_voice_turn_carries_send_stats(caplog, monkeypatch) -> None:
     assert rec.max_gap_ms == 250.0
     assert rec.gap0_count == 2
     assert rec.gap300_count == 0
-    assert rec.arrival_rtf == round(500.0 / rec.audio_ms, 3)
+    assert rec.arrival_rtf == round(500.0 / (rec.pcm_bytes / 32), 3)
     assert p._ai_pcm_bytes == 2 * _100MS + 3201
 
 

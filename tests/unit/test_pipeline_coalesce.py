@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.schemas.llm import AiEmotion, LLMEvent, LLMEventType
+from app.services import pipeline as pipeline_mod
 from app.services.pipeline import VoicePipeline, _State, _TurnTimings
 
 _SRC = [b"\x01" * 3201, b"\x02" * 7, b"\x03" * 1600] + [b"\x04" * 3200] * 5
@@ -139,3 +140,57 @@ async def test_fallback_speech_is_merged_too(caplog) -> None:
     assert b"".join(p._ws.pcm) == b"".join(_SRC)
     recs = [r for r in caplog.records if getattr(r, "metric", None) == "fallback_audio"]
     assert len(recs) == 1 and recs[0].engine_chunks == len(_SRC)
+
+
+@pytest.mark.asyncio
+async def test_ws_death_closes_merged_generator_immediately(monkeypatch) -> None:
+    events: list[str] = []
+
+    class _ManyChunkSession(_OddChunkTTSSession):
+        async def stream(self, text_source):
+            async for _ in text_source:
+                pass
+            try:
+                for _ in range(50):
+                    yield b"\x00" * 3200
+                    await asyncio.sleep(0)
+            finally:
+                events.append("stream_closed")
+
+    class _DyingWS(_FakeWS):
+        async def send_bytes(self, data: bytes) -> None:
+            if len(self.pcm) == 1:
+                events.append("send_failed")
+                raise RuntimeError("closed")
+            self.pcm.append(data)
+
+    class _Client:
+        async def open(self, voice_id=None):
+            return _ManyChunkSession()
+
+    real = pipeline_mod.coalesce_pcm
+
+    def _observed(*args, **kwargs):
+        gen = real(*args, **kwargs)
+
+        class _Proxy:
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                return await gen.__anext__()
+
+            async def aclose(self):
+                events.append("aclose")
+                await gen.aclose()
+
+        return _Proxy()
+
+    monkeypatch.setattr(pipeline_mod, "coalesce_pcm", _observed)
+    p = _make_pipeline(coalesce_ms=320)
+    p._tts = _Client()
+    p._ws = _DyingWS()
+
+    await asyncio.wait_for(p._run_turn("여보세요", _TurnTimings(final_at=0.0)), timeout=2.0)
+
+    assert events[:3] == ["send_failed", "aclose", "stream_closed"]
