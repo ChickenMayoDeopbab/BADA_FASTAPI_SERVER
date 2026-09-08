@@ -6,7 +6,7 @@ dependencies = [
     # Core
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
-    "pydantic>=2.9",
+    "pydantic>=2.12.5",
     "pydantic-settings>=2.5",
     "python-json-logger>=2.0.7",
 
@@ -24,7 +24,7 @@ dependencies = [
 
     # AI Pipeline
     "google-cloud-speech>=2.33",
-    "google-genai>=1.0",
+    "google-genai>=2.13",
     "anthropic>=0.52",
     "elevenlabs>=1.50",
     "PyJWT>=2.9",
