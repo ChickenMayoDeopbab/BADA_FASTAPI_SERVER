@@ -1,5 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -28,6 +29,9 @@ class Settings(BaseSettings):
     google_stt_location: str = "asia-northeast1"
     google_stt_model: str = "chirp_3"
     google_stt_language: str = "ko-KR"
+    stt_engine: Literal["chirp", "gemini_live"] = "chirp"
+    gemini_stt_model: str = "gemini-3.5-transcribe-live"
+    gemini_stt_silence_ms: int = 500
 
     # LLM(실시간)
     gemini_api_key: str

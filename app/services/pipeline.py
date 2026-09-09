@@ -50,10 +50,11 @@ from app.services.session import (
 from app.services.spring_client import SpringInternalClient
 from app.services.stt import (
     AUDIO_EOS,
-    GoogleSTTClient,
+    STTError,
     STTEventType,
     STTIdleTimeoutError,
     STTStreamAbortedError,
+    build_stt_client,
 )
 from app.services.training_analysis import TrainingPerformanceAnalyzer
 from app.services.tremor import TremorAnalyzer
@@ -182,12 +183,7 @@ class VoicePipeline:
         self._settings = settings
         self._spring = spring
 
-        self._stt = GoogleSTTClient(
-            project_id=settings.google_project_id,
-            location=settings.google_stt_location,
-            model=settings.google_stt_model,
-            language=settings.google_stt_language,
-        )
+        self._stt = build_stt_client(settings)
         self._llm = LLMClient()
         self._difficulty = parse_difficulty(session)
         self._tts = ElevenLabsTTSClient(settings, self._difficulty)
@@ -341,7 +337,7 @@ class VoicePipeline:
                 extra={"session_id": self._session_id},
             )
             await self._close(EndReason.NO_AUDIO)
-        except GoogleAPICallError:
+        except (GoogleAPICallError, STTError):
             logger.exception("STT 스트리밍 실패", extra={"session_id": self._session_id})
             await self._close(EndReason.ERROR)
         except asyncio.CancelledError:
@@ -361,7 +357,8 @@ class VoicePipeline:
         try:
             async for event in stream:
                 await self._handle_stt_event(event)
-                if event.type == STTEventType.FINAL or time.monotonic() >= recycle_at:
+                final_closes = event.type == STTEventType.FINAL and not self._stt.multi_utterance
+                if final_closes or time.monotonic() >= recycle_at:
                     break
         finally:
             if not self._closing.is_set() and self._audio_queue is queue:

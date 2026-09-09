@@ -194,6 +194,23 @@ class GoogleSTTClient:
         finally:
             logger.debug("STT 스트림 종료")
 
+def build_stt_client(settings) -> "GoogleSTTClient | GeminiLiveSTTClient":
+    """settings.stt_engine 에 따라 STT 클라이언트를 만든다"""
+    if settings.stt_engine == "gemini_live":
+        return GeminiLiveSTTClient(
+            api_key=settings.gemini_api_key,
+            model=settings.gemini_stt_model,
+            language=settings.google_stt_language,
+            silence_duration_ms=settings.gemini_stt_silence_ms,
+        )
+    return GoogleSTTClient(
+        project_id=settings.google_project_id,
+        location=settings.google_stt_location,
+        model=settings.google_stt_model,
+        language=settings.google_stt_language,
+    )
+
+
 def _to_seconds(duration) -> float | None:
     """시간 객체 초로 바꾸는 함수"""
     if duration is None:
