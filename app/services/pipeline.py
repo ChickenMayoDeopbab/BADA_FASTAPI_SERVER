@@ -50,6 +50,7 @@ from app.services.session import (
 from app.services.spring_client import SpringInternalClient
 from app.services.stt import (
     AUDIO_EOS,
+    STREAM_LIMIT_SECONDS,
     STTError,
     STTEventType,
     STTIdleTimeoutError,
@@ -70,7 +71,9 @@ _BARGE_IN_MIN_CHARS = 2
 _STT_RECYCLE_SECONDS = 240.0
 # 경계(FINAL/SPEECH_END)가 오래 안 오는 스트림(연속 발화·소음)의 안전망: 이 시각을 넘기면 어떤 이벤트에서든 닫는다.
 # Google STT v2 의 5분 강제 종료(stt.STREAM_LIMIT_SECONDS)보다 앞서야 한다.
-_STT_RECYCLE_HARD_SECONDS = 285.0
+# 엔진이 스스로 끊기 전에 우리가 먼저 닫을 여유. 리터럴로 두면 엔진 상한이 바뀔 때 조용히 어긋난다.
+_STT_HARD_RECYCLE_LEAD = 15.0
+_STT_RECYCLE_HARD_SECONDS = STREAM_LIMIT_SECONDS - _STT_HARD_RECYCLE_LEAD
 _STT_WATCHDOG_TICK_SECONDS = 1.0
 _STT_REOPEN_BACKOFF_SECONDS = (0.0, 0.5, 1.0, 2.0, 4.0)
 _STT_REOPEN_MAX_CONSECUTIVE = 5
@@ -472,6 +475,8 @@ class VoicePipeline:
                     if self._stt.multi_utterance and not self._closing.is_set():
                         self._half_close(queue)
                         await asyncio.wait({consume}, timeout=_STT_FLUSH_SECONDS)
+                        if consume.done():
+                            await consume
                     return
                 silent_ms = self._silent_ms(opened_at_ms)
                 if silent_ms >= _STT_NO_AUDIO_TIMEOUT * 1000:
@@ -498,6 +503,10 @@ class VoicePipeline:
                 consume.cancel()
                 with suppress(asyncio.CancelledError):
                     await consume
+            elif not consume.cancelled():
+                # 회수만 한다 — 전파 중인 예외를 덮지 않으면서
+                # "Task exception was never retrieved" 경고를 막는다.
+                consume.exception()
 
     async def _wait_first_chunk(
         self, queue: "asyncio.Queue[bytes | None]"

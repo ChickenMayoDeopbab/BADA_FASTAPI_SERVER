@@ -310,8 +310,14 @@ class GeminiLiveSTTClient:
             if interim is not None and interim.text:
                 events.append(STTEvent(type=STTEventType.INTERIM, text=interim.text))
             final = content.input_transcription
-            if final is not None and final.text and final.finished is not False:
-                events.append(STTEvent(type=STTEventType.FINAL, text=final.text))
+            if final is not None and final.text:
+                if final.finished is False:
+                    logger.warning(
+                        "Gemini STT 증분 전사(finished=False) 수신 — 조각을 버렸다: %r",
+                        final.text[:40],
+                    )
+                else:
+                    events.append(STTEvent(type=STTEventType.FINAL, text=final.text))
         return events
 
     async def stream(
