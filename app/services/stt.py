@@ -13,7 +13,7 @@ from google.cloud.speech_v2 import SpeechAsyncClient
 from google.cloud.speech_v2.types import cloud_speech as cs
 from google.genai import errors as genai_errors
 from google.genai import types as genai_types
-from websockets.exceptions import ConnectionClosed
+from websockets.exceptions import ConnectionClosed, WebSocketException
 
 logger = logging.getLogger(__name__)
 
@@ -310,7 +310,7 @@ class GeminiLiveSTTClient:
             if interim is not None and interim.text:
                 events.append(STTEvent(type=STTEventType.INTERIM, text=interim.text))
             final = content.input_transcription
-            if final is not None and final.text:
+            if final is not None and final.text and final.finished is not False:
                 events.append(STTEvent(type=STTEventType.FINAL, text=final.text))
         return events
 
@@ -370,8 +370,19 @@ class GeminiLiveSTTClient:
                 if sender_exc is not None:
                     raise STTStreamAbortedError from sender_exc
         except genai_errors.APIError as exc:
+            if _is_ws_closure(exc):
+                logger.info(
+                    "Gemini STT 연결 단계 종료(%s): 스트림 재오픈 대상", _closure_code(exc)
+                )
+                raise STTStreamAbortedError from exc
             logger.exception("Gemini STT API 에러")
             raise STTError from exc
+        except WebSocketException as exc:
+            logger.info("Gemini STT 웹소켓 연결 실패(%s): 스트림 재오픈 대상", type(exc).__name__)
+            raise STTStreamAbortedError from exc
+        except OSError as exc:
+            logger.info("Gemini STT 연결 실패(%s): 스트림 재오픈 대상", exc)
+            raise STTStreamAbortedError from exc
         except asyncio.CancelledError:
             logger.debug("Gemini STT 스트림 취소")
             raise
