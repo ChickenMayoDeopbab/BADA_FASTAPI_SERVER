@@ -319,16 +319,24 @@ class GeminiLiveSTTClient:
     ) -> AsyncIterator[STTEvent]:
         """메인 진입점"""
         eos_sent = False
+        sender_exc: Exception | None = None
         try:
             async with self._client.aio.live.connect(
                 model=self._model, config=self._build_config()
             ) as session:
 
                 async def sender() -> None:
-                    nonlocal eos_sent
-                    await self._send_audio(session, audio_queue, first_chunk)
-                    eos_sent = True
-                    await session.close()
+                    nonlocal eos_sent, sender_exc
+                    try:
+                        await self._send_audio(session, audio_queue, first_chunk)
+                        eos_sent = True
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as exc:
+                        sender_exc = exc
+                        logger.warning("Gemini STT 송신 실패(%s: %s): 세션을 닫고 재오픈한다", type(exc).__name__, exc)
+                    with suppress(Exception):
+                        await session.close()
 
                 sender_task = asyncio.create_task(sender())
                 try:
@@ -338,6 +346,8 @@ class GeminiLiveSTTClient:
                 except (ConnectionClosed, genai_errors.APIError) as exc:
                     if not _is_ws_closure(exc):
                         raise
+                    if sender_exc is not None:
+                        raise STTStreamAbortedError from sender_exc
                     if eos_sent:
                         logger.debug("Gemini STT 스트림 정상 종료(EOS)")
                         return
@@ -346,8 +356,10 @@ class GeminiLiveSTTClient:
                 finally:
                     if not sender_task.done():
                         sender_task.cancel()
-                    with suppress(asyncio.CancelledError, Exception):
+                    with suppress(asyncio.CancelledError):
                         await sender_task
+                if sender_exc is not None:
+                    raise STTStreamAbortedError from sender_exc
         except genai_errors.APIError as exc:
             logger.exception("Gemini STT API 에러")
             raise STTError from exc

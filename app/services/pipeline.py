@@ -68,6 +68,9 @@ logger = logging.getLogger(__name__)
 _BARGE_IN_ENABLED = False
 _BARGE_IN_MIN_CHARS = 2
 _STT_RECYCLE_SECONDS = 240.0
+# 경계(FINAL/SPEECH_END)가 오래 안 오는 스트림(연속 발화·소음)의 안전망: 이 시각을 넘기면 어떤 이벤트에서든 닫는다.
+# Google STT v2 의 5분 강제 종료(stt.STREAM_LIMIT_SECONDS)보다 앞서야 한다.
+_STT_RECYCLE_HARD_SECONDS = 285.0
 # 첫 오디오 청크 대기 상한. 초과 시 NO_AUDIO 정상 종료 (Google 의존이던 무오디오 감지를 서버 주도로 대체).
 # 긴 TTS 재생(~20s) 중 클라 mute 를 견디도록 여유 있게 잡음. 최후 방어는 세션 최대시간 타이머.
 _STT_NO_AUDIO_TIMEOUT = 60.0
@@ -352,14 +355,17 @@ class VoicePipeline:
         if first_chunk is AUDIO_EOS:
             return
 
-        recycle_at = time.monotonic() + _STT_RECYCLE_SECONDS
+        started = time.monotonic()
+        recycle_at = started + _STT_RECYCLE_SECONDS
+        hard_at = started + _STT_RECYCLE_HARD_SECONDS
         stream = self._stt.stream(queue, first_chunk=first_chunk)
         try:
             async for event in stream:
                 await self._handle_stt_event(event)
                 final_closes = event.type == STTEventType.FINAL and not self._stt.multi_utterance
                 at_boundary = event.type in (STTEventType.FINAL, STTEventType.SPEECH_END)
-                if final_closes or (at_boundary and time.monotonic() >= recycle_at):
+                now = time.monotonic()
+                if final_closes or (at_boundary and now >= recycle_at) or now >= hard_at:
                     break
         finally:
             if not self._closing.is_set() and self._audio_queue is queue:
