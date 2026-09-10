@@ -342,3 +342,64 @@ async def test_boundary_recycle_also_half_closes_and_drains(monkeypatch) -> None
     assert session.eos_received, "경계 재활용에서 half-close 가 안 나갔다"
     finals = [e.text for e in handled if e.type == STTEventType.FINAL]
     assert finals == ["다음 주 화요일이요", "다음 주 화요일로 바꿔주세요"]
+
+
+class _FailingTailSTT:
+    multi_utterance = True
+
+    def stream(self, queue, first_chunk=None):
+        async def _gen():
+            yield STTEvent(type=STTEventType.INTERIM, text="다음 주")
+            await asyncio.sleep(0.05)
+            raise STTError("플러시 중 장애")
+            yield  # pragma: no cover - async generator 마커
+
+        return _gen()
+
+
+async def test_failure_during_hard_deadline_flush_is_not_swallowed(monkeypatch) -> None:
+    monkeypatch.setattr(pipeline_module, "_STT_RECYCLE_SECONDS", 0.01)
+    monkeypatch.setattr(pipeline_module, "_STT_RECYCLE_HARD_SECONDS", 0.02)
+    monkeypatch.setattr(pipeline_module, "_STT_NO_AUDIO_TIMEOUT", 30.0)
+    p, _ = _flush_pipeline(_FailingTailSTT())
+    queue: asyncio.Queue = asyncio.Queue()
+    queue.put_nowait(b"pcm")
+    with pytest.raises(STTError):
+        await asyncio.wait_for(p._consume_one_stream(queue), timeout=5.0)
+
+
+def test_incremental_chunk_is_dropped_but_logged(caplog) -> None:
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="app.services.stt"):
+        events = stt_module.GeminiLiveSTTClient._parse_message(_msg(text="안녕", finished=False))
+    assert events == []
+    assert any("finished=False" in r.getMessage() for r in caplog.records)
+
+
+def test_observed_server_shape_interims_accumulate_then_one_complete_final() -> None:
+    interims = ["이름은", "이름은 김민준이고", "이름은 김민준이고요. 생년월일은 1998년 3월 15일이에요."]
+    seen: list[STTEvent] = []
+    for text in interims:
+        seen += stt_module.GeminiLiveSTTClient._parse_message(
+            types.LiveServerMessage(
+                server_content=types.LiveServerContent(
+                    interim_input_transcription=types.Transcription(text=text)
+                )
+            )
+        )
+    seen += stt_module.GeminiLiveSTTClient._parse_message(
+        _msg(text="이름은 김민준이고요, 생년월일은 1998년 3월 15일이에요.")
+    )
+    assert [e.type for e in seen] == [STTEventType.INTERIM] * 3 + [STTEventType.FINAL]
+    assert seen[2].text.startswith(interims[0])
+    assert seen[-1].text.startswith(interims[0])
+
+
+def test_hard_deadline_is_derived_from_the_engine_stream_limit() -> None:
+    assert pipeline_module._STT_RECYCLE_HARD_SECONDS < stt_module.STREAM_LIMIT_SECONDS
+    assert pipeline_module._STT_RECYCLE_SECONDS < pipeline_module._STT_RECYCLE_HARD_SECONDS
+    assert (
+        pipeline_module._STT_RECYCLE_HARD_SECONDS
+        == stt_module.STREAM_LIMIT_SECONDS - pipeline_module._STT_HARD_RECYCLE_LEAD
+    )
