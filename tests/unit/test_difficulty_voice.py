@@ -175,7 +175,7 @@ def test_emotion_table_is_not_mutated_by_composition() -> None:
 
 
 def test_pipeline_wires_difficulty_into_voice_and_tts_client(registry, monkeypatch) -> None:
-    monkeypatch.setattr(pipeline_module, "GoogleSTTClient", lambda **kw: object())
+    monkeypatch.setattr(pipeline_module, "build_stt_client", lambda settings: object())
     monkeypatch.setattr(pipeline_module, "LLMClient", lambda: object())
     monkeypatch.setattr(pipeline_module, "RecordingStorageService", lambda s: object())
 
@@ -196,7 +196,7 @@ def test_pipeline_wires_difficulty_into_voice_and_tts_client(registry, monkeypat
 
 
 def test_pipeline_without_difficulty_keeps_assigned_voice(registry, monkeypatch) -> None:
-    monkeypatch.setattr(pipeline_module, "GoogleSTTClient", lambda **kw: object())
+    monkeypatch.setattr(pipeline_module, "build_stt_client", lambda settings: object())
     monkeypatch.setattr(pipeline_module, "LLMClient", lambda: object())
     monkeypatch.setattr(pipeline_module, "RecordingStorageService", lambda s: object())
 

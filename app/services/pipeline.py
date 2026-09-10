@@ -50,10 +50,13 @@ from app.services.session import (
 from app.services.spring_client import SpringInternalClient
 from app.services.stt import (
     AUDIO_EOS,
-    GoogleSTTClient,
+    EOS_GRACE_SECONDS,
+    STREAM_LIMIT_SECONDS,
+    STTError,
     STTEventType,
     STTIdleTimeoutError,
     STTStreamAbortedError,
+    build_stt_client,
 )
 from app.services.training_analysis import TrainingPerformanceAnalyzer
 from app.services.tremor import TremorAnalyzer
@@ -67,6 +70,16 @@ logger = logging.getLogger(__name__)
 _BARGE_IN_ENABLED = False
 _BARGE_IN_MIN_CHARS = 2
 _STT_RECYCLE_SECONDS = 240.0
+# 경계(FINAL/SPEECH_END)가 오래 안 오는 스트림(연속 발화·소음)의 안전망: 이 시각을 넘기면 어떤 이벤트에서든 닫는다.
+# Google STT v2 의 5분 강제 종료(stt.STREAM_LIMIT_SECONDS)보다 앞서야 한다.
+# 엔진이 스스로 끊기 전에 우리가 먼저 닫을 여유. 리터럴로 두면 엔진 상한이 바뀔 때 조용히 어긋난다.
+_STT_HARD_RECYCLE_LEAD = 15.0
+_STT_RECYCLE_HARD_SECONDS = STREAM_LIMIT_SECONDS - _STT_HARD_RECYCLE_LEAD
+_STT_WATCHDOG_TICK_SECONDS = 1.0
+_STT_REOPEN_BACKOFF_SECONDS = (0.0, 0.5, 1.0, 2.0, 4.0)
+_STT_REOPEN_MAX_CONSECUTIVE = 5
+_STT_REOPEN_HEALTHY_SECONDS = 30.0
+_STT_FLUSH_SECONDS = EOS_GRACE_SECONDS + 0.5
 # 첫 오디오 청크 대기 상한. 초과 시 NO_AUDIO 정상 종료 (Google 의존이던 무오디오 감지를 서버 주도로 대체).
 # 긴 TTS 재생(~20s) 중 클라 mute 를 견디도록 여유 있게 잡음. 최후 방어는 세션 최대시간 타이머.
 _STT_NO_AUDIO_TIMEOUT = 60.0
@@ -182,12 +195,7 @@ class VoicePipeline:
         self._settings = settings
         self._spring = spring
 
-        self._stt = GoogleSTTClient(
-            project_id=settings.google_project_id,
-            location=settings.google_stt_location,
-            model=settings.google_stt_model,
-            language=settings.google_stt_language,
-        )
+        self._stt = build_stt_client(settings)
         self._llm = LLMClient()
         self._difficulty = parse_difficulty(session)
         self._tts = ElevenLabsTTSClient(settings, self._difficulty)
@@ -202,6 +210,8 @@ class VoicePipeline:
         self._ws_alive = True
         self._time_up = False
         self._last_audio_at: float | None = None
+        self._stream_opened_at: float | None = None
+        self._stream_had_event = False
 
         self._turn_task: asyncio.Task | None = None
         self._closing = asyncio.Event()
@@ -326,26 +336,67 @@ class VoicePipeline:
     async def _stt_consumer(self) -> None:
         """stt 소비 발화마다 스트림 재오픈함"""
         try:
+            consecutive = 0
             while not self._closing.is_set():
+                self._stream_opened_at = None
+                self._stream_had_event = False
+                aborted: STTStreamAbortedError | None = None
                 try:
                     await self._consume_one_stream(self._audio_queue)
-                except STTStreamAbortedError:
-                    # 무요청 ABORTED는 복구 가능 — 세션 유지, 스트림만 재오픈
-                    logger.info(
-                        "STT 무요청 ABORTED — 스트림 재오픈",
+                except STTStreamAbortedError as exc:
+                    aborted = exc
+                if self._closing.is_set():
+                    return
+                if self._stream_was_productive():
+                    consecutive = 0
+                    if aborted is not None:
+                        logger.info(
+                            "STT 스트림 끊김 — 재오픈",
+                            extra={"session_id": self._session_id},
+                        )
+                    continue
+                consecutive += 1
+                if consecutive > _STT_REOPEN_MAX_CONSECUTIVE:
+                    logger.warning(
+                        "STT 스트림 재오픈 %d회 연속 실패 — 복구 포기",
+                        consecutive,
                         extra={"session_id": self._session_id},
                     )
+                    if aborted is not None:
+                        raise aborted
+                    raise STTError("STT 스트림이 일을 못 한 채 반복해서 닫힌다")
+                delay = _STT_REOPEN_BACKOFF_SECONDS[
+                    min(consecutive - 1, len(_STT_REOPEN_BACKOFF_SECONDS) - 1)
+                ]
+                logger.info(
+                    "STT 스트림 재오픈(%d회차, %.1fs 뒤)",
+                    consecutive,
+                    delay,
+                    extra={"session_id": self._session_id},
+                )
+                if delay:
+                    await asyncio.sleep(delay)
         except STTIdleTimeoutError:
             logger.info(
                 "오디오 미수신으로 STT 스트림 종료",
                 extra={"session_id": self._session_id},
             )
             await self._close(EndReason.NO_AUDIO)
-        except GoogleAPICallError:
+        except (GoogleAPICallError, STTError):
             logger.exception("STT 스트리밍 실패", extra={"session_id": self._session_id})
             await self._close(EndReason.ERROR)
         except asyncio.CancelledError:
             raise
+
+    def _stream_was_productive(self) -> bool:
+        """직전 스트림이 일을 했는가"""
+        if self._stream_had_event:
+            return True
+        opened_at = self._stream_opened_at
+        return (
+            opened_at is not None
+            and time.monotonic() - opened_at >= _STT_REOPEN_HEALTHY_SECONDS
+        )
 
     async def _consume_one_stream(self, queue: "asyncio.Queue[bytes | None]") -> None:
         """한 스트림을 FINAL까지 소비하고 닫음. 첫 오디오 도착 전엔 gRPC 스트림을 열지 않는다(지연 오픈)."""
@@ -356,20 +407,115 @@ class VoicePipeline:
         if first_chunk is AUDIO_EOS:
             return
 
-        recycle_at = time.monotonic() + _STT_RECYCLE_SECONDS
+        started = time.monotonic()
+        self._stream_opened_at = started
+        recycle_at = started + _STT_RECYCLE_SECONDS
+        hard_at = started + _STT_RECYCLE_HARD_SECONDS
         stream = self._stt.stream(queue, first_chunk=first_chunk)
         try:
-            async for event in stream:
-                await self._handle_stt_event(event)
-                if event.type == STTEventType.FINAL or time.monotonic() >= recycle_at:
-                    break
+            await self._consume_with_watchdog(
+                stream, queue=queue, recycle_at=recycle_at, hard_at=hard_at, opened_at_ms=now_ms()
+            )
         finally:
-            if not self._closing.is_set() and self._audio_queue is queue:
-                self._audio_queue = asyncio.Queue()
-            with suppress(Exception):
-                queue.put_nowait(AUDIO_EOS)
+            self._half_close(queue)
+            if self._stt.multi_utterance and not self._closing.is_set():
+                try:
+                    await asyncio.wait_for(self._drain_tail(stream), _STT_FLUSH_SECONDS)
+                except TimeoutError:
+                    logger.debug("STT 꼬리 전사 대기 시간 초과", extra={"session_id": self._session_id})
+                except Exception:
+                    logger.warning(
+                        "STT 꼬리 전사 수집 실패",
+                        exc_info=True,
+                        extra={"session_id": self._session_id},
+                    )
             with suppress(Exception):
                 await stream.aclose()  # 강제 종료
+
+    def _half_close(self, queue: "asyncio.Queue[bytes | None]") -> None:
+        """더 보낼 오디오가 없다고 알림"""
+        if not self._closing.is_set() and self._audio_queue is queue:
+            self._audio_queue = asyncio.Queue()
+        with suppress(Exception):
+            queue.put_nowait(AUDIO_EOS)
+
+    async def _drain_tail(self, stream) -> None:
+        """half-close 뒤 남은 이벤트를 기존 핸들러로 흘려보낸다. 이미 닫힌 스트림이면 즉시 끝난다."""
+        async for event in stream:
+            self._stream_had_event = True
+            await self._handle_stt_event(event)
+
+    async def _consume_events(self, stream, *, recycle_at: float) -> None:
+        """이벤트 소비하다 발화 경계에서 스트림을 닫을 때가 되면 돌아옴"""
+        async for event in stream:
+            self._stream_had_event = True
+            await self._handle_stt_event(event)
+            final_closes = event.type == STTEventType.FINAL and not self._stt.multi_utterance
+            at_boundary = event.type in (STTEventType.FINAL, STTEventType.SPEECH_END)
+            if final_closes or (at_boundary and time.monotonic() >= recycle_at):
+                return
+
+    def _silent_ms(self, opened_at_ms: float) -> float:
+        """마지막 오디오 수신 이후 경과(ms)"""
+        last = self._last_audio_at if self._last_audio_at is not None else opened_at_ms
+        return now_ms() - last
+
+    async def _consume_with_watchdog(
+        self,
+        stream,
+        *,
+        queue: "asyncio.Queue[bytes | None]",
+        recycle_at: float,
+        hard_at: float,
+        opened_at_ms: float,
+    ) -> None:
+        """이벤트 소비를 별도 태스크로 돌리고 무오디오를 밖에서 잼"""
+        consume = asyncio.create_task(self._consume_events(stream, recycle_at=recycle_at))
+        warned = False
+        warn_at_ms = max(_STT_NO_AUDIO_TIMEOUT - _STT_NO_AUDIO_WARNING_LEAD, 0) * 1000
+        try:
+            while not consume.done():
+                now = time.monotonic()
+                if now >= hard_at:
+                    logger.info(
+                        "STT 하드 재활용 데드라인 — 발화 경계 없이 스트림 재오픈",
+                        extra={"session_id": self._session_id},
+                    )
+                    if self._stt.multi_utterance and not self._closing.is_set():
+                        self._half_close(queue)
+                        await asyncio.wait({consume}, timeout=_STT_FLUSH_SECONDS)
+                        if consume.done():
+                            await consume
+                    return
+                silent_ms = self._silent_ms(opened_at_ms)
+                if silent_ms >= _STT_NO_AUDIO_TIMEOUT * 1000:
+                    raise STTIdleTimeoutError
+                if silent_ms < warn_at_ms:
+                    warned = False
+                elif not warned and self._state == _State.LISTENING:
+                    warned = True
+                    await self._send_json(
+                        notice_frame(NoticeCode.NO_AUDIO_WARNING, _NO_AUDIO_WARNING_TEXT)
+                    )
+                waits = [
+                    hard_at - now,
+                    _STT_NO_AUDIO_TIMEOUT - silent_ms / 1000,
+                    _STT_WATCHDOG_TICK_SECONDS,
+                ]
+                if not warned and silent_ms < warn_at_ms:
+                    waits.append((warn_at_ms - silent_ms) / 1000)
+                next_check = min(waits)
+                await asyncio.wait({consume}, timeout=max(next_check, 0.01))
+            await consume
+        finally:
+            if not consume.done():
+                consume.cancel()
+                with suppress(asyncio.CancelledError):
+                    await consume
+            elif not consume.cancelled():
+                # 회수만 한다 — 전파 중인 예외를 덮지 않으면서
+                # "Task exception was never retrieved" 경고를 막는다.
+                consume.exception()
 
     async def _wait_first_chunk(
         self, queue: "asyncio.Queue[bytes | None]"
@@ -407,8 +553,13 @@ class VoicePipeline:
                 extra={"session_id": self._session_id},
             )
             if text and self._state == _State.LISTENING and not self._time_up:
-                await self._send_json(transcript_frame(TranscriptRole.USER, text))
-                self._start_turn(text, final_at=now_ms())
+                final_at = now_ms()
+                try:
+                    await self._send_json(transcript_frame(TranscriptRole.USER, text))
+                finally:
+                    # 자막 전송 도중 취소돼도 턴은 시작돼야 한다 — 안 그러면 사용자 화면엔
+                    # 자기 말이 뜬 채로 AI 가 영원히 대답하지 않는다(0052 F81).
+                    self._start_turn(text, final_at=final_at)
         elif event.type == STTEventType.SPEECH_BEGIN and (
                 self._listening_since is not None and
                 time.monotonic() - self._listening_since > 1.5 and

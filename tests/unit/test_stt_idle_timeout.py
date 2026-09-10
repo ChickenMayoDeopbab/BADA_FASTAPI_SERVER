@@ -10,6 +10,7 @@ from app.services.pipeline import VoicePipeline, _State
 from app.services.stt import (
     AUDIO_EOS,
     GoogleSTTClient,
+    STTError,
     STTIdleTimeoutError,
     STTStreamAbortedError,
 )
@@ -74,18 +75,21 @@ async def test_idle_timeout_converted_to_stt_idle_timeout(caplog) -> None:
                if r.name == "app.services.stt")
 
 
-async def test_other_out_of_range_is_reraised() -> None:
+async def test_other_out_of_range_becomes_stt_error() -> None:
     client = _make_stt_client()
     client._client = _FakeSpeechClient(OutOfRange("some other out of range"))
-    with pytest.raises(OutOfRange):
+    with pytest.raises(STTError) as info:
         await _drain(client)
+    assert isinstance(info.value.__cause__, OutOfRange)
+    assert not isinstance(info.value, STTIdleTimeoutError)
 
 
-async def test_unavailable_is_reraised() -> None:
+async def test_unavailable_becomes_stt_error() -> None:
     client = _make_stt_client()
     client._client = _FakeSpeechClient(ServiceUnavailable("backend unavailable"))
-    with pytest.raises(ServiceUnavailable):
+    with pytest.raises(STTError) as info:
         await _drain(client)
+    assert isinstance(info.value.__cause__, ServiceUnavailable)
 
 
 # --- stt.stream(): 무요청 ABORTED 구분 --------------------------------------
@@ -100,11 +104,13 @@ async def test_aborted_no_requests_converted_to_stream_aborted(caplog) -> None:
                if r.name == "app.services.stt")
 
 
-async def test_other_aborted_is_reraised() -> None:
+async def test_other_aborted_becomes_stt_error() -> None:
     client = _make_stt_client()
     client._client = _FakeSpeechClient(Aborted("some other aborted reason"))
-    with pytest.raises(Aborted):
+    with pytest.raises(STTError) as info:
         await _drain(client)
+    assert isinstance(info.value.__cause__, Aborted)
+    assert not isinstance(info.value, STTStreamAbortedError)
 
 
 # --- stt.stream(): first_chunk 선전송 ---------------------------------------
@@ -198,10 +204,10 @@ async def test_consumer_stream_aborted_keeps_session_and_reopens() -> None:
     assert calls == 2  # 스트림 재오픈(재루프)
 
 
-# --- pipeline._consume_one_stream(): 지연 오픈 -------------------------------
-
 class _FakeSTT:
     """stream() 호출 여부와 first_chunk 전달을 기록하는 가짜 STT."""
+
+    multi_utterance = False
 
     def __init__(self) -> None:
         self.calls: list[bytes | None] = []
@@ -222,6 +228,13 @@ def _make_lazy_pipeline() -> tuple[VoicePipeline, _FakeSTT]:
     p._closing = asyncio.Event()
     p._audio_queue = asyncio.Queue()
     p._stt = _FakeSTT()
+    p._last_audio_at = None
+    p._state = _State.LISTENING
+
+    async def fake_send_json(payload: dict) -> None:
+        return None
+
+    p._send_json = fake_send_json
     return p, p._stt
 
 
@@ -256,6 +269,7 @@ def _make_warning_pipeline(state) -> tuple[VoicePipeline, list[dict]]:
     p._audio_queue = asyncio.Queue()
     p._stt = _FakeSTT()
     p._state = state
+    p._last_audio_at = None
     frames: list[dict] = []
 
     async def fake_send_json(payload: dict) -> None:
