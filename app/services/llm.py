@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import re
+from typing import Final
 
 from google import genai
 from google.genai import errors, types
@@ -120,23 +121,41 @@ _SAFETY_SETTINGS = [
     ),
 ]
 
-_MODEL_GENERATION = re.compile(r"^gemini-(\d+)(?:\.\d+)?-")
+_ZERO_BUDGET = types.ThinkingConfig(thinking_budget=0)
+_MINIMAL_LEVEL = types.ThinkingConfig(thinking_level="MINIMAL")
+
+_THINKING_OFF: Final[dict[str, types.ThinkingConfig]] = {
+    "gemini-2.5-flash": _ZERO_BUDGET,
+    "gemini-3-flash-preview": _ZERO_BUDGET,
+    "gemini-3.5-flash": _ZERO_BUDGET,
+    "gemini-3.7-flash": _ZERO_BUDGET,
+    "gemini-3.8-flash": _ZERO_BUDGET,
+    "gemini-3.1-flash-lite": _MINIMAL_LEVEL,
+    "gemini-3.5-flash-lite": _MINIMAL_LEVEL,
+}
 
 
-def _model_generation(model: str) -> int | None:
-    match = _MODEL_GENERATION.match(model or "")
-    return int(match.group(1)) if match else None
+def _is_invalid_argument(exc: errors.ClientError) -> bool:
+    """설정을 모델이 거절한 경우"""
+    return getattr(exc, "code", None) == 400
 
 
-def _minimal_thinking(model: str) -> types.ThinkingConfig | None:
-    """thinking 설정 모델 세대에 맞는 표현으로 바꿈"""
-    generation = _model_generation(model)
-    if generation is None:
-        logger.debug("모델 세대를 못 읽어 thinking 설정을 보내지 않는다: %r", model)
-        return None
-    if generation >= 3:
-        return types.ThinkingConfig(thinking_level="MINIMAL")
-    return types.ThinkingConfig(thinking_budget=0)
+def _was_truncated(resp) -> bool:
+    """상한에 걸려 응답이 잘렸는지"""
+    for candidate in getattr(resp, "candidates", None) or []:
+        if getattr(candidate, "finish_reason", None) == types.FinishReason.MAX_TOKENS:
+            return True
+    return False
+
+
+def _thinking_off(model: str) -> types.ThinkingConfig | None:
+    """이 모델에서 검증된 '생각 끄기' 표현"""
+    config = _THINKING_OFF.get(model or "")
+    if config is None:
+        logger.warning(
+            "thinking 설정을 검증하지 못한 모델이라 보내지 않는다(응답이 잘릴 수 있다): %r", model
+        )
+    return config
 
 
 class LLMClient:
@@ -154,7 +173,7 @@ class LLMClient:
             return None
         if self._thinking_budget == 0:
             # "끄기" 는 모델 세대마다 표현이 다르다. 그대로 0 을 보내면 3.x 에서 400 이다.
-            return _minimal_thinking(self._model)
+            return _thinking_off(self._model)
         return types.ThinkingConfig(thinking_budget=self._thinking_budget)
 
     def _build_gen_config(self, system_prompt: str) -> types.GenerateContentConfig:
@@ -282,27 +301,54 @@ class LLMClient:
             "('또박또박', '차근차근'). '또또박' 처럼 글자를 흘리면 없는 말이 된다.\n"
         )
 
+        thinking = _thinking_off(self._model)
         try:
-            resp = await self._client.aio.models.generate_content(
-                model=self._model,
-                contents="\n".join(lines),
-                config=types.GenerateContentConfig(
-                    system_instruction=system_prompt,
-                    safety_settings=_SAFETY_SETTINGS,
-                    temperature=0.6,
-                    max_output_tokens=512,
-                    # 형식 맞추기라 추론이 필요 없다. 안 끄면 생각 토큰이 512를
-                    # 다 먹고 문구가 MAX_TOKENS 로 잘려 나간다.
-                    thinking_config=_minimal_thinking(self._model),
-                ),
+            resp = await self._call_segment_feedback(lines, system_prompt, thinking)
+        except errors.ClientError as exc:
+            if thinking is None or not _is_invalid_argument(exc):
+                logger.warning("구간 피드백 생성 실패", exc_info=True)
+                return []
+            logger.warning(
+                "%r 이 thinking 설정을 거절했다 — 끄지 않고 재시도한다(응답이 잘릴 수 있다)",
+                self._model,
+                exc_info=True,
             )
+            try:
+                resp = await self._call_segment_feedback(lines, system_prompt, None)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.warning("구간 피드백 생성 실패(재시도)", exc_info=True)
+                return []
         except asyncio.CancelledError:
             raise
         except Exception:
             logger.warning("구간 피드백 생성 실패", exc_info=True)
             return []
 
+        if _was_truncated(resp):
+            logger.warning(
+                "구간 피드백이 상한에서 잘렸다(model=%r) — thinking 설정을 확인할 것", self._model
+            )
         return self._parse_numbered_pairs(resp.text or "", len(items))
+
+    async def _call_segment_feedback(
+        self,
+        lines: list[str],
+        system_prompt: str,
+        thinking: types.ThinkingConfig | None,
+    ):
+        return await self._client.aio.models.generate_content(
+            model=self._model,
+            contents="\n".join(lines),
+            config=types.GenerateContentConfig(
+                system_instruction=system_prompt,
+                safety_settings=_SAFETY_SETTINGS,
+                temperature=0.6,
+                max_output_tokens=512,
+                thinking_config=thinking,
+            ),
+        )
 
     @staticmethod
     def _parse_numbered_pairs(raw: str, n: int) -> list[tuple[str, str]]:

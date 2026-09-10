@@ -1,8 +1,8 @@
 import pytest
-from google.genai import types
+from google.genai import errors, types
 
 from app.core.config import Settings, get_settings
-from app.services.llm import LLMClient, _minimal_thinking
+from app.services.llm import LLMClient, _thinking_off
 
 
 def _llm(model: str, budget: int | None = None) -> LLMClient:
@@ -12,26 +12,33 @@ def _llm(model: str, budget: int | None = None) -> LLMClient:
     return c
 
 
-@pytest.mark.parametrize("model", ["gemini-2.5-flash", "gemini-2.0-flash"])
-def test_two_x_uses_zero_budget(model: str) -> None:
-    cfg = _minimal_thinking(model)
+@pytest.mark.parametrize("model", ["gemini-2.5-flash", "gemini-3.7-flash", "gemini-3.8-flash"])
+def test_models_that_only_accept_zero_budget(model: str) -> None:
+    cfg = _thinking_off(model)
     assert cfg is not None
     assert cfg.thinking_budget == 0
 
 
-@pytest.mark.parametrize(
-    "model", ["gemini-3.5-flash-lite", "gemini-3-flash-preview", "gemini-3.8-flash"]
-)
-def test_three_x_uses_minimal_level_not_zero_budget(model: str) -> None:
-    cfg = _minimal_thinking(model)
+@pytest.mark.parametrize("model", ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"])
+def test_models_that_only_accept_minimal_level(model: str) -> None:
+    cfg = _thinking_off(model)
     assert cfg is not None
     assert cfg.thinking_budget is None
     assert cfg.thinking_level == types.ThinkingLevel.MINIMAL
 
 
-@pytest.mark.parametrize("model", ["gemini-flash-lite-latest", "custom-model", ""])
-def test_unknown_generation_sends_nothing(model: str) -> None:
-    assert _minimal_thinking(model) is None
+def test_generation_alone_does_not_decide() -> None:
+    assert _thinking_off("gemini-3.7-flash").thinking_budget == 0
+    assert _thinking_off("gemini-3.5-flash-lite").thinking_budget is None
+
+
+@pytest.mark.parametrize("model", ["gemini-3.1-pro-preview", "custom-model", ""])
+def test_unmeasured_model_sends_nothing_and_warns(model: str, caplog) -> None:
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="app.services.llm"):
+        assert _thinking_off(model) is None
+    assert any("thinking" in r.getMessage() for r in caplog.records)
 
 
 def test_env_budget_zero_is_translated_per_model() -> None:
@@ -64,6 +71,56 @@ def _with_capture(model: str) -> tuple[LLMClient, _CapturingModels]:
     models = _CapturingModels()
     llm._client = type("C", (), {"aio": type("A", (), {"models": models})()})()
     return llm, models
+
+
+class _RejectingModels(_CapturingModels):
+    def __init__(self) -> None:
+        super().__init__()
+        self.seen: list[object] = []
+
+    async def generate_content(self, **kwargs):
+        tc = kwargs["config"].thinking_config
+        self.seen.append(tc)
+        if tc is not None:
+            raise errors.ClientError(
+                400, {"error": {"message": "Budget", "status": "INVALID_ARGUMENT"}}
+            )
+        return await super().generate_content(**kwargs)
+
+
+@pytest.mark.asyncio
+async def test_segment_feedback_retries_without_thinking_when_rejected(caplog) -> None:
+    import logging
+
+    llm = _llm("gemini-2.5-flash")
+    models = _RejectingModels()
+    llm._client = type("C", (), {"aio": type("A", (), {"models": models})()})()
+    with caplog.at_level(logging.WARNING, logger="app.services.llm"):
+        pairs = await llm.segment_feedback([{"type": "GOOD", "utterance": "안녕하세요", "avti": None}])
+    assert pairs, "400 후 재시도로 살아나야 한다"
+    assert models.seen[0] is not None and models.seen[1] is None
+
+
+@pytest.mark.asyncio
+async def test_segment_feedback_warns_when_output_is_truncated(caplog) -> None:
+    import logging
+
+    class _Truncating(_CapturingModels):
+        async def generate_content(self, **kwargs):
+            self.kwargs = kwargs
+            return type("R", (), {
+                "text": "1. 잘했어요 |",
+                "candidates": [
+                    type("C", (), {"finish_reason": types.FinishReason.MAX_TOKENS})()
+                ],
+            })()
+
+    llm = _llm("gemini-2.5-flash")
+    models = _Truncating()
+    llm._client = type("C", (), {"aio": type("A", (), {"models": models})()})()
+    with caplog.at_level(logging.WARNING, logger="app.services.llm"):
+        await llm.segment_feedback([{"type": "GOOD", "utterance": "안녕하세요", "avti": None}])
+    assert any("잘렸" in r.getMessage() for r in caplog.records)
 
 
 @pytest.mark.asyncio
