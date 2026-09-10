@@ -1,10 +1,3 @@
-"""STT 비교 측정용 발화 오디오 생성 (계획 0052 F76).
-
-ElevenLabs 로 '사용자 역할' 문장을 16kHz/mono/int16 wav 로 만들고 manifest.json(파일 → 정답 텍스트)을 쓴다.
-학습자 실발화가 아니라 TTS 낭독이라는 한계는 리포트에 적는다. 두 엔진에 같은 오디오를 넣는 것이 목적.
-
-    .venv/bin/python -m tests.perf.make_stt_utterances .harness/stt-compare-2026-09/audio
-"""
 import asyncio
 import json
 import sys
@@ -18,7 +11,6 @@ from app.services.tts import ElevenLabsTTSClient
 
 SAMPLE_RATE = 16000
 
-# 시드 세션(병원 예약 변경)의 사용자 쪽 발화. 이름·날짜·전화번호·되묻기·군말 포함.
 UTTERANCES: dict[str, str] = {
     "u01_greeting": "안녕하세요, 예약 변경하려고 전화드렸는데요.",
     "u02_identity": "이름은 김민준이고요, 생년월일은 1998년 3월 15일이에요.",

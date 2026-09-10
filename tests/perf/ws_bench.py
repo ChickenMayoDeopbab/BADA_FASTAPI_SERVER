@@ -16,7 +16,6 @@ _SAMPLE_BYTES = 2
 
 
 def _load_audio(path: str) -> bytes:
-    """16kHz/mono/int16 PCM 바이트 로드. wav는 포맷 검증, 그 외는 원시 바이트."""
     p = Path(path)
     if p.suffix.lower() == ".wav":
         with wave.open(str(p), "rb") as wf:
@@ -41,12 +40,6 @@ def _session_id_of(args: argparse.Namespace) -> str:
 
 
 async def _recv_loop(ws, *, speech_end: float, timeout: float) -> dict:
-    """발화 오디오 송신 끝(speech_end) 기준으로 응답 프레임을 받아 시각을 잰다.
-
-    stt_final_ms: 발화 끝 → 첫 `transcript`(role=user) 프레임.
-        서버가 STT FINAL 직후 보내므로 endpoint 지연의 클라이언트 측 관측치.
-    client_response_ms: 발화 끝 → 첫 PCM. client_turn_ms: 발화 끝 → speaking_end.
-    """
     first_pcm: float | None = None
     turn_end: float | None = None
     stt_final: float | None = None
@@ -112,14 +105,9 @@ async def _send_chunks(ws, data: bytes, chunk_bytes: int, chunk_s: float) -> Non
 async def _run_turn(
     ws, audio: bytes, silence: bytes, chunk_bytes: int, chunk_s: float, timeout: float, turn_gap: bytes = b""
 ) -> dict:
-    """발화 1회 스트리밍 → 트레일링 무음을 보내는 동안에도 수신을 계속하며 지연 측정.
-
-    turn_gap: 응답이 끝난 뒤 추가로 보낼 무음(사용자가 뜸 들이는 시간). 긴 세션(STT 스트림 재활용) 재현용.
-    """
     try:
         await _send_chunks(ws, audio, chunk_bytes, chunk_s)
     except websockets.ConnectionClosed:
-        # 서버가 세션을 끝낸 뒤(예: LLM 이 통화 종료 판단) 다음 턴을 보내면 여기서 끊긴다
         return {
             "stt_final_ms": None, "transcript": None, "client_response_ms": None,
             "client_turn_ms": None, "terminal": "CLOSED",
