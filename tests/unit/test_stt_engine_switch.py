@@ -140,3 +140,14 @@ async def test_consumer_stt_error_closes_error() -> None:
     p._consume_one_stream = raise_stt_error
     await p._stt_consumer()
     assert closed == [EndReason.ERROR]
+
+
+async def test_multi_utterance_engine_still_recycles_stream_after_deadline(monkeypatch) -> None:
+    monkeypatch.setattr(pipeline_module, "_STT_RECYCLE_SECONDS", 0.0)
+    stt = _FakeSTT([_FINAL_A, _INTERIM_B, _FINAL_B], multi_utterance=True)
+    p, handled = _make_pipeline(stt)
+    queue: asyncio.Queue = asyncio.Queue()
+    queue.put_nowait(b"pcm")
+    await p._consume_one_stream(queue)
+    assert handled == [_FINAL_A]
+    assert stt.closed
