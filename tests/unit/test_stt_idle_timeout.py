@@ -10,6 +10,7 @@ from app.services.pipeline import VoicePipeline, _State
 from app.services.stt import (
     AUDIO_EOS,
     GoogleSTTClient,
+    STTError,
     STTIdleTimeoutError,
     STTStreamAbortedError,
 )
@@ -74,18 +75,21 @@ async def test_idle_timeout_converted_to_stt_idle_timeout(caplog) -> None:
                if r.name == "app.services.stt")
 
 
-async def test_other_out_of_range_is_reraised() -> None:
+async def test_other_out_of_range_becomes_stt_error() -> None:
     client = _make_stt_client()
     client._client = _FakeSpeechClient(OutOfRange("some other out of range"))
-    with pytest.raises(OutOfRange):
+    with pytest.raises(STTError) as info:
         await _drain(client)
+    assert isinstance(info.value.__cause__, OutOfRange)
+    assert not isinstance(info.value, STTIdleTimeoutError)
 
 
-async def test_unavailable_is_reraised() -> None:
+async def test_unavailable_becomes_stt_error() -> None:
     client = _make_stt_client()
     client._client = _FakeSpeechClient(ServiceUnavailable("backend unavailable"))
-    with pytest.raises(ServiceUnavailable):
+    with pytest.raises(STTError) as info:
         await _drain(client)
+    assert isinstance(info.value.__cause__, ServiceUnavailable)
 
 
 # --- stt.stream(): 무요청 ABORTED 구분 --------------------------------------
@@ -100,11 +104,13 @@ async def test_aborted_no_requests_converted_to_stream_aborted(caplog) -> None:
                if r.name == "app.services.stt")
 
 
-async def test_other_aborted_is_reraised() -> None:
+async def test_other_aborted_becomes_stt_error() -> None:
     client = _make_stt_client()
     client._client = _FakeSpeechClient(Aborted("some other aborted reason"))
-    with pytest.raises(Aborted):
+    with pytest.raises(STTError) as info:
         await _drain(client)
+    assert isinstance(info.value.__cause__, Aborted)
+    assert not isinstance(info.value, STTStreamAbortedError)
 
 
 # --- stt.stream(): first_chunk 선전송 ---------------------------------------

@@ -141,6 +141,10 @@ class _FlushingSession:
         self._closed.set()
 
     @property
+    def closed_by_client(self) -> bool:
+        return self._closed.is_set()
+
+    @property
     def eos_received(self) -> bool:
         return self._eos.is_set()
 
@@ -169,6 +173,7 @@ class _FlushingClient(stt_module.GeminiLiveSTTClient):
                     return sess
 
                 async def __aexit__(self, *a):
+                    await sess.close()
                     return False
 
             return _CM()
@@ -371,6 +376,7 @@ async def test_failure_during_hard_deadline_flush_is_not_swallowed(monkeypatch) 
 def test_incremental_chunk_is_dropped_but_logged(caplog) -> None:
     import logging
 
+    stt_module._incremental_warned = False
     with caplog.at_level(logging.WARNING, logger="app.services.stt"):
         events = stt_module.GeminiLiveSTTClient._parse_message(_msg(text="안녕", finished=False))
     assert events == []
@@ -403,3 +409,73 @@ def test_hard_deadline_is_derived_from_the_engine_stream_limit() -> None:
         pipeline_module._STT_RECYCLE_HARD_SECONDS
         == stt_module.STREAM_LIMIT_SECONDS - pipeline_module._STT_HARD_RECYCLE_LEAD
     )
+
+
+def test_flush_window_outlives_the_client_eos_grace() -> None:
+    assert pipeline_module._STT_FLUSH_SECONDS > stt_module.EOS_GRACE_SECONDS
+
+
+def test_hard_deadline_is_before_every_engine_stream_limit() -> None:
+    limits = [
+        stt_module.GoogleSTTClient.stream_limit_seconds,
+        stt_module.GeminiLiveSTTClient.stream_limit_seconds,
+    ]
+    assert min(limits) > pipeline_module._STT_RECYCLE_HARD_SECONDS
+
+
+class _BoundaryThenFailingSTT:
+    multi_utterance = True
+    stream_limit_seconds = 600
+
+    def __init__(self) -> None:
+        self.closed = False
+
+    def stream(self, queue, first_chunk=None):
+        fake = self
+
+        async def _gen():
+            try:
+                yield STTEvent(type=STTEventType.FINAL, text="다음 주 화요일이요")
+                raise STTError("드레인 중 장애")
+            finally:
+                fake.closed = True
+
+        return _gen()
+
+
+async def test_boundary_drain_failure_is_logged_not_silent(caplog, monkeypatch) -> None:
+    import logging
+
+    monkeypatch.setattr(pipeline_module, "_STT_RECYCLE_SECONDS", 0.0)
+    p, handled = _flush_pipeline(_BoundaryThenFailingSTT())
+    queue: asyncio.Queue = asyncio.Queue()
+    queue.put_nowait(b"pcm")
+    with caplog.at_level(logging.WARNING, logger="app.services.pipeline"):
+        await asyncio.wait_for(p._consume_one_stream(queue), timeout=5.0)
+    assert [e.type for e in handled] == [STTEventType.FINAL]
+    assert any("꼬리" in r.getMessage() for r in caplog.records)
+
+
+async def test_boundary_recycle_closes_the_stream(monkeypatch) -> None:
+    monkeypatch.setattr(pipeline_module, "_STT_RECYCLE_SECONDS", 0.0)
+    monkeypatch.setattr(pipeline_module, "_STT_RECYCLE_HARD_SECONDS", 30.0)
+    monkeypatch.setattr(pipeline_module, "_STT_NO_AUDIO_TIMEOUT", 30.0)
+    session = _FlushingSession(head=[_msg(text="다음 주 화요일이요")])
+    client = _FlushingClient(session)
+    p, _ = _flush_pipeline(client)
+    queue: asyncio.Queue = asyncio.Queue()
+    queue.put_nowait(b"pcm")
+    await asyncio.wait_for(p._consume_one_stream(queue), timeout=5.0)
+    assert session.closed_by_client, "재활용했는데 세션이 안 닫혔다(웹소켓 누수)"
+
+
+def test_incremental_chunk_warns_once_then_drops_to_debug(caplog) -> None:
+    import logging
+
+    stt_module._incremental_warned = False
+    with caplog.at_level(logging.DEBUG, logger="app.services.stt"):
+        for _ in range(3):
+            stt_module.GeminiLiveSTTClient._parse_message(_msg(text="안녕", finished=False))
+    levels = [r.levelno for r in caplog.records if "finished=False" in r.getMessage()]
+    assert levels.count(logging.WARNING) == 1
+    assert levels.count(logging.DEBUG) == 2

@@ -260,7 +260,7 @@ async def test_trailing_transcript_after_eos_is_not_cut_off() -> None:
 
 
 async def test_eos_grace_is_bounded_when_server_never_closes(monkeypatch) -> None:
-    monkeypatch.setattr(stt_module, "_EOS_GRACE_SECONDS", 0.05)
+    monkeypatch.setattr(stt_module, "EOS_GRACE_SECONDS", 0.05)
     session = _TrailingFinalSession([], [], flush_delay=10.0)
     client = _make_client(session)
     assert await asyncio.wait_for(_collect(client, _queue_with(AUDIO_EOS)), timeout=3.0) == []
