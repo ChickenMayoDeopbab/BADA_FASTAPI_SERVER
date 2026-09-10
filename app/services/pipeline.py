@@ -358,7 +358,8 @@ class VoicePipeline:
             async for event in stream:
                 await self._handle_stt_event(event)
                 final_closes = event.type == STTEventType.FINAL and not self._stt.multi_utterance
-                if final_closes or time.monotonic() >= recycle_at:
+                at_boundary = event.type in (STTEventType.FINAL, STTEventType.SPEECH_END)
+                if final_closes or (at_boundary and time.monotonic() >= recycle_at):
                     break
         finally:
             if not self._closing.is_set() and self._audio_queue is queue:
