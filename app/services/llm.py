@@ -120,6 +120,25 @@ _SAFETY_SETTINGS = [
     ),
 ]
 
+_MODEL_GENERATION = re.compile(r"^gemini-(\d+)(?:\.\d+)?-")
+
+
+def _model_generation(model: str) -> int | None:
+    match = _MODEL_GENERATION.match(model or "")
+    return int(match.group(1)) if match else None
+
+
+def _minimal_thinking(model: str) -> types.ThinkingConfig | None:
+    """thinking 설정 모델 세대에 맞는 표현으로 바꿈"""
+    generation = _model_generation(model)
+    if generation is None:
+        logger.debug("모델 세대를 못 읽어 thinking 설정을 보내지 않는다: %r", model)
+        return None
+    if generation >= 3:
+        return types.ThinkingConfig(thinking_level="MINIMAL")
+    return types.ThinkingConfig(thinking_budget=0)
+
+
 class LLMClient:
     _thinking_budget: int | None = None
 
@@ -133,6 +152,9 @@ class LLMClient:
         """None이면 thinking_config 안보내기"""
         if self._thinking_budget is None:
             return None
+        if self._thinking_budget == 0:
+            # "끄기" 는 모델 세대마다 표현이 다르다. 그대로 0 을 보내면 3.x 에서 400 이다.
+            return _minimal_thinking(self._model)
         return types.ThinkingConfig(thinking_budget=self._thinking_budget)
 
     def _build_gen_config(self, system_prompt: str) -> types.GenerateContentConfig:
@@ -271,7 +293,7 @@ class LLMClient:
                     max_output_tokens=512,
                     # 형식 맞추기라 추론이 필요 없다. 안 끄면 생각 토큰이 512를
                     # 다 먹고 문구가 MAX_TOKENS 로 잘려 나간다.
-                    thinking_config=types.ThinkingConfig(thinking_budget=0),
+                    thinking_config=_minimal_thinking(self._model),
                 ),
             )
         except asyncio.CancelledError:
