@@ -225,6 +225,8 @@ def _to_seconds(duration) -> float | None:
 
 _WS_CLOSE_CODES: Final = range(1000, 1016)
 
+_EOS_GRACE_SECONDS: Final[float] = 2.0
+
 
 def _is_ws_closure(exc: BaseException) -> bool:
     if isinstance(exc, ConnectionClosed):
@@ -329,12 +331,19 @@ class GeminiLiveSTTClient:
                     nonlocal eos_sent, sender_exc
                     try:
                         await self._send_audio(session, audio_queue, first_chunk)
-                        eos_sent = True
                     except asyncio.CancelledError:
                         raise
                     except Exception as exc:
                         sender_exc = exc
-                        logger.warning("Gemini STT 송신 실패(%s: %s): 세션을 닫고 재오픈한다", type(exc).__name__, exc)
+                        logger.warning(
+                            "Gemini STT 송신 실패(%s: %s): 세션을 닫고 재오픈한다",
+                            type(exc).__name__,
+                            exc,
+                        )
+                    else:
+                        eos_sent = True
+
+                        await asyncio.sleep(_EOS_GRACE_SECONDS)
                     with suppress(Exception):
                         await session.close()
 
