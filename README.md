@@ -95,7 +95,7 @@ Spring Boot는 회원 관리, 시나리오, 훈련 기록 등 핵심 비즈니�
 | LLM (실시간 대화) | Gemini 2.5 Flash | 전화 대화 응답 스트리밍, 워밍업, 칭찬 문장 생성 |
 | LLM (분석/생성) | Claude Sonnet 4 | 커스텀 시나리오 생성 |
 | STT | Google Cloud Speech-to-Text(chirp_3) | 음성 인식 |
-| TTS | ElevenLabs Flash v2.5 | 음성 합성 |
+| TTS | ElevenLabs Flash v2.5, Qwen3 TTS | 음성 합성 |
 
 <br>
 
