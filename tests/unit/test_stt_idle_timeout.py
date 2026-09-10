@@ -222,6 +222,13 @@ def _make_lazy_pipeline() -> tuple[VoicePipeline, _FakeSTT]:
     p._closing = asyncio.Event()
     p._audio_queue = asyncio.Queue()
     p._stt = _FakeSTT()
+    p._last_audio_at = None
+    p._state = _State.LISTENING
+
+    async def fake_send_json(payload: dict) -> None:
+        return None
+
+    p._send_json = fake_send_json
     return p, p._stt
 
 
@@ -256,6 +263,7 @@ def _make_warning_pipeline(state) -> tuple[VoicePipeline, list[dict]]:
     p._audio_queue = asyncio.Queue()
     p._stt = _FakeSTT()
     p._state = state
+    p._last_audio_at = None
     frames: list[dict] = []
 
     async def fake_send_json(payload: dict) -> None:

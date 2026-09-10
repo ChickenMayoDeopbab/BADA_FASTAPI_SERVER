@@ -6,6 +6,7 @@ import pytest
 from google.genai import errors, types
 from websockets.exceptions import ConnectionClosedError, ConnectionClosedOK
 
+import app.services.stt as stt_module
 from app.services.stt import (
     AUDIO_EOS,
     GeminiLiveSTTClient,
@@ -216,3 +217,50 @@ async def test_sender_failure_surfaces_as_stream_aborted_and_is_logged(caplog) -
         await asyncio.wait_for(_collect(client, _queue_with(b"\x01\x01")), timeout=2.0)
     assert isinstance(info.value.__cause__, RuntimeError)
     assert any("송신" in r.getMessage() for r in caplog.records if r.name == "app.services.stt")
+
+async def _closed_within(event: asyncio.Event, delay: float) -> bool:
+    try:
+        await asyncio.wait_for(event.wait(), delay)
+        return True
+    except TimeoutError:
+        return False
+
+
+class _TrailingFinalSession(_FakeSession):
+
+    def __init__(self, messages, trailing, *, flush_delay: float = 0.05) -> None:
+        super().__init__(messages)
+        self._trailing = list(trailing)
+        self._flush_delay = flush_delay
+        self._eos = asyncio.Event()
+
+    async def send_realtime_input(self, **kwargs) -> None:
+        await super().send_realtime_input(**kwargs)
+        if kwargs.get("audio_stream_end"):
+            self._eos.set()
+
+    async def receive(self):
+        for msg in self._messages:
+            yield msg
+        await self._eos.wait()
+        if not await _closed_within(self._closed, self._flush_delay):
+            for msg in self._trailing:
+                yield msg
+        raise errors.APIError(1000, {"message": "OK"})
+
+
+async def test_trailing_transcript_after_eos_is_not_cut_off() -> None:
+    session = _TrailingFinalSession([_interim("안녕")], [_final("안녕하세요")])
+    client = _make_client(session)
+    events = await asyncio.wait_for(_collect(client, _queue_with(AUDIO_EOS)), timeout=3.0)
+    assert [(e.type, e.text) for e in events] == [
+        (STTEventType.INTERIM, "안녕"),
+        (STTEventType.FINAL, "안녕하세요"),
+    ]
+
+
+async def test_eos_grace_is_bounded_when_server_never_closes(monkeypatch) -> None:
+    monkeypatch.setattr(stt_module, "_EOS_GRACE_SECONDS", 0.05)
+    session = _TrailingFinalSession([], [], flush_delay=10.0)
+    client = _make_client(session)
+    assert await asyncio.wait_for(_collect(client, _queue_with(AUDIO_EOS)), timeout=3.0) == []
