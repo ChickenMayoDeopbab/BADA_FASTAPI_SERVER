@@ -3,9 +3,9 @@ import pytest
 from app.services.llm import LLMClient
 
 
-def _make_llm(budget: int | None) -> LLMClient:
+def _make_llm(budget: int | None, model: str = "gemini-2.5-flash") -> LLMClient:
     c = LLMClient.__new__(LLMClient)
-    c._model = "test-model"
+    c._model = model
     c._thinking_budget = budget
     return c
 
