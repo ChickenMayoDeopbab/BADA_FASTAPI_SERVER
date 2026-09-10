@@ -16,6 +16,7 @@ from app.services.stt import (
     STTStreamAbortedError,
 )
 
+
 def _msg(**tr) -> types.LiveServerMessage:
     return types.LiveServerMessage(
         server_content=types.LiveServerContent(input_transcription=types.Transcription(**tr))
