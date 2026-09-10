@@ -198,10 +198,10 @@ async def test_consumer_stream_aborted_keeps_session_and_reopens() -> None:
     assert calls == 2  # 스트림 재오픈(재루프)
 
 
-# --- pipeline._consume_one_stream(): 지연 오픈 -------------------------------
-
 class _FakeSTT:
     """stream() 호출 여부와 first_chunk 전달을 기록하는 가짜 STT."""
+
+    multi_utterance = False
 
     def __init__(self) -> None:
         self.calls: list[bytes | None] = []

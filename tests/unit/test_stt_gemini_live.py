@@ -32,7 +32,7 @@ def _interim(text: str) -> types.LiveServerMessage:
 def _final(text: str) -> types.LiveServerMessage:
     return types.LiveServerMessage(
         server_content=types.LiveServerContent(
-            input_transcription=types.Transcription(text=text, finished=True)
+            input_transcription=types.Transcription(text=text)
         )
     )
 

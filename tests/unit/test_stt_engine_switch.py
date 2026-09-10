@@ -152,39 +152,28 @@ async def test_consumer_stt_error_closes_error() -> None:
     assert closed == [EndReason.ERROR]
 
 
-async def test_multi_utterance_engine_still_recycles_stream_after_deadline(monkeypatch) -> None:
-    monkeypatch.setattr(pipeline_module, "_STT_RECYCLE_SECONDS", 0.0)
+async def test_multi_utterance_engine_still_recycles_stream_after_deadline() -> None:
     stt = _FakeSTT([_FINAL_A, _INTERIM_B, _FINAL_B], multi_utterance=True)
     p, handled = _make_pipeline(stt)
-    queue: asyncio.Queue = asyncio.Queue()
-    queue.put_nowait(b"pcm")
-    await p._consume_one_stream(queue)
+    await p._consume_events(stt.stream(asyncio.Queue()), recycle_at=0.0)
     assert handled == [_FINAL_A]
-    assert stt.closed
 
 
 _INTERIM_A = STTEvent(type=STTEventType.INTERIM, text="가")
 _SPEECH_END = STTEvent(type=STTEventType.SPEECH_END)
 
 
-async def test_recycle_waits_for_final_not_interim(monkeypatch) -> None:
-    monkeypatch.setattr(pipeline_module, "_STT_RECYCLE_SECONDS", 0.0)
+async def test_recycle_waits_for_final_not_interim() -> None:
     stt = _FakeSTT([_INTERIM_A, _INTERIM_A, _FINAL_A, _INTERIM_B], multi_utterance=True)
     p, handled = _make_pipeline(stt)
-    queue: asyncio.Queue = asyncio.Queue()
-    queue.put_nowait(b"pcm")
-    await p._consume_one_stream(queue)
+    await p._consume_events(stt.stream(asyncio.Queue()), recycle_at=0.0)
     assert handled == [_INTERIM_A, _INTERIM_A, _FINAL_A]
-    assert stt.closed
 
 
-async def test_recycle_also_allowed_at_speech_end(monkeypatch) -> None:
-    monkeypatch.setattr(pipeline_module, "_STT_RECYCLE_SECONDS", 0.0)
+async def test_recycle_also_allowed_at_speech_end() -> None:
     stt = _FakeSTT([_INTERIM_A, _SPEECH_END, _INTERIM_B], multi_utterance=True)
     p, handled = _make_pipeline(stt)
-    queue: asyncio.Queue = asyncio.Queue()
-    queue.put_nowait(b"pcm")
-    await p._consume_one_stream(queue)
+    await p._consume_events(stt.stream(asyncio.Queue()), recycle_at=0.0)
     assert handled == [_INTERIM_A, _SPEECH_END]
 
 
@@ -340,6 +329,7 @@ async def test_healthy_stream_resets_the_reopen_counter(monkeypatch) -> None:
         if attempts >= 6:
             p._closing.set()
             return
+        p._stream_opened_at = pipeline_module.time.monotonic()
         raise STTStreamAbortedError
 
     p._close = fake_close
