@@ -65,6 +65,7 @@ class STTEvent:
 
 class GoogleSTTClient:
     multi_utterance: Final[bool] = False
+    stream_limit_seconds: Final[float] = STREAM_LIMIT_SECONDS
 
     def __init__(
         self,
@@ -187,7 +188,7 @@ class GoogleSTTClient:
                 logger.info("STT 무요청 ABORTED: 스트림 재오픈 대상")
                 raise STTStreamAbortedError from exc
             logger.exception("STT 스트리밍 API 에러")
-            raise
+            raise STTError from exc
         except asyncio.CancelledError:
             logger.debug("STT 스트림 취소")
             raise
@@ -225,7 +226,7 @@ def _to_seconds(duration) -> float | None:
 
 _WS_CLOSE_CODES: Final = range(1000, 1016)
 
-_EOS_GRACE_SECONDS: Final[float] = 2.0
+EOS_GRACE_SECONDS: Final[float] = 1.0
 
 
 def _is_ws_closure(exc: BaseException) -> bool:
@@ -240,10 +241,24 @@ def _closure_code(exc: BaseException) -> int | None:
     return getattr(exc, "code", None)
 
 
+_incremental_warned = False
+
+
+def _warn_incremental_once(text: str) -> None:
+    global _incremental_warned
+    message = "Gemini STT 증분 전사(finished=False) 수신 — 조각을 버렸다: %r"
+    if _incremental_warned:
+        logger.debug(message, text[:40])
+        return
+    _incremental_warned = True
+    logger.warning(message, text[:40])
+
+
 class GeminiLiveSTTClient:
     """Gemini Live Transcription을 STTEvent 계약으로 감싸기"""
 
     multi_utterance: Final[bool] = True
+    stream_limit_seconds: Final[float] = 10 * 60
 
     def __init__(
         self,
@@ -312,10 +327,7 @@ class GeminiLiveSTTClient:
             final = content.input_transcription
             if final is not None and final.text:
                 if final.finished is False:
-                    logger.warning(
-                        "Gemini STT 증분 전사(finished=False) 수신 — 조각을 버렸다: %r",
-                        final.text[:40],
-                    )
+                    _warn_incremental_once(final.text)
                 else:
                     events.append(STTEvent(type=STTEventType.FINAL, text=final.text))
         return events
@@ -349,7 +361,7 @@ class GeminiLiveSTTClient:
                     else:
                         eos_sent = True
 
-                        await asyncio.sleep(_EOS_GRACE_SECONDS)
+                        await asyncio.sleep(EOS_GRACE_SECONDS)
                     with suppress(Exception):
                         await session.close()
 

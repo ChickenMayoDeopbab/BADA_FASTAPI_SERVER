@@ -50,6 +50,7 @@ from app.services.session import (
 from app.services.spring_client import SpringInternalClient
 from app.services.stt import (
     AUDIO_EOS,
+    EOS_GRACE_SECONDS,
     STREAM_LIMIT_SECONDS,
     STTError,
     STTEventType,
@@ -78,7 +79,7 @@ _STT_WATCHDOG_TICK_SECONDS = 1.0
 _STT_REOPEN_BACKOFF_SECONDS = (0.0, 0.5, 1.0, 2.0, 4.0)
 _STT_REOPEN_MAX_CONSECUTIVE = 5
 _STT_REOPEN_HEALTHY_SECONDS = 30.0
-_STT_FLUSH_SECONDS = 1.0
+_STT_FLUSH_SECONDS = EOS_GRACE_SECONDS + 0.5
 # 첫 오디오 청크 대기 상한. 초과 시 NO_AUDIO 정상 종료 (Google 의존이던 무오디오 감지를 서버 주도로 대체).
 # 긴 TTS 재생(~20s) 중 클라 mute 를 견디도록 여유 있게 잡음. 최후 방어는 세션 최대시간 타이머.
 _STT_NO_AUDIO_TIMEOUT = 60.0
@@ -418,8 +419,16 @@ class VoicePipeline:
         finally:
             self._half_close(queue)
             if self._stt.multi_utterance and not self._closing.is_set():
-                with suppress(Exception):
+                try:
                     await asyncio.wait_for(self._drain_tail(stream), _STT_FLUSH_SECONDS)
+                except TimeoutError:
+                    logger.debug("STT 꼬리 전사 대기 시간 초과", extra={"session_id": self._session_id})
+                except Exception:
+                    logger.warning(
+                        "STT 꼬리 전사 수집 실패",
+                        exc_info=True,
+                        extra={"session_id": self._session_id},
+                    )
             with suppress(Exception):
                 await stream.aclose()  # 강제 종료
 
