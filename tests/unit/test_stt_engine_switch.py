@@ -176,3 +176,21 @@ async def test_recycle_also_allowed_at_speech_end(monkeypatch) -> None:
     queue.put_nowait(b"pcm")
     await p._consume_one_stream(queue)
     assert handled == [_INTERIM_A, _SPEECH_END]
+
+
+async def test_hard_deadline_recycles_even_on_interim(monkeypatch) -> None:
+    monkeypatch.setattr(pipeline_module, "_STT_RECYCLE_SECONDS", 0.0)
+    monkeypatch.setattr(pipeline_module, "_STT_RECYCLE_HARD_SECONDS", 0.0)
+    stt = _FakeSTT([_INTERIM_A, _INTERIM_A, _FINAL_A], multi_utterance=True)
+    p, handled = _make_pipeline(stt)
+    queue: asyncio.Queue = asyncio.Queue()
+    queue.put_nowait(b"pcm")
+    await p._consume_one_stream(queue)
+    assert handled == [_INTERIM_A]
+    assert stt.closed
+
+
+def test_hard_deadline_is_below_google_stream_limit() -> None:
+    from app.services.stt import STREAM_LIMIT_SECONDS
+
+    assert pipeline_module._STT_RECYCLE_SECONDS < pipeline_module._STT_RECYCLE_HARD_SECONDS < STREAM_LIMIT_SECONDS

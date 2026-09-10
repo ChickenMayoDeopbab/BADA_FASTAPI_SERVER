@@ -200,3 +200,19 @@ async def test_http_api_error_is_stt_error_not_aborted(exc) -> None:
     with pytest.raises(STTError) as info:
         await _collect(client, asyncio.Queue())
     assert not isinstance(info.value, STTStreamAbortedError)
+
+
+class _SendFailingSession(_FakeSession):
+    async def send_realtime_input(self, **kwargs) -> None:
+        raise RuntimeError("send side broke")
+
+
+async def test_sender_failure_surfaces_as_stream_aborted_and_is_logged(caplog) -> None:
+    import logging
+
+    session = _SendFailingSession([_interim("가")])
+    client = _make_client(session)
+    with caplog.at_level(logging.WARNING, logger="app.services.stt"), pytest.raises(STTStreamAbortedError) as info:
+        await asyncio.wait_for(_collect(client, _queue_with(b"\x01\x01")), timeout=2.0)
+    assert isinstance(info.value.__cause__, RuntimeError)
+    assert any("송신" in r.getMessage() for r in caplog.records if r.name == "app.services.stt")
