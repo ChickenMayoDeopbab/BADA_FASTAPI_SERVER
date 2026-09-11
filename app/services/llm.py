@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import re
+from contextlib import suppress
 from typing import Final
 
 from google import genai
@@ -124,6 +125,13 @@ _SAFETY_SETTINGS = [
 _STREAM_MAX_OUTPUT_TOKENS: Final[int] = 1024
 _FEEDBACK_MAX_OUTPUT_TOKENS: Final[int] = 1536
 
+
+class _Unset:
+    """None 자체가 유효한 thinking 설정이라 기본값 못씀"""
+
+
+_UNSET = _Unset()
+
 _ZERO_BUDGET = types.ThinkingConfig(thinking_budget=0)
 _MINIMAL_LEVEL = types.ThinkingConfig(thinking_level="MINIMAL")
 
@@ -141,9 +149,47 @@ _THINKING_OFF: Final[dict[str, types.ThinkingConfig]] = {
 }
 
 
+# 표에 없는 모델은 이 순서로 시도해서 통하는 걸 찾음
+_THINKING_OFF_CANDIDATES: Final[tuple[types.ThinkingConfig | None, ...]] = (
+    _ZERO_BUDGET,
+    _MINIMAL_LEVEL,
+    None,
+)
+
+# 프로세스가 살아있는 동안 알아낸 값
+_learned_off: dict[str, types.ThinkingConfig | None] = {}
+
+
 def _is_invalid_argument(exc: errors.ClientError) -> bool:
-    """설정을 모델이 거절한 경우"""
+    """400"""
     return getattr(exc, "code", None) == 400
+
+
+def _off_candidates(model: str) -> tuple[types.ThinkingConfig | None, ...]:
+    """이 모델에서 '생각 끄기' 로 시도할 설정들"""
+    key = model or ""
+    if key in _THINKING_OFF:
+        return (_THINKING_OFF[key], None)
+    if key in _learned_off:
+        learned = _learned_off[key]
+        return (None,) if learned is None else (learned, None)
+    logger.warning(
+        "thinking 끄기를 실측하지 못한 모델이다 — 통하는 걸 찾아본다: %r", model
+    )
+    return _THINKING_OFF_CANDIDATES
+
+
+def _remember_off(model: str, thinking: types.ThinkingConfig | None) -> None:
+    """표에 없는 모델에서 통한 설정을 기억한다."""
+    key = model or ""
+    if key in _THINKING_OFF or _learned_off.get(key, "") == thinking:
+        return
+    _learned_off[key] = thinking
+    logger.warning(
+        "%r 의 thinking 끄기를 알아냈다: %s — 실측해서 _THINKING_OFF 에 넣을 것",
+        model,
+        "미전송" if thinking is None else thinking,
+    )
 
 
 def _was_truncated(resp) -> bool:
@@ -155,13 +201,27 @@ def _was_truncated(resp) -> bool:
 
 
 def _thinking_off(model: str) -> types.ThinkingConfig | None:
-    """이 모델에서 검증된 '생각 끄기' 표현"""
-    config = _THINKING_OFF.get(model or "")
-    if config is None:
-        logger.warning(
-            "thinking 설정을 검증하지 못한 모델이라 보내지 않는다(응답이 잘릴 수 있다): %r", model
-        )
-    return config
+    """이 모델에서 '생각 끄기' 로 제일 먼저 시도할 설정"""
+    return _off_candidates(model)[0]
+
+
+def _warn_stepping_down(model: str, tried, exc: errors.ClientError) -> None:
+    """설정 탓이라고 단정하지 않는다. API 가 준 말을 그대로 남겨야 실제 원인을 찾는다."""
+    logger.warning(
+        "%r 가 400 을 줬다(보낸 thinking=%s) — thinking 탓일 수 있어 물러서서 다시 본다. API: %s",
+        model,
+        "미전송" if tried is None else tried,
+        getattr(exc, "message", None) or exc,
+    )
+
+
+async def _aclose(chunks) -> None:
+    """버리는 스트림은 닫는다. GC 를 기다리면 연결이 그만큼 잡혀 있다."""
+    closer = getattr(chunks, "aclose", None)
+    if closer is None:
+        return
+    with suppress(Exception):
+        await closer()
 
 
 class LLMClient:
@@ -173,22 +233,29 @@ class LLMClient:
         self._model = settings.llm_realtime_model
         self._thinking_budget = settings.llm_thinking_budget
 
+    def _thinking_candidates(self) -> tuple[types.ThinkingConfig | None, ...]:
+        """이 요청에서 시도할 thinking 설정들"""
+        if self._thinking_budget is None:
+            return (None,)
+        if self._thinking_budget == 0:
+            return _off_candidates(self._model)
+        return (types.ThinkingConfig(thinking_budget=self._thinking_budget), None)
+
     def _thinking_config(self) -> types.ThinkingConfig | None:
         """None이면 thinking_config 안보내기"""
-        if self._thinking_budget is None:
-            return None
-        if self._thinking_budget == 0:
-            # "끄기" 는 모델 세대마다 표현이 다르다. 그대로 0 을 보내면 3.x 에서 400 이다.
-            return _thinking_off(self._model)
-        return types.ThinkingConfig(thinking_budget=self._thinking_budget)
+        return self._thinking_candidates()[0]
 
-    def _build_gen_config(self, system_prompt: str) -> types.GenerateContentConfig:
+    def _build_gen_config(
+        self, system_prompt: str, thinking: types.ThinkingConfig | None | _Unset = _UNSET
+    ) -> types.GenerateContentConfig:
         return types.GenerateContentConfig(
             system_instruction=system_prompt,
             safety_settings=_SAFETY_SETTINGS,
             temperature=0.8, # LLM 내부적으로 확률 분포 넓게 하거나 작게하는거, 최솟값:0, 최댓값:2
             max_output_tokens=_STREAM_MAX_OUTPUT_TOKENS,
-            thinking_config=self._thinking_config(),
+            thinking_config=(
+                self._thinking_config() if isinstance(thinking, _Unset) else thinking
+            ),
         )
 
     @staticmethod
@@ -215,31 +282,34 @@ class LLMClient:
         return head.startswith(_EMOTION_PREFIX) and "]" not in head
 
     async def warmup(self) -> None:
-        """첫 턴 콜드 TTFT 완화용"""
-        try:
-            stream = await self._client.aio.models.generate_content_stream(
-                model=self._model,
-                contents="안녕",
-                config=types.GenerateContentConfig(
-                    max_output_tokens=1,
-                    thinking_config=self._thinking_config(),
-                ),
-            )
-            async for _ in stream:
-                break
-        except asyncio.CancelledError:
-            raise
-        except errors.ClientError as exc:
-            if not _is_invalid_argument(exc):
+        """첫 턴 콜드 TTFT 완화"""
+        candidates = self._thinking_candidates()
+        for i, thinking in enumerate(candidates):
+            try:
+                stream = await self._client.aio.models.generate_content_stream(
+                    model=self._model,
+                    contents="안녕",
+                    config=types.GenerateContentConfig(
+                        max_output_tokens=1,
+                        thinking_config=thinking,
+                    ),
+                )
+                async for _ in stream:
+                    break
+            except asyncio.CancelledError:
+                raise
+            except errors.ClientError as exc:
+                if i == len(candidates) - 1 or not _is_invalid_argument(exc):
+                    logger.debug("LLM 워밍업 실패(무시)", exc_info=True)
+                    return
+                _warn_stepping_down(self._model, thinking, exc)
+                continue
+            except Exception:
                 logger.debug("LLM 워밍업 실패(무시)", exc_info=True)
                 return
-            logger.warning(
-                "워밍업에서 %r 이 thinking 설정을 거절했다 — 표가 틀렸는지 확인할 것",
-                self._model,
-                exc_info=True,
-            )
-        except Exception:
-            logger.debug("LLM 워밍업 실패(무시)", exc_info=True)
+            if self._thinking_budget == 0:
+                _remember_off(self._model, thinking)
+            return
 
     async def segment_feedback(
         self,
@@ -316,29 +386,25 @@ class LLMClient:
             "('또박또박', '차근차근'). '또또박' 처럼 글자를 흘리면 없는 말이 된다.\n"
         )
 
-        thinking = _thinking_off(self._model)
-        try:
-            resp = await self._call_segment_feedback(lines, system_prompt, thinking)
-        except errors.ClientError as exc:
-            if thinking is None or not _is_invalid_argument(exc):
-                logger.warning("구간 피드백 생성 실패", exc_info=True)
-                return []
-            logger.warning(
-                "%r 이 thinking 설정을 거절했다 — 끄지 않고 재시도한다(응답이 잘릴 수 있다)",
-                self._model,
-                exc_info=True,
-            )
+        candidates = _off_candidates(self._model)
+        resp = None
+        for i, thinking in enumerate(candidates):
             try:
-                resp = await self._call_segment_feedback(lines, system_prompt, None)
+                resp = await self._call_segment_feedback(lines, system_prompt, thinking)
             except asyncio.CancelledError:
                 raise
+            except errors.ClientError as exc:
+                if i == len(candidates) - 1 or not _is_invalid_argument(exc):
+                    logger.warning("구간 피드백 생성 실패", exc_info=True)
+                    return []
+                _warn_stepping_down(self._model, thinking, exc)
+                continue
             except Exception:
-                logger.warning("구간 피드백 생성 실패(재시도)", exc_info=True)
+                logger.warning("구간 피드백 생성 실패", exc_info=True)
                 return []
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.warning("구간 피드백 생성 실패", exc_info=True)
+            _remember_off(self._model, thinking)
+            break
+        if resp is None:
             return []
 
         if _was_truncated(resp):
@@ -409,29 +475,28 @@ class LLMClient:
         )
 
     async def _chunks(self, contents, system_prompt: str):
-        """thinking 설정이 거절되면 끄고 한 번만 다시 염"""
-        config = self._build_gen_config(system_prompt)
-        thinking = config.thinking_config
-        chunks = (await self._open_stream(contents, config)).__aiter__()
-        try:
-            first = await chunks.__anext__()
-        except StopAsyncIteration:
-            return
-        except errors.ClientError as exc:
-            if thinking is None or not _is_invalid_argument(exc):
-                raise
-            logger.warning(
-                "%r 이 thinking 설정을 거절했다 — 끄고 다시 연다(응답이 잘릴 수 있다)",
-                self._model,
-                exc_info=True,
-            )
-            config.thinking_config = None
-            async for chunk in await self._open_stream(contents, config):
+        """thinking 설정 찾을 때까지 스트림을 다시 열기"""
+        candidates = self._thinking_candidates()
+        config = self._build_gen_config(system_prompt, candidates[0])
+        for i, thinking in enumerate(candidates):
+            config.thinking_config = thinking
+            chunks = (await self._open_stream(contents, config)).__aiter__()
+            try:
+                first = await chunks.__anext__()
+            except StopAsyncIteration:
+                return
+            except errors.ClientError as exc:
+                await _aclose(chunks)
+                if i == len(candidates) - 1 or not _is_invalid_argument(exc):
+                    raise
+                _warn_stepping_down(self._model, thinking, exc)
+                continue
+            if self._thinking_budget == 0:
+                _remember_off(self._model, thinking)
+            yield first
+            async for chunk in chunks:
                 yield chunk
             return
-        yield first
-        async for chunk in chunks:
-            yield chunk
 
     async def stream(self, ctx: TurnContext):
         """진입점임 async for로 LLMEvent를 yield"""
