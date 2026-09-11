@@ -121,6 +121,9 @@ _SAFETY_SETTINGS = [
     ),
 ]
 
+_STREAM_MAX_OUTPUT_TOKENS: Final[int] = 1024
+_FEEDBACK_MAX_OUTPUT_TOKENS: Final[int] = 1536
+
 _ZERO_BUDGET = types.ThinkingConfig(thinking_budget=0)
 _MINIMAL_LEVEL = types.ThinkingConfig(thinking_level="MINIMAL")
 
@@ -130,8 +133,11 @@ _THINKING_OFF: Final[dict[str, types.ThinkingConfig]] = {
     "gemini-3.5-flash": _ZERO_BUDGET,
     "gemini-3.7-flash": _ZERO_BUDGET,
     "gemini-3.8-flash": _ZERO_BUDGET,
+    "gemini-flash-latest": _ZERO_BUDGET,
     "gemini-3.1-flash-lite": _MINIMAL_LEVEL,
     "gemini-3.5-flash-lite": _MINIMAL_LEVEL,
+    "gemini-3.6-flash": _MINIMAL_LEVEL,
+    "gemini-flash-lite-latest": _MINIMAL_LEVEL,
 }
 
 
@@ -141,7 +147,7 @@ def _is_invalid_argument(exc: errors.ClientError) -> bool:
 
 
 def _was_truncated(resp) -> bool:
-    """상한에 걸려 응답이 잘렸는지"""
+    """상한에 걸려 응답이 잘렸는지. 스트림 청크도 같은 모양이라 그대로 쓴다."""
     for candidate in getattr(resp, "candidates", None) or []:
         if getattr(candidate, "finish_reason", None) == types.FinishReason.MAX_TOKENS:
             return True
@@ -181,7 +187,7 @@ class LLMClient:
             system_instruction=system_prompt,
             safety_settings=_SAFETY_SETTINGS,
             temperature=0.8, # LLM 내부적으로 확률 분포 넓게 하거나 작게하는거, 최솟값:0, 최댓값:2
-            max_output_tokens=1024,
+            max_output_tokens=_STREAM_MAX_OUTPUT_TOKENS,
             thinking_config=self._thinking_config(),
         )
 
@@ -223,6 +229,15 @@ class LLMClient:
                 break
         except asyncio.CancelledError:
             raise
+        except errors.ClientError as exc:
+            if not _is_invalid_argument(exc):
+                logger.debug("LLM 워밍업 실패(무시)", exc_info=True)
+                return
+            logger.warning(
+                "워밍업에서 %r 이 thinking 설정을 거절했다 — 표가 틀렸는지 확인할 것",
+                self._model,
+                exc_info=True,
+            )
         except Exception:
             logger.debug("LLM 워밍업 실패(무시)", exc_info=True)
 
@@ -345,7 +360,7 @@ class LLMClient:
                 system_instruction=system_prompt,
                 safety_settings=_SAFETY_SETTINGS,
                 temperature=0.6,
-                max_output_tokens=512,
+                max_output_tokens=_FEEDBACK_MAX_OUTPUT_TOKENS,
                 thinking_config=thinking,
             ),
         )
@@ -388,11 +403,40 @@ class LLMClient:
         items.extend([""] * (n - len(items)))
         return items
 
+    async def _open_stream(self, contents, config):
+        return await self._client.aio.models.generate_content_stream(
+            model=self._model, contents=contents, config=config
+        )
+
+    async def _chunks(self, contents, system_prompt: str):
+        """thinking 설정이 거절되면 끄고 한 번만 다시 염"""
+        config = self._build_gen_config(system_prompt)
+        thinking = config.thinking_config
+        chunks = (await self._open_stream(contents, config)).__aiter__()
+        try:
+            first = await chunks.__anext__()
+        except StopAsyncIteration:
+            return
+        except errors.ClientError as exc:
+            if thinking is None or not _is_invalid_argument(exc):
+                raise
+            logger.warning(
+                "%r 이 thinking 설정을 거절했다 — 끄고 다시 연다(응답이 잘릴 수 있다)",
+                self._model,
+                exc_info=True,
+            )
+            config.thinking_config = None
+            async for chunk in await self._open_stream(contents, config):
+                yield chunk
+            return
+        yield first
+        async for chunk in chunks:
+            yield chunk
+
     async def stream(self, ctx: TurnContext):
         """진입점임 async for로 LLMEvent를 yield"""
         system_prompt = build_system_prompt(ctx)
         contents = build_contents(ctx)
-        config = self._build_gen_config(system_prompt)
 
         head_buffer = ""
         emotion_resolved = False
@@ -400,17 +444,14 @@ class LLMClient:
         usage = None
         suggest_mode = False
         suggest_parts: list[str] = []
+        truncated = False
 
         try:
-            stream = await self._client.aio.models.generate_content_stream(
-                model=self._model,
-                contents=contents,
-                config=config,
-            )
-            async for chunk in stream:
+            async for chunk in self._chunks(contents, system_prompt):
                 chunk_usage = getattr(chunk, "usage_metadata", None)
                 if chunk_usage is not None:
                     usage = chunk_usage
+                truncated = truncated or _was_truncated(chunk)
                 if self._is_blocked(chunk):
                     logger.warning("LLM 응답 차단됨 (session role=%s)", ctx.scenario_role)
                     yield LLMEvent(type=LLMEventType.SAFETY_BLOCK)
@@ -488,6 +529,14 @@ class LLMClient:
                 suggestion = suggestion.strip()
                 if suggestion:
                     yield LLMEvent(type=LLMEventType.SUGGESTION, text=suggestion)
+
+            if truncated:
+                logger.warning(
+                    "실시간 응답이 상한에서 잘렸다(model=%r, max_output_tokens=%s) — "
+                    "제어 태그가 유실됐을 수 있다",
+                    self._model,
+                    _STREAM_MAX_OUTPUT_TOKENS,
+                )
 
             if usage is not None:
                 yield LLMEvent(
