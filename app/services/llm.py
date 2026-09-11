@@ -1,6 +1,8 @@
 import asyncio
 import logging
 import re
+from contextlib import suppress
+from typing import Final
 
 from google import genai
 from google.genai import errors, types
@@ -120,6 +122,108 @@ _SAFETY_SETTINGS = [
     ),
 ]
 
+_STREAM_MAX_OUTPUT_TOKENS: Final[int] = 1024
+_FEEDBACK_MAX_OUTPUT_TOKENS: Final[int] = 1536
+
+
+class _Unset:
+    """None 자체가 유효한 thinking 설정이라 기본값 못씀"""
+
+
+_UNSET = _Unset()
+
+_ZERO_BUDGET = types.ThinkingConfig(thinking_budget=0)
+_MINIMAL_LEVEL = types.ThinkingConfig(thinking_level="MINIMAL")
+
+_THINKING_OFF: Final[dict[str, types.ThinkingConfig]] = {
+    "gemini-2.5-flash": _ZERO_BUDGET,
+    "gemini-3-flash-preview": _ZERO_BUDGET,
+    "gemini-3.5-flash": _ZERO_BUDGET,
+    "gemini-3.7-flash": _ZERO_BUDGET,
+    "gemini-3.8-flash": _ZERO_BUDGET,
+    "gemini-flash-latest": _ZERO_BUDGET,
+    "gemini-3.1-flash-lite": _MINIMAL_LEVEL,
+    "gemini-3.5-flash-lite": _MINIMAL_LEVEL,
+    "gemini-3.6-flash": _MINIMAL_LEVEL,
+    "gemini-flash-lite-latest": _MINIMAL_LEVEL,
+}
+
+
+# 표에 없는 모델은 이 순서로 시도해서 통하는 걸 찾음
+_THINKING_OFF_CANDIDATES: Final[tuple[types.ThinkingConfig | None, ...]] = (
+    _ZERO_BUDGET,
+    _MINIMAL_LEVEL,
+    None,
+)
+
+# 프로세스가 살아있는 동안 알아낸 값
+_learned_off: dict[str, types.ThinkingConfig | None] = {}
+
+
+def _is_invalid_argument(exc: errors.ClientError) -> bool:
+    """400"""
+    return getattr(exc, "code", None) == 400
+
+
+def _off_candidates(model: str) -> tuple[types.ThinkingConfig | None, ...]:
+    """이 모델에서 '생각 끄기' 로 시도할 설정들"""
+    key = model or ""
+    if key in _THINKING_OFF:
+        return (_THINKING_OFF[key], None)
+    if key in _learned_off:
+        learned = _learned_off[key]
+        return (None,) if learned is None else (learned, None)
+    logger.warning(
+        "thinking 끄기를 실측하지 못한 모델이다 — 통하는 걸 찾아본다: %r", model
+    )
+    return _THINKING_OFF_CANDIDATES
+
+
+def _remember_off(model: str, thinking: types.ThinkingConfig | None) -> None:
+    """표에 없는 모델에서 통한 설정을 기억한다."""
+    key = model or ""
+    if key in _THINKING_OFF or _learned_off.get(key, "") == thinking:
+        return
+    _learned_off[key] = thinking
+    logger.warning(
+        "%r 의 thinking 끄기를 알아냈다: %s — 실측해서 _THINKING_OFF 에 넣을 것",
+        model,
+        "미전송" if thinking is None else thinking,
+    )
+
+
+def _was_truncated(resp) -> bool:
+    """상한에 걸려 응답이 잘렸는지. 스트림 청크도 같은 모양이라 그대로 쓴다."""
+    for candidate in getattr(resp, "candidates", None) or []:
+        if getattr(candidate, "finish_reason", None) == types.FinishReason.MAX_TOKENS:
+            return True
+    return False
+
+
+def _thinking_off(model: str) -> types.ThinkingConfig | None:
+    """이 모델에서 '생각 끄기' 로 제일 먼저 시도할 설정"""
+    return _off_candidates(model)[0]
+
+
+def _warn_stepping_down(model: str, tried, exc: errors.ClientError) -> None:
+    """설정 탓이라고 단정하지 않는다. API 가 준 말을 그대로 남겨야 실제 원인을 찾는다."""
+    logger.warning(
+        "%r 가 400 을 줬다(보낸 thinking=%s) — thinking 탓일 수 있어 물러서서 다시 본다. API: %s",
+        model,
+        "미전송" if tried is None else tried,
+        getattr(exc, "message", None) or exc,
+    )
+
+
+async def _aclose(chunks) -> None:
+    """버리는 스트림은 닫는다. GC 를 기다리면 연결이 그만큼 잡혀 있다."""
+    closer = getattr(chunks, "aclose", None)
+    if closer is None:
+        return
+    with suppress(Exception):
+        await closer()
+
+
 class LLMClient:
     _thinking_budget: int | None = None
 
@@ -129,19 +233,29 @@ class LLMClient:
         self._model = settings.llm_realtime_model
         self._thinking_budget = settings.llm_thinking_budget
 
+    def _thinking_candidates(self) -> tuple[types.ThinkingConfig | None, ...]:
+        """이 요청에서 시도할 thinking 설정들"""
+        if self._thinking_budget is None:
+            return (None,)
+        if self._thinking_budget == 0:
+            return _off_candidates(self._model)
+        return (types.ThinkingConfig(thinking_budget=self._thinking_budget), None)
+
     def _thinking_config(self) -> types.ThinkingConfig | None:
         """None이면 thinking_config 안보내기"""
-        if self._thinking_budget is None:
-            return None
-        return types.ThinkingConfig(thinking_budget=self._thinking_budget)
+        return self._thinking_candidates()[0]
 
-    def _build_gen_config(self, system_prompt: str) -> types.GenerateContentConfig:
+    def _build_gen_config(
+        self, system_prompt: str, thinking: types.ThinkingConfig | None | _Unset = _UNSET
+    ) -> types.GenerateContentConfig:
         return types.GenerateContentConfig(
             system_instruction=system_prompt,
             safety_settings=_SAFETY_SETTINGS,
             temperature=0.8, # LLM 내부적으로 확률 분포 넓게 하거나 작게하는거, 최솟값:0, 최댓값:2
-            max_output_tokens=1024,
-            thinking_config=self._thinking_config(),
+            max_output_tokens=_STREAM_MAX_OUTPUT_TOKENS,
+            thinking_config=(
+                self._thinking_config() if isinstance(thinking, _Unset) else thinking
+            ),
         )
 
     @staticmethod
@@ -168,22 +282,34 @@ class LLMClient:
         return head.startswith(_EMOTION_PREFIX) and "]" not in head
 
     async def warmup(self) -> None:
-        """첫 턴 콜드 TTFT 완화용"""
-        try:
-            stream = await self._client.aio.models.generate_content_stream(
-                model=self._model,
-                contents="안녕",
-                config=types.GenerateContentConfig(
-                    max_output_tokens=1,
-                    thinking_config=self._thinking_config(),
-                ),
-            )
-            async for _ in stream:
-                break
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.debug("LLM 워밍업 실패(무시)", exc_info=True)
+        """첫 턴 콜드 TTFT 완화"""
+        candidates = self._thinking_candidates()
+        for i, thinking in enumerate(candidates):
+            try:
+                stream = await self._client.aio.models.generate_content_stream(
+                    model=self._model,
+                    contents="안녕",
+                    config=types.GenerateContentConfig(
+                        max_output_tokens=1,
+                        thinking_config=thinking,
+                    ),
+                )
+                async for _ in stream:
+                    break
+            except asyncio.CancelledError:
+                raise
+            except errors.ClientError as exc:
+                if i == len(candidates) - 1 or not _is_invalid_argument(exc):
+                    logger.debug("LLM 워밍업 실패(무시)", exc_info=True)
+                    return
+                _warn_stepping_down(self._model, thinking, exc)
+                continue
+            except Exception:
+                logger.debug("LLM 워밍업 실패(무시)", exc_info=True)
+                return
+            if self._thinking_budget == 0:
+                _remember_off(self._model, thinking)
+            return
 
     async def segment_feedback(
         self,
@@ -260,27 +386,50 @@ class LLMClient:
             "('또박또박', '차근차근'). '또또박' 처럼 글자를 흘리면 없는 말이 된다.\n"
         )
 
-        try:
-            resp = await self._client.aio.models.generate_content(
-                model=self._model,
-                contents="\n".join(lines),
-                config=types.GenerateContentConfig(
-                    system_instruction=system_prompt,
-                    safety_settings=_SAFETY_SETTINGS,
-                    temperature=0.6,
-                    max_output_tokens=512,
-                    # 형식 맞추기라 추론이 필요 없다. 안 끄면 생각 토큰이 512를
-                    # 다 먹고 문구가 MAX_TOKENS 로 잘려 나간다.
-                    thinking_config=types.ThinkingConfig(thinking_budget=0),
-                ),
-            )
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.warning("구간 피드백 생성 실패", exc_info=True)
+        candidates = _off_candidates(self._model)
+        resp = None
+        for i, thinking in enumerate(candidates):
+            try:
+                resp = await self._call_segment_feedback(lines, system_prompt, thinking)
+            except asyncio.CancelledError:
+                raise
+            except errors.ClientError as exc:
+                if i == len(candidates) - 1 or not _is_invalid_argument(exc):
+                    logger.warning("구간 피드백 생성 실패", exc_info=True)
+                    return []
+                _warn_stepping_down(self._model, thinking, exc)
+                continue
+            except Exception:
+                logger.warning("구간 피드백 생성 실패", exc_info=True)
+                return []
+            _remember_off(self._model, thinking)
+            break
+        if resp is None:
             return []
 
+        if _was_truncated(resp):
+            logger.warning(
+                "구간 피드백이 상한에서 잘렸다(model=%r) — thinking 설정을 확인할 것", self._model
+            )
         return self._parse_numbered_pairs(resp.text or "", len(items))
+
+    async def _call_segment_feedback(
+        self,
+        lines: list[str],
+        system_prompt: str,
+        thinking: types.ThinkingConfig | None,
+    ):
+        return await self._client.aio.models.generate_content(
+            model=self._model,
+            contents="\n".join(lines),
+            config=types.GenerateContentConfig(
+                system_instruction=system_prompt,
+                safety_settings=_SAFETY_SETTINGS,
+                temperature=0.6,
+                max_output_tokens=_FEEDBACK_MAX_OUTPUT_TOKENS,
+                thinking_config=thinking,
+            ),
+        )
 
     @staticmethod
     def _parse_numbered_pairs(raw: str, n: int) -> list[tuple[str, str]]:
@@ -320,11 +469,39 @@ class LLMClient:
         items.extend([""] * (n - len(items)))
         return items
 
+    async def _open_stream(self, contents, config):
+        return await self._client.aio.models.generate_content_stream(
+            model=self._model, contents=contents, config=config
+        )
+
+    async def _chunks(self, contents, system_prompt: str):
+        """thinking 설정 찾을 때까지 스트림을 다시 열기"""
+        candidates = self._thinking_candidates()
+        config = self._build_gen_config(system_prompt, candidates[0])
+        for i, thinking in enumerate(candidates):
+            config.thinking_config = thinking
+            chunks = (await self._open_stream(contents, config)).__aiter__()
+            try:
+                first = await chunks.__anext__()
+            except StopAsyncIteration:
+                return
+            except errors.ClientError as exc:
+                await _aclose(chunks)
+                if i == len(candidates) - 1 or not _is_invalid_argument(exc):
+                    raise
+                _warn_stepping_down(self._model, thinking, exc)
+                continue
+            if self._thinking_budget == 0:
+                _remember_off(self._model, thinking)
+            yield first
+            async for chunk in chunks:
+                yield chunk
+            return
+
     async def stream(self, ctx: TurnContext):
         """진입점임 async for로 LLMEvent를 yield"""
         system_prompt = build_system_prompt(ctx)
         contents = build_contents(ctx)
-        config = self._build_gen_config(system_prompt)
 
         head_buffer = ""
         emotion_resolved = False
@@ -332,17 +509,14 @@ class LLMClient:
         usage = None
         suggest_mode = False
         suggest_parts: list[str] = []
+        truncated = False
 
         try:
-            stream = await self._client.aio.models.generate_content_stream(
-                model=self._model,
-                contents=contents,
-                config=config,
-            )
-            async for chunk in stream:
+            async for chunk in self._chunks(contents, system_prompt):
                 chunk_usage = getattr(chunk, "usage_metadata", None)
                 if chunk_usage is not None:
                     usage = chunk_usage
+                truncated = truncated or _was_truncated(chunk)
                 if self._is_blocked(chunk):
                     logger.warning("LLM 응답 차단됨 (session role=%s)", ctx.scenario_role)
                     yield LLMEvent(type=LLMEventType.SAFETY_BLOCK)
@@ -420,6 +594,14 @@ class LLMClient:
                 suggestion = suggestion.strip()
                 if suggestion:
                     yield LLMEvent(type=LLMEventType.SUGGESTION, text=suggestion)
+
+            if truncated:
+                logger.warning(
+                    "실시간 응답이 상한에서 잘렸다(model=%r, max_output_tokens=%s) — "
+                    "제어 태그가 유실됐을 수 있다",
+                    self._model,
+                    _STREAM_MAX_OUTPUT_TOKENS,
+                )
 
             if usage is not None:
                 yield LLMEvent(
