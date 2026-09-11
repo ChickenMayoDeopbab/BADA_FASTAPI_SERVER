@@ -11,6 +11,7 @@ from app.schemas.llm import (
 )
 from app.services.llm import LLMClient
 
+
 def _ctx() -> TurnContext:
     return TurnContext(
         personality=list(AiPersonality)[0],
