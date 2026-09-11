@@ -2,7 +2,12 @@ import pytest
 from google.genai import errors, types
 
 from app.core.config import Settings, get_settings
-from app.services.llm import LLMClient, _thinking_off
+from app.services.llm import (
+    _THINKING_OFF,
+    LLMClient,
+    _off_candidates,
+    _thinking_off,
+)
 
 
 def _llm(model: str, budget: int | None = None) -> LLMClient:
@@ -50,12 +55,30 @@ def test_non_lite_does_not_imply_zero_budget() -> None:
 
 
 @pytest.mark.parametrize("model", ["gemini-3.1-pro-preview", "custom-model", ""])
-def test_unmeasured_model_sends_nothing_and_warns(model: str, caplog) -> None:
+def test_unmeasured_model_tries_candidates_instead_of_giving_up(model: str, caplog) -> None:
     import logging
 
+    from app.services.llm import _MINIMAL_LEVEL, _ZERO_BUDGET, _off_candidates
+
     with caplog.at_level(logging.WARNING, logger="app.services.llm"):
-        assert _thinking_off(model) is None
+        candidates = _off_candidates(model)
+    assert candidates == (_ZERO_BUDGET, _MINIMAL_LEVEL, None)
+    assert _thinking_off(model) is _ZERO_BUDGET
     assert any("thinking" in r.getMessage() for r in caplog.records)
+
+
+def test_known_model_costs_no_extra_round_trip() -> None:
+    assert _off_candidates("gemini-3.5-flash-lite")[0] is _thinking_off("gemini-3.5-flash-lite")
+    assert len(_off_candidates("gemini-3.5-flash-lite")) == 2
+
+
+def test_every_candidate_chain_ends_by_sending_nothing() -> None:
+    for model in (*_THINKING_OFF, "모르는-모델"):
+        assert _off_candidates(model)[-1] is None
+
+
+def test_default_realtime_model_is_in_the_table() -> None:
+    assert get_settings().llm_realtime_model in _THINKING_OFF
 
 
 def test_env_budget_zero_is_translated_per_model() -> None:

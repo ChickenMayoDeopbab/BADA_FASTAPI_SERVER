@@ -42,6 +42,10 @@ class _FakeStream:
         self._raise_at = raise_at
         self._exc = exc
         self._i = 0
+        self.closed = False
+
+    async def aclose(self) -> None:
+        self.closed = True
 
     def __aiter__(self):
         return self
@@ -181,16 +185,52 @@ async def test_no_retry_when_no_thinking_config_was_sent() -> None:
 
 
 @pytest.mark.asyncio
-async def test_warmup_warns_when_config_is_rejected(caplog) -> None:
-    client, _ = _llm("gemini-3.5-flash-lite", 0,
-                     [_FakeStream([], raise_at=0, exc=_rejection())])
+async def test_warmup_finds_a_working_config_so_turn_one_does_not_pay(caplog) -> None:
+    client, models = _llm("gemini-3.5-flash-lite", 0, [
+        _FakeStream([], raise_at=0, exc=_rejection()),
+        _FakeStream([_chunk("네")]),
+    ])
 
     with caplog.at_level(logging.DEBUG, logger="app.services.llm"):
         await client.warmup()
 
-    rejected = [r for r in caplog.records if "거절" in r.getMessage()]
-    assert rejected, "400 은 DEBUG 로 묻으면 안 된다"
-    assert rejected[0].levelno == logging.WARNING
+    assert len(models.sent_thinking) == 2, "400 이면 다음 후보로 내려가야 한다"
+    stepped = [r for r in caplog.records if "400 을 줬다" in r.getMessage()]
+    assert stepped and stepped[0].levelno == logging.WARNING, "400 은 DEBUG 로 묻으면 안 된다"
+
+
+@pytest.mark.asyncio
+async def test_step_down_log_carries_the_api_message(caplog) -> None:
+    oversized = errors.ClientError(
+        400, {"error": {"message": "The input token count exceeds the maximum "
+                                   "number of tokens allowed (1048576).",
+                        "status": "INVALID_ARGUMENT"}}
+    )
+    client, _ = _llm("gemini-3.5-flash-lite", 0, [
+        _FakeStream([], raise_at=0, exc=oversized),
+        _FakeStream([_chunk("[EMOTION: NEUTRAL]네.")]),
+    ])
+
+    with caplog.at_level(logging.WARNING, logger="app.services.llm"):
+        await _drain(client)
+
+    stepped = [r for r in caplog.records if "400 을 줬다" in r.getMessage()]
+    assert stepped, "물러설 때 로그가 있어야 한다"
+    assert "input token count" in stepped[0].getMessage(), (
+        "API 메시지를 안 실으면 thinking 탓이 아닌 400 의 진짜 원인을 못 찾는다"
+    )
+    assert "거절했다" not in stepped[0].getMessage(), "원인을 단정하면 안 된다"
+
+
+@pytest.mark.asyncio
+async def test_abandoned_stream_is_closed() -> None:
+    first = _FakeStream([], raise_at=0, exc=_rejection())
+    client, _ = _llm("gemini-3.5-flash-lite", 0,
+                     [first, _FakeStream([_chunk("[EMOTION: NEUTRAL]네.")])])
+
+    await _drain(client)
+
+    assert first.closed, "거절당한 스트림은 닫아야 한다"
 
 
 @pytest.mark.asyncio
@@ -212,5 +252,5 @@ async def test_unmapped_model_warns_once_per_turn(caplog) -> None:
     with caplog.at_level(logging.WARNING, logger="app.services.llm"):
         await _drain(client)
 
-    unmapped = [r for r in caplog.records if "검증하지 못한" in r.getMessage()]
+    unmapped = [r for r in caplog.records if "실측하지 못한" in r.getMessage()]
     assert len(unmapped) == 1, f"턴당 한 번이어야 한다 (실제 {len(unmapped)}번)"
