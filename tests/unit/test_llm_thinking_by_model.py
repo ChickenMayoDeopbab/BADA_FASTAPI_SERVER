@@ -12,15 +12,26 @@ def _llm(model: str, budget: int | None = None) -> LLMClient:
     return c
 
 
-@pytest.mark.parametrize("model", ["gemini-2.5-flash", "gemini-3.7-flash", "gemini-3.8-flash"])
-def test_models_that_only_accept_zero_budget(model: str) -> None:
+@pytest.mark.parametrize(
+    "model",
+    ["gemini-2.5-flash", "gemini-3.7-flash", "gemini-3.8-flash", "gemini-flash-latest"],
+)
+def test_table_maps_these_to_zero_budget(model: str) -> None:
     cfg = _thinking_off(model)
     assert cfg is not None
     assert cfg.thinking_budget == 0
 
 
-@pytest.mark.parametrize("model", ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"])
-def test_models_that_only_accept_minimal_level(model: str) -> None:
+@pytest.mark.parametrize(
+    "model",
+    [
+        "gemini-3.5-flash-lite",
+        "gemini-3.1-flash-lite",
+        "gemini-3.6-flash",
+        "gemini-flash-lite-latest",
+    ],
+)
+def test_table_maps_these_to_minimal_level(model: str) -> None:
     cfg = _thinking_off(model)
     assert cfg is not None
     assert cfg.thinking_budget is None
@@ -30,6 +41,12 @@ def test_models_that_only_accept_minimal_level(model: str) -> None:
 def test_generation_alone_does_not_decide() -> None:
     assert _thinking_off("gemini-3.7-flash").thinking_budget == 0
     assert _thinking_off("gemini-3.5-flash-lite").thinking_budget is None
+
+
+def test_non_lite_does_not_imply_zero_budget() -> None:
+    assert _thinking_off("gemini-3.5-flash").thinking_budget == 0
+    assert _thinking_off("gemini-3.6-flash").thinking_budget is None
+    assert _thinking_off("gemini-3.7-flash").thinking_budget == 0
 
 
 @pytest.mark.parametrize("model", ["gemini-3.1-pro-preview", "custom-model", ""])
@@ -144,3 +161,10 @@ def test_default_realtime_model_is_not_a_retired_one() -> None:
     retired = {"gemini-2.5-flash-lite", "gemini-2.5-pro"}
     assert Settings.model_fields["llm_realtime_model"].default not in retired
     assert get_settings().llm_realtime_model not in retired
+
+
+@pytest.mark.asyncio
+async def test_feedback_cap_leaves_room_for_unmapped_models() -> None:
+    llm, models = _with_capture("gemini-3.5-flash-lite")
+    await llm.segment_feedback([{"type": "GOOD", "utterance": "안녕하세요", "avti": None}])
+    assert models.kwargs["config"].max_output_tokens >= 1536
