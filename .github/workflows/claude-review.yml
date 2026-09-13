@@ -2,7 +2,7 @@ name: Claude Review
 
 on:
   pull_request:
-    types: [opened, synchronize]
+    types: [opened, synchronize, reopened, ready_for_review]
 
 permissions:
   contents: read
@@ -21,7 +21,25 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          fetch-depth: 1
+          fetch-depth: 0
+
+      - name: Prepare review context
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          mkdir -p .review
+          git diff "origin/$BASE_REF...$HEAD_SHA" > .review/pr.diff
+          gh api --paginate "repos/$REPO/pulls/$PR/comments" \
+            --jq '.[] | "[\(.user.login)] \(.path):\(.line // .original_line // "?") \(.body | gsub("\n"; " ") | .[0:500])"' \
+            > .review/prior-comments.txt
+          gh api --paginate "repos/$REPO/issues/$PR/comments" \
+            --jq '.[] | "[\(.user.login)] \(.body | gsub("\n"; " ") | .[0:800])"' \
+            >> .review/prior-comments.txt
+          wc -l .review/*
 
       - name: Claude Code Review
         uses: anthropics/claude-code-action@v1
@@ -31,17 +49,25 @@ jobs:
             REPO: ${{ github.repository }}
             PR NUMBER: ${{ github.event.pull_request.number }}
 
-            이 PR을 코드리뷰해줘. 리뷰는 한국어로 작성한다.
+            이 PR 전체를 코드리뷰해줘. 리뷰는 한국어로 작성한다.
 
-            중점 확인 사항:
+            준비된 파일 (저장소 루트의 .review/):
+            - pr.diff: PR 전체 변경분. 먼저 전부 읽는다.
+            - prior-comments.txt: 이 PR 에 이미 달린 코멘트 (사람·봇 모두).
+
+            중점 확인 사항 (우선순위 순):
             - 버그, 잠재적 오류, 엣지 케이스
             - 보안 문제 (시크릿 노출, 입력 검증 등)
-            - 기존 코드베이스의 스타일·구조와의 일관성
-            - 테스트 커버리지
+
+            범위 제한:
+            - 파일 열람은 변경된 파일과 그 직접 호출부까지만. 저장소 전체 탐색은 하지 않는다.
+            - prior-comments.txt 에 이미 있는 지적은 다시 달지 않는다. 이전 지적이 해결됐으면 총평에 한 줄로 적는다.
+            - 인라인 코멘트는 최대 6개. 그 이상은 총평에 묶는다.
 
             특정 라인에 대한 지적은 인라인 코멘트로 남기고,
             전반적인 총평은 top-level 코멘트 하나로 남겨줘.
             문제가 없으면 간단히 승인 취지의 코멘트만 남긴다.
           claude_args: |
             --model claude-sonnet-5
-            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
+            --effort low
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Read,Glob,Grep,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*)"
