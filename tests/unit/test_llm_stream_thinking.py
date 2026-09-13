@@ -254,3 +254,76 @@ async def test_unmapped_model_warns_once_per_turn(caplog) -> None:
 
     unmapped = [r for r in caplog.records if "실측하지 못한" in r.getMessage()]
     assert len(unmapped) == 1, f"턴당 한 번이어야 한다 (실제 {len(unmapped)}번)"
+
+
+class _OpenRaisesOnce:
+
+    def __init__(self, then) -> None:
+        self._then = then
+        self.sent_thinking: list[object] = []
+
+    async def generate_content_stream(self, **kwargs):
+        self.sent_thinking.append(kwargs["config"].thinking_config)
+        if len(self.sent_thinking) == 1:
+            raise _rejection()
+        return self._then
+
+
+@pytest.mark.asyncio
+async def test_rejection_at_stream_open_also_steps_down() -> None:
+    client, _ = _llm("gemini-3.5-flash-lite", 0, [])
+    models = _OpenRaisesOnce(_FakeStream([_chunk("[EMOTION: NEUTRAL]네, 주문 받았습니다.")]))
+    client._client = type("C", (), {"aio": type("A", (), {"models": models})()})()
+
+    events, text = await _drain(client)
+
+    assert LLMEventType.ERROR.name not in events, "여는 시점 400 도 물러서야 한다"
+    assert text.strip() == "네, 주문 받았습니다."
+    assert models.sent_thinking[1] is None
+
+
+@pytest.mark.asyncio
+async def test_rejected_positive_budget_is_reported_not_silently_dropped(caplog) -> None:
+    client, models = _llm("gemini-3.5-flash-lite", 128, [
+        _FakeStream([], raise_at=0, exc=_rejection()),
+        _FakeStream([_chunk("[EMOTION: NEUTRAL]네.")]),
+    ])
+
+    with caplog.at_level(logging.WARNING, logger="app.services.llm"):
+        await _drain(client)
+
+    assert models.sent_thinking[0].thinking_budget == 128
+    assert models.sent_thinking[1] is None
+    stepped = [r for r in caplog.records if "400 을 줬다" in r.getMessage()]
+    assert stepped and "thinking_budget=128" in stepped[0].getMessage()
+
+
+@pytest.mark.asyncio
+async def test_warmup_rejection_at_open_also_steps_down() -> None:
+    client, _ = _llm("gemini-3.5-flash-lite", 0, [])
+    models = _OpenRaisesOnce(_FakeStream([_chunk("네")]))
+    client._client = type("C", (), {"aio": type("A", (), {"models": models})()})()
+
+    await client.warmup()
+
+    assert len(models.sent_thinking) == 2
+
+
+@pytest.mark.asyncio
+async def test_unknown_model_pays_the_round_trip_only_once() -> None:
+    from app.services.llm import _MINIMAL_LEVEL
+
+    first_turn = [
+        _FakeStream([], raise_at=0, exc=_rejection()),
+        _FakeStream([_chunk("[EMOTION: NEUTRAL]네.")]),
+    ]
+    second_turn = [_FakeStream([_chunk("[EMOTION: NEUTRAL]네.")])]
+    client, models = _llm("gemini-9.9-unknown", 0, first_turn + second_turn)
+
+    await _drain(client)
+    opened_on_first_turn = len(models.sent_thinking)
+    await _drain(client)
+
+    assert opened_on_first_turn == 2
+    assert len(models.sent_thinking) == 3, "두 번째 턴은 한 번에 열려야 한다"
+    assert models.sent_thinking[2] is _MINIMAL_LEVEL, "알아낸 설정을 바로 써야 한다"
