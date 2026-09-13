@@ -281,35 +281,48 @@ class LLMClient:
             return _EMOTION_PREFIX.startswith(head)
         return head.startswith(_EMOTION_PREFIX) and "]" not in head
 
-    async def warmup(self) -> None:
-        """첫 턴 콜드 TTFT 완화"""
-        candidates = self._thinking_candidates()
+    async def _first_accepted(self, candidates, attempt, *, learn: bool):
+        """첫 턴 적용"""
+        last = len(candidates) - 1
         for i, thinking in enumerate(candidates):
             try:
-                stream = await self._client.aio.models.generate_content_stream(
-                    model=self._model,
-                    contents="안녕",
-                    config=types.GenerateContentConfig(
-                        max_output_tokens=1,
-                        thinking_config=thinking,
-                    ),
-                )
-                async for _ in stream:
-                    break
-            except asyncio.CancelledError:
-                raise
+                result = await attempt(thinking)
             except errors.ClientError as exc:
-                if i == len(candidates) - 1 or not _is_invalid_argument(exc):
-                    logger.debug("LLM 워밍업 실패(무시)", exc_info=True)
-                    return
+                if i == last or not _is_invalid_argument(exc):
+                    raise
                 _warn_stepping_down(self._model, thinking, exc)
                 continue
-            except Exception:
-                logger.debug("LLM 워밍업 실패(무시)", exc_info=True)
-                return
-            if self._thinking_budget == 0:
+            if learn:
                 _remember_off(self._model, thinking)
-            return
+            return result
+        raise RuntimeError("thinking 후보가 비어 있다")
+
+    async def warmup(self) -> None:
+        """첫 턴 콜드 TTFT 완화"""
+
+        async def ping(thinking):
+            stream = await self._client.aio.models.generate_content_stream(
+                model=self._model,
+                contents="안녕",
+                config=types.GenerateContentConfig(
+                    max_output_tokens=1,
+                    thinking_config=thinking,
+                ),
+            )
+            try:
+                async for _ in stream:
+                    break
+            finally:
+                await _aclose(stream)
+
+        try:
+            await self._first_accepted(
+                self._thinking_candidates(), ping, learn=self._thinking_budget == 0
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.debug("LLM 워밍업 실패(무시)", exc_info=True)
 
     async def segment_feedback(
         self,
@@ -386,25 +399,16 @@ class LLMClient:
             "('또박또박', '차근차근'). '또또박' 처럼 글자를 흘리면 없는 말이 된다.\n"
         )
 
-        candidates = _off_candidates(self._model)
-        resp = None
-        for i, thinking in enumerate(candidates):
-            try:
-                resp = await self._call_segment_feedback(lines, system_prompt, thinking)
-            except asyncio.CancelledError:
-                raise
-            except errors.ClientError as exc:
-                if i == len(candidates) - 1 or not _is_invalid_argument(exc):
-                    logger.warning("구간 피드백 생성 실패", exc_info=True)
-                    return []
-                _warn_stepping_down(self._model, thinking, exc)
-                continue
-            except Exception:
-                logger.warning("구간 피드백 생성 실패", exc_info=True)
-                return []
-            _remember_off(self._model, thinking)
-            break
-        if resp is None:
+        try:
+            resp = await self._first_accepted(
+                _off_candidates(self._model),
+                lambda thinking: self._call_segment_feedback(lines, system_prompt, thinking),
+                learn=True,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.warning("구간 피드백 생성 실패", exc_info=True)
             return []
 
         if _was_truncated(resp):
@@ -478,25 +482,26 @@ class LLMClient:
         """thinking 설정 찾을 때까지 스트림을 다시 열기"""
         candidates = self._thinking_candidates()
         config = self._build_gen_config(system_prompt, candidates[0])
-        for i, thinking in enumerate(candidates):
+
+        async def open_until_first_chunk(thinking):
             config.thinking_config = thinking
             chunks = (await self._open_stream(contents, config)).__aiter__()
             try:
-                first = await chunks.__anext__()
+                return chunks, await chunks.__anext__()
             except StopAsyncIteration:
-                return
-            except errors.ClientError as exc:
+                return chunks, None
+            except Exception:
                 await _aclose(chunks)
-                if i == len(candidates) - 1 or not _is_invalid_argument(exc):
-                    raise
-                _warn_stepping_down(self._model, thinking, exc)
-                continue
-            if self._thinking_budget == 0:
-                _remember_off(self._model, thinking)
-            yield first
-            async for chunk in chunks:
-                yield chunk
+                raise
+
+        chunks, first = await self._first_accepted(
+            candidates, open_until_first_chunk, learn=self._thinking_budget == 0
+        )
+        if first is None:
             return
+        yield first
+        async for chunk in chunks:
+            yield chunk
 
     async def stream(self, ctx: TurnContext):
         """진입점임 async for로 LLMEvent를 yield"""
