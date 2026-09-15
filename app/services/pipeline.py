@@ -159,6 +159,7 @@ class _TurnTimings:
     last_token_at: float | None = None   # 마지막 텍스트 토큰
     first_pcm_at: float | None = None    # 첫 PCM 클라 송출
     last_pcm_at: float | None = None     # 마지막 PCM 클라 송출
+    emotion_at: float | None = None      # 감정 프레임 송신(앱이 마이크 게이트를 닫는 시점)
 
     @staticmethod
     def _delta(start: float | None, end: float | None) -> float | None:
@@ -175,11 +176,15 @@ class _TurnTimings:
             "tts_ttfb_ms": self._delta(self.first_token_at, self.first_pcm_at),
             "tts_total_ms": self._delta(self.first_token_at, self.last_pcm_at),
             "response_ms": self._delta(self.final_at, self.first_pcm_at),
+            "emotion_ms": self._delta(self.final_at, self.emotion_at),
             "turn_total_ms": self._delta(self.final_at, self.last_pcm_at),
         }
 
 
 class VoicePipeline:
+    _turn_final_at: float | None = None  # 진행 중인 턴을 연 FINAL 시각
+    _turn_done_at: float | None = None   # 마지막 '턴 완료' 시각
+
     def __init__(
         self,
         ws: WebSocket,
@@ -536,6 +541,8 @@ class VoicePipeline:
 
     async def _handle_stt_event(self, event) -> None:
         if self._state == _State.CLOSING:
+            if event.type == STTEventType.FINAL:
+                self._log_final_dropped("closing", event.text.strip())
             return
         if event.type == STTEventType.INTERIM:
             if (
@@ -557,9 +564,10 @@ class VoicePipeline:
                 try:
                     await self._send_json(transcript_frame(TranscriptRole.USER, text))
                 finally:
-                    # 자막 전송 도중 취소돼도 턴은 시작돼야 한다 — 안 그러면 사용자 화면엔
-                    # 자기 말이 뜬 채로 AI 가 영원히 대답하지 않는다(0052 F81).
                     self._start_turn(text, final_at=final_at)
+            else:
+                reason = "empty" if not text else ("state" if self._state != _State.LISTENING else "time_up")
+                self._log_final_dropped(reason, text)
         elif event.type == STTEventType.SPEECH_BEGIN and (
                 self._listening_since is not None and
                 time.monotonic() - self._listening_since > 1.5 and
@@ -571,6 +579,8 @@ class VoicePipeline:
         """LLM -> TTS"""
         self._close_user_turn(user_utterance)
         self._state = _State.THINKING
+        self._turn_final_at = final_at
+        self._turn_done_at = None
         timings = _TurnTimings(final_at=final_at, last_audio_at=self._last_audio_at)
         self._turn_task = asyncio.create_task(self._run_turn(user_utterance, timings))
 
@@ -614,6 +624,7 @@ class VoicePipeline:
             await session.begin(emotion)
             box["tts"] = session
             await self._send_json(emotion_frame(emotion))
+            timings.emotion_at = now_ms()
             emotion_ready.set()
 
         async def produce() -> None:
@@ -721,16 +732,24 @@ class VoicePipeline:
             if flags.get("cancelled"):
                 await self._salvage_cancelled_turn(user_utterance, ai_parts)
 
-        await self._finalize_turn(
-            user_utterance,
-            ai_parts,
-            flags,
-            timings,
-            usage,
-            ctx=ctx,
-            suggestion=suggestion_box["text"],
-            audio=audio,
-        )
+        try:
+            await self._finalize_turn(
+                user_utterance,
+                ai_parts,
+                flags,
+                timings,
+                usage,
+                ctx=ctx,
+                suggestion=suggestion_box["text"],
+                audio=audio,
+            )
+        except Exception:
+            logger.exception(
+                "턴 마무리 중 예외 — 듣기 상태로 되돌린다",
+                extra={"session_id": self._session_id},
+            )
+            if not self._closing.is_set():
+                self._resume_listening(recovered=True)
 
     async def _salvage_cancelled_turn(
         self, user_utterance: str, ai_parts: list[str]
@@ -871,6 +890,7 @@ class VoicePipeline:
             **timings.as_metrics(),
             **(audio.as_metrics() if audio is not None else {}),
         )
+        self._turn_done_at = now_ms()
         logger.info(
             "턴 완료 step=%s user=%r ai=%r",
             self._current_step,
@@ -901,10 +921,33 @@ class VoicePipeline:
         if not flags.get("watchdog"):
             await self._maybe_send_script_hint(ctx, suggestion)
 
+        self._resume_listening()
+
+    def _resume_listening(self, *, recovered: bool = False) -> None:
+        """턴이 끝나 다시 사용자 말을 받는 상태"""
         self._turn_task = None
         self._state = _State.LISTENING
         self._listening_since = time.monotonic()
         self._open_user_turn()
+        now = now_ms()
+        log_metric(
+            "listening_resumed",
+            session_id=self._session_id,
+            recovered=recovered,
+            since_turn_done_ms=None if self._turn_done_at is None else round(now - self._turn_done_at, 1),
+            since_final_ms=None if self._turn_final_at is None else round(now - self._turn_final_at, 1),
+        )
+
+    def _log_final_dropped(self, reason: str, text: str) -> None:
+        """버려진 FINAL"""
+        log_metric(
+            "final_dropped",
+            session_id=self._session_id,
+            reason=reason,
+            state=self._state.value,
+            chars=len(text),
+            since_final_ms=None if self._turn_final_at is None else round(now_ms() - self._turn_final_at, 1),
+        )
 
     async def _play_turn_fallback(self) -> None:
         await self._send_json(
