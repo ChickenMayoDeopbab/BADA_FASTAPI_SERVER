@@ -87,6 +87,8 @@ _STT_NO_AUDIO_WARNING_LEAD = 30.0
 _NO_AUDIO_WARNING_TEXT = "목소리가 들리지 않아요. 계속 조용하면 통화가 잠시 후 종료돼요."
 _SAFETY_FALLBACK = "죄송해요, 그 부분은 지금 답하기 어렵네요."
 _TURN_WATCHDOG_SECONDS = 30.0
+# 이보다 긴 침묵만 무음
+_SILENCE_MIN_SECONDS = 1.5
 _TURN_FALLBACK_TEXT = "죄송해요, 다시 한번 말씀해 주시겠어요?"
 _FALLBACK_TTS_TIMEOUT = 8.0
 _AVTI_WAIT_SECONDS = 20.0
@@ -568,12 +570,10 @@ class VoicePipeline:
             else:
                 reason = "empty" if not text else ("state" if self._state != _State.LISTENING else "time_up")
                 self._log_final_dropped(reason, text)
-        elif event.type == STTEventType.SPEECH_BEGIN and (
-                self._listening_since is not None and
-                time.monotonic() - self._listening_since > 1.5 and
-                self._state == _State.LISTENING):
-            self._silence_total += time.monotonic() - self._listening_since
-            self._listening_since = None
+        elif event.type == STTEventType.SPEECH_BEGIN and self._state == _State.LISTENING:
+            self._bank_silence()
+        elif event.type == STTEventType.SPEECH_END and self._state == _State.LISTENING:
+            self._listening_since = time.monotonic()
 
     def _start_turn(self, user_utterance: str, *, final_at: float) -> None:
         """LLM -> TTS"""
@@ -938,6 +938,15 @@ class VoicePipeline:
             since_final_ms=None if self._turn_final_at is None else round(now - self._turn_final_at, 1),
         )
 
+    def _bank_silence(self) -> None:
+        """재고 있던 침묵을 합계에 더하고 None으로 바꿈"""
+        if self._listening_since is None:
+            return
+        elapsed = time.monotonic() - self._listening_since
+        self._listening_since = None
+        if elapsed > _SILENCE_MIN_SECONDS:
+            self._silence_total += elapsed
+
     def _log_final_dropped(self, reason: str, text: str) -> None:
         """버려진 FINAL"""
         log_metric(
@@ -1055,9 +1064,8 @@ class VoicePipeline:
     async def _close(self, reason: EndReason) -> None:
         if self._closing.is_set():
             return
-        if self._state == _State.LISTENING and self._listening_since is not None:
-            self._silence_total += time.monotonic() - self._listening_since
-            self._listening_since = None
+        if self._state == _State.LISTENING:
+            self._bank_silence()
         self._end_reason = reason
         self._state = _State.CLOSING
         self._closing.set()
