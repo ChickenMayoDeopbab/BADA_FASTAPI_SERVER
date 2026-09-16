@@ -156,6 +156,34 @@ class PostReactionORM(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class UsageEventORM(Base):
+    """외부 API 사용량 ORM"""
+
+    __tablename__ = "usage_event"
+    __table_args__ = (
+        Index("ix_usage_event_user_created", "user_id", "created_at"),
+        Index("ix_usage_event_kind_created", "kind", "created_at"),
+        Index(
+            "uq_usage_event_session",
+            "session_id",
+            unique=True,
+            sqlite_where=text("kind = 'session'"),
+            postgresql_where=text("kind = 'session'"),
+        ),
+    )
+
+    event_id: Mapped[int] = mapped_column(_AUTO_PK, primary_key=True, autoincrement=True)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    session_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
+    scenario_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    provider: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    model: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    purpose: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class PostAttachmentORM(Base):
     __tablename__ = "post_attachment"
     __table_args__ = (
