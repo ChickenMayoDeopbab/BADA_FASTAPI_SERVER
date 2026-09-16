@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from contextlib import suppress
 from dataclasses import dataclass, field
+
+from app.core.metrics import log_metric
 
 PCM_BYTES_PER_SECOND = 16_000 * 2  # 16 kHz * 16-bit * mono
 
@@ -78,3 +81,89 @@ class SessionUsage:
                 self.tts_pcm_bytes.get(engine, 0) / PCM_BYTES_PER_SECOND, 3
             )
         return out
+
+_LLM_ZERO = {
+    "input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0,
+    "cache_write_tokens": 0, "thought_tokens": 0,
+}
+
+
+def llm_usage_fields(provider: str, usage: object) -> dict[str, int]:
+    """Anthropic Usage 와 Gemini usage_metadata 같은 키로 맞추기"""
+    if usage is None:
+        return dict(_LLM_ZERO)
+    if provider == "anthropic":
+        return {
+            "input_tokens": _int(getattr(usage, "input_tokens", None)),
+            "output_tokens": _int(getattr(usage, "output_tokens", None)),
+            "cache_read_tokens": _int(getattr(usage, "cache_read_input_tokens", None)),
+            "cache_write_tokens": _int(getattr(usage, "cache_creation_input_tokens", None)),
+            "thought_tokens": 0,
+        }
+    return {
+        "input_tokens": _int(getattr(usage, "prompt_token_count", None)),
+        "output_tokens": _int(getattr(usage, "candidates_token_count", None)),
+        "cache_read_tokens": _int(getattr(usage, "cached_content_token_count", None)),
+        "cache_write_tokens": 0,
+        "thought_tokens": _int(getattr(usage, "thoughts_token_count", None)),
+    }
+
+
+def log_llm_usage(
+    provider: str,
+    model: object,
+    purpose: str,
+    *,
+    usage: object,
+    user_id: object = None,
+    scenario_id: object = None,
+    attempt: int = 1,
+    ok: bool = True,
+    images: int = 0,
+    duration_ms: object = None,
+) -> None:
+    """llm_usage 지표"""
+    with suppress(Exception):
+        log_metric(
+            "llm_usage",
+            provider=provider,
+            model=model,
+            purpose=purpose,
+            user_id=user_id,
+            scenario_id=scenario_id,
+            attempt=attempt,
+            ok=ok,
+            images=images,
+            duration_ms=duration_ms,
+            **llm_usage_fields(provider, usage),
+        )
+
+
+def log_tts_usage(
+    engine: str,
+    model: object,
+    purpose: str,
+    *,
+    chars: object,
+    pcm_bytes: object,
+    turns: object,
+    user_id: object = None,
+    scenario_id: object = None,
+    trigger: object = None,
+    ok: bool = True,
+) -> None:
+    """tts_usage 지표"""
+    with suppress(Exception):
+        log_metric(
+            "tts_usage",
+            engine=engine,
+            model=model,
+            purpose=purpose,
+            user_id=user_id,
+            scenario_id=scenario_id,
+            trigger=trigger,
+            ok=ok,
+            chars=_int(chars),
+            audio_sec=round(_int(pcm_bytes) / PCM_BYTES_PER_SECOND, 3),
+            turns=_int(turns),
+        )
