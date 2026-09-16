@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass, field
 
@@ -82,6 +82,28 @@ class SessionUsage:
             )
         return out
 
+UsageSink = Callable[[str, dict[str, object]], None]
+_SINKS: list[UsageSink] = []
+
+
+def register_sink(sink: UsageSink) -> None:
+    if sink not in _SINKS:
+        _SINKS.append(sink)
+
+
+def unregister_sink(sink: UsageSink) -> None:
+    with suppress(ValueError):
+        _SINKS.remove(sink)
+
+
+def emit(kind: str, **fields: object) -> None:
+    """지표 한 줄(metric=<kind>) + 등록된 싱크 전부"""
+    log_metric(kind, **fields)
+    for sink in list(_SINKS):
+        with suppress(Exception):
+            sink(kind, dict(fields))
+
+
 _LLM_ZERO = {
     "input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0,
     "cache_write_tokens": 0, "thought_tokens": 0,
@@ -124,7 +146,7 @@ def log_llm_usage(
 ) -> None:
     """llm_usage 지표"""
     with suppress(Exception):
-        log_metric(
+        emit(
             "llm_usage",
             provider=provider,
             model=model,
@@ -154,7 +176,7 @@ def log_tts_usage(
 ) -> None:
     """tts_usage 지표"""
     with suppress(Exception):
-        log_metric(
+        emit(
             "tts_usage",
             engine=engine,
             model=model,
