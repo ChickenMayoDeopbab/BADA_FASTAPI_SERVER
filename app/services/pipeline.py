@@ -16,7 +16,7 @@ from app.core.config import Settings
 from app.core.enums import SessionType
 from app.core.metrics import log_metric, now_ms
 from app.core.tts_voices import resolve_voice
-from app.core.usage import SessionUsage
+from app.core.usage import SessionUsage, emit
 from app.schemas.frames import (
     EndReason,
     NoticeCode,
@@ -1274,7 +1274,7 @@ class VoicePipeline:
             sent = getattr(getattr(self, "_stt", None), "audio_bytes_sent", None)
             acc.stt_bytes = int(sent) if isinstance(sent, int) else len(recording_pcm)
             settings = getattr(self, "_settings", None)
-            log_metric(
+            emit(
                 "session_usage",
                 session_id=self._session_id,
                 user_id=parse_user_id(self._session),
