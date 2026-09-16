@@ -121,18 +121,41 @@ def load_from_logs(paths: Iterable[str], log_tz: ZoneInfo | None = None) -> list
     return events
 
 
-def load_from_db(database_url: str) -> list[Event]:
+def month_bounds_utc(month: str, tz: ZoneInfo) -> tuple[datetime, datetime]:
+    """`YYYY-MM` 을 tz 기준 [월초, 다음 월초) 의 UTC 경계로."""
+    year, mon = (int(x) for x in month.split("-"))
+    start = datetime(year, mon, 1, tzinfo=tz)
+    end = datetime(year + (mon == 12), 1 if mon == 12 else mon + 1, 1, tzinfo=tz)
+    return start.astimezone(UTC), end.astimezone(UTC)
+
+
+def load_from_db(
+    database_url: str,
+    *,
+    month: str | None = None,
+    tz: ZoneInfo | None = None,
+    user: int | None = None,
+) -> list[Event]:
+    """월·사용자 필터는 DB 에서 건다 — 테이블은 통화·호출마다 쌓이므로 전체를 올리지 않는다(리뷰 지적)."""
     async def _load() -> list[Event]:
         from sqlalchemy import select
         from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
         from app.db.models import UsageEventORM
 
+        stmt = select(UsageEventORM)
+        if month:
+            lo, hi = month_bounds_utc(month, tz or ZoneInfo("Asia/Seoul"))
+            stmt = stmt.where(UsageEventORM.created_at >= lo, UsageEventORM.created_at < hi)
+        if user is not None:
+            stmt = stmt.where(UsageEventORM.user_id == user)
+        stmt = stmt.order_by(UsageEventORM.event_id)
+
         engine = create_async_engine(database_url)
         try:
             sessions = async_sessionmaker(engine, expire_on_commit=False)
             async with sessions() as db:
-                rows = (await db.execute(select(UsageEventORM).order_by(UsageEventORM.event_id))).scalars().all()
+                rows = (await db.execute(stmt)).scalars().all()
         finally:
             await engine.dispose()
         out: list[Event] = []
@@ -344,7 +367,7 @@ def main(argv: list[str] | None = None) -> int:
         if not database_url:
             print("DB 원천인데 --database-url 도 DATABASE_URL 도 없다", file=sys.stderr)
             return 2
-        events = load_from_db(database_url)
+        events = load_from_db(database_url, month=args.month, tz=ZoneInfo(args.tz), user=args.user)
     else:
         if not args.log:
             print("--source log 에는 --log 파일이 필요하다", file=sys.stderr)

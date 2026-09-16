@@ -260,3 +260,47 @@ def test_cli_reads_from_sqlite_db(tmp_path, capsys) -> None:
     assert by_user[77]["sessions"] == 1 and by_user[77]["quantities"]["stt_sec"] == 12.5
     assert by_user[7]["quantities"]["gen_input_tokens"] == 700
     assert by_user[77]["usd_low"] < by_user[77]["usd_high"], "EL 크레딧 범위"
+
+
+def test_month_bounds_follow_the_report_timezone() -> None:
+    lo, hi = usage_report.month_bounds_utc("2026-09", KST)
+    assert lo.isoformat() == "2026-08-31T15:00:00+00:00" and hi.isoformat() == "2026-09-30T15:00:00+00:00"
+    lo_dec, hi_dec = usage_report.month_bounds_utc("2026-12", UTC)
+    assert (lo_dec.year, lo_dec.month, hi_dec.year, hi_dec.month) == (2026, 12, 2027, 1)
+
+
+def test_load_from_db_filters_month_and_user_in_the_query(tmp_path) -> None:
+    from datetime import datetime
+
+    from app.db.models import UsageEventORM
+
+    url = f"sqlite+aiosqlite:///{tmp_path / 'usage.db'}"
+
+    def _row(user_id: int, created_at: datetime) -> UsageEventORM:
+        return UsageEventORM(kind="session", session_id=f"s-{user_id}-{created_at.month}", user_id=user_id,
+                             provider=None, model=None, purpose=None,
+                             payload={"user_id": user_id, "turns": 1}, created_at=created_at)
+
+    async def _seed() -> None:
+        engine = create_async_engine(url)
+        try:
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            sessions = async_sessionmaker(engine, expire_on_commit=False)
+            async with sessions() as db:
+                db.add_all([
+                    _row(77, datetime(2026, 8, 31, 15, 30, tzinfo=UTC)),  # KST 9/1 00:30 → 9월
+                    _row(77, datetime(2026, 7, 15, 0, 0, tzinfo=UTC)),    # 7월
+                    _row(8, datetime(2026, 9, 10, 0, 0, tzinfo=UTC)),     # 9월, 다른 사용자
+                ])
+                await db.commit()
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_seed())
+    sept = usage_report.load_from_db(url, month="2026-09", tz=KST)
+    assert sorted(e.payload["user_id"] for e in sept) == [8, 77], "7월 행은 DB 에서 걸러진다"
+    assert [e.ts_utc.month for e in sept] == [8, 9], "UTC 8/31 15:30 은 KST 9월"
+    only_77 = usage_report.load_from_db(url, month="2026-09", tz=KST, user=77)
+    assert [e.payload["user_id"] for e in only_77] == [77]
+    assert len(usage_report.load_from_db(url)) == 3, "필터 없으면 전체"
