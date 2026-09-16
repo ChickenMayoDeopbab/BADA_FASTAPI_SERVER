@@ -48,6 +48,18 @@ PRICES: dict[tuple[str, str, str], Price] = {
     ("anthropic", "claude-sonnet-4-6", "cache_write_tokens"): Price(
         3.75, TOKENS_PER_M, "tokens", ANTHROPIC_PRICING_URL, CHECKED_ON, "5분 캐시 쓰기"
     ),
+    ("anthropic", "claude-sonnet-4-20250514", "input_tokens"): Price(
+        3.0, TOKENS_PER_M, "tokens", ANTHROPIC_PRICING_URL, CHECKED_ON, "Sonnet 4 (페이지상 retired)"
+    ),
+    ("anthropic", "claude-sonnet-4-20250514", "output_tokens"): Price(
+        15.0, TOKENS_PER_M, "tokens", ANTHROPIC_PRICING_URL, CHECKED_ON, "Sonnet 4 (페이지상 retired)"
+    ),
+    ("anthropic", "claude-sonnet-4-20250514", "cache_read_tokens"): Price(
+        0.30, TOKENS_PER_M, "tokens", ANTHROPIC_PRICING_URL, CHECKED_ON, "Sonnet 4 (페이지상 retired)"
+    ),
+    ("anthropic", "claude-sonnet-4-20250514", "cache_write_tokens"): Price(
+        3.75, TOKENS_PER_M, "tokens", ANTHROPIC_PRICING_URL, CHECKED_ON, "5분 캐시 쓰기, Sonnet 4"
+    ),
     ("gemini", "gemini-2.5-flash-image", "image"): Price(
         0.039, 1, "image", GEMINI_PRICING_URL, CHECKED_ON, "standard; ≤1024px = 1290 토큰"
     ),

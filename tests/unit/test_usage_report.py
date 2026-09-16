@@ -10,7 +10,16 @@ from zoneinfo import ZoneInfo
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.core.pricing import ELEVEN_PLAN, FX, cost_lines, llm_cost_lines, session_cost_lines, tts_cost_lines
+from app.core.pricing import (
+    ELEVEN_PLAN,
+    FX,
+    STT_ENGINE_MODEL,
+    cost_lines,
+    get_price,
+    llm_cost_lines,
+    session_cost_lines,
+    tts_cost_lines,
+)
 from app.db.base import Base
 from app.services.usage_service import record_event
 
@@ -94,6 +103,41 @@ def test_tts_usage_lines() -> None:
     assert qwen[0].usd_low == 0.0 and qwen[0].priced
     with pytest.raises(ValueError):
         cost_lines("voice_turn", {})
+
+
+_PROD_MODELS = {
+    "llm_realtime_model": "gemini-3.5-flash-lite",
+    "llm_analysis_model": "claude-sonnet-4-6",
+    "elevenlabs_model": "eleven_flash_v2_5",
+}
+
+
+def _config_default(name: str) -> str:
+    from app.core.config import Settings
+
+    return Settings.model_fields[name].default
+
+
+@pytest.mark.parametrize("source", ["config_default", "prod_env"])
+def test_every_configured_model_has_price_rows(source) -> None:
+    pick = _config_default if source == "config_default" else _PROD_MODELS.__getitem__
+    realtime, analysis, eleven = pick("llm_realtime_model"), pick("llm_analysis_model"), pick("elevenlabs_model")
+    for item in ("input_tokens", "cached_tokens", "output_tokens"):
+        assert get_price("gemini", realtime, item), (realtime, item)
+    for item in ("input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens"):
+        assert get_price("anthropic", analysis, item), (analysis, item)
+    assert get_price("eleven", eleven, "chars_payg"), eleven
+    assert get_price("gemini", _config_default("gemini_image_model"), "image")
+    engine = _config_default("stt_engine")
+    provider, model = STT_ENGINE_MODEL[engine]
+    if engine == "chirp":
+        assert model == _config_default("google_stt_model")
+    assert get_price(provider, model, "stt_sec")
+
+
+def test_llm_lines_are_priced_for_the_config_default_analysis_model() -> None:
+    lines = llm_cost_lines({**_LLM, "model": _config_default("llm_analysis_model")})
+    assert lines and all(ln.priced for ln in lines), "config 기본 모델이 단가 미설정으로 빠지면 안 된다"
 
 
 _P = "[INFO] app.metrics: metric="
