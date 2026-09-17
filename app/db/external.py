@@ -16,6 +16,17 @@ users_table = Table(
     Column("role", String(20)),
 )
 
+# FileORM 과 같은 테이블. user_id 는 Spring 업로드가 채우는 칸이라 여기서만 읽는다.
+files_table = Table(
+    "file",
+    external_metadata,
+    Column("file_id", BigInteger, primary_key=True),
+    Column("file_type", String(32)),
+    Column("s3_key", String(512)),
+    Column("title", String(255)),
+    Column("user_id", BigInteger),
+)
+
 training_records_table = Table(
     "training_records",
     external_metadata,

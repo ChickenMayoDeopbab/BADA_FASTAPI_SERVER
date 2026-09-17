@@ -78,11 +78,20 @@ class AttachedTrainingRecord(BaseModel):
     is_available: bool = True
 
 
+class AttachedFile(BaseModel):
+    """첨부된 사진"""
+
+    title: str | None = None
+    url: str | None = None
+    is_available: bool = True
+
+
 class PostAttachment(BaseModel):
     kind: AttachmentKind
     ref_id: int
     scenario: AttachedScenario | None = None
     training_record: AttachedTrainingRecord | None = None
+    file: AttachedFile | None = None
 
 
 class ScenarioCopyResponse(BaseModel):

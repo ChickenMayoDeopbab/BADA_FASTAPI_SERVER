@@ -4,7 +4,7 @@ import pytest
 from sqlalchemy import func, select
 
 from app.core.enums import AttachmentKind
-from app.db.external import training_records_table
+from app.db.external import files_table, training_records_table
 from app.db.models import PostORM, ScenarioORM
 from app.schemas.community import AttachmentRequest, PostCreateRequest
 from app.services import post_attachment
@@ -544,3 +544,87 @@ async def test_patch_with_the_same_attachments_changes_nothing() -> None:
             if "post_attachment" in q and q.strip().upper().startswith(("DELETE", "INSERT"))
         ]
         assert not touched, "내용이 같은데 첨부를 지웠다 다시 넣었다:\n" + "\n".join(touched)
+
+
+async def _add_file(
+    env: Env,
+    file_id: int = 301,
+    user_id: int | None = 7,
+    *,
+    file_type: str = "COMMUNITY_IMAGE",
+) -> int:
+    async with env.sessions() as db:
+        await db.execute(
+            files_table.insert().values(
+                file_id=file_id, file_type=file_type, s3_key=f"community_image/{file_id}",
+                title="photo.jpg", user_id=user_id,
+            )
+        )
+        await db.commit()
+    return file_id
+
+
+@pytest.mark.asyncio
+async def test_post_carries_my_photo(monkeypatch) -> None:
+    signed = "https://bucket.example/community_image/301?X-Amz-Signature=abc"
+    calls: list[tuple[str, int]] = []
+
+    class _Storage:
+        def presigned_url(self, image_key: str, expires_in: int = 600) -> str:
+            calls.append((image_key, expires_in))
+            return signed
+
+    monkeypatch.setattr(post_attachment, "build_storage", lambda _settings: _Storage())
+
+    async with community_app() as env:
+        file_id = await _add_file(env)
+
+        resp = await env.client.post(
+            "/api/v1/community/posts",
+            json={"title": "사진", "content": "내용",
+                  "attachments": [{"kind": "FILE", "ref_id": file_id}]},
+        )
+        assert resp.status_code == 201, resp.text
+
+        detail = await env.client.get(f"/api/v1/community/posts/{resp.json()['post_id']}")
+        attachment = detail.json()["attachments"][0]
+        assert attachment["kind"] == "FILE"
+        assert attachment["ref_id"] == file_id
+        assert attachment["file"] == {"title": "photo.jpg", "url": signed, "is_available": True}
+        assert set(calls) == {("community_image/301", 3600)}
+
+        listing = await env.client.get("/api/v1/community/posts")
+        assert listing.json()["posts"][0]["attachment_kinds"] == ["FILE"]
+
+
+@pytest.mark.parametrize(
+    ("label", "kwargs"),
+    [
+        ("남의 사진", {"user_id": 8}),
+        ("주인 없음", {"user_id": None}),
+        ("프로필 파일", {"file_type": "PROFILE"}),
+    ],
+)
+@pytest.mark.asyncio
+async def test_these_files_cannot_be_attached(label: str, kwargs: dict) -> None:
+    async with community_app() as env:
+        file_id = await _add_file(env, **kwargs)
+
+        resp = await env.client.post(
+            "/api/v1/community/posts",
+            json={"title": "제목", "content": "내용",
+                  "attachments": [{"kind": "FILE", "ref_id": file_id}]},
+        )
+
+        assert resp.status_code == 400, f"{label}: {resp.status_code} {resp.text}"
+
+
+@pytest.mark.asyncio
+async def test_missing_file_is_rejected() -> None:
+    async with community_app() as env:
+        resp = await env.client.post(
+            "/api/v1/community/posts",
+            json={"title": "제목", "content": "내용",
+                  "attachments": [{"kind": "FILE", "ref_id": 99999}]},
+        )
+        assert resp.status_code == 400

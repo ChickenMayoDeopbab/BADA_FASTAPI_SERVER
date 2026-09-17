@@ -10,6 +10,7 @@ class FileType(StrEnum):
     PROFILE = "PROFILE"
     SCENARIO_PROFILE = "SCENARIO_PROFILE"
     CALL_FILE = "CALL_FILE"
+    COMMUNITY_IMAGE = "COMMUNITY_IMAGE"
 
 class AiPersonality(StrEnum):
     """AI 성격"""
@@ -45,6 +46,7 @@ class AttachmentKind(StrEnum):
 
     SCENARIO = "SCENARIO"
     TRAINING_RECORD = "TRAINING_RECORD"
+    FILE = "FILE"  # Spring 업로드 API가 준 fileId
 
 class ScenarioCategory(StrEnum):
     WORK = "work"
