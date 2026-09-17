@@ -41,6 +41,10 @@ jobs:
             >> .review/prior-comments.txt
           wc -l .review/*
 
+      - name: Record review start
+        id: start
+        run: echo "at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
       - name: Claude Code Review
         id: review
         uses: anthropics/claude-code-action@v1
@@ -52,6 +56,12 @@ jobs:
             PR NUMBER: ${{ github.event.pull_request.number }}
 
             이 PR 전체를 코드리뷰해줘. 리뷰는 한국어로 작성한다.
+
+            진행 방식 (반드시 지킨다):
+            - 리뷰는 직접 한다. 스킬(/code-review 등)·서브에이전트에 맡기지 않는다. 그 결과는 PR 에 올라가지 않는다.
+            - 총평은 `gh pr comment ${{ github.event.pull_request.number }} --repo ${{ github.repository }}` 로 직접 게시한다.
+            - 게시 명령이 코멘트 URL 을 출력한 것을 확인하기 전에는 "게시했다"고 쓰거나 종료하지 않는다.
+            - 질문이나 승인 요청으로 끝내지 않는다. 이 실행에는 답할 사람이 없다.
 
             준비된 파일 (저장소 루트의 .review/):
             - pr.diff: PR 전체 변경분. 먼저 전부 읽는다.
@@ -72,6 +82,7 @@ jobs:
           claude_args: |
             --model claude-sonnet-5
             --effort low
+            --disallowedTools "Skill,Task,Workflow,ReportFindings"
             --allowedTools "mcp__github_inline_comment__create_inline_comment,Read,Glob,Grep,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*)"
 
       - name: Upload Claude transcript
@@ -82,3 +93,20 @@ jobs:
           path: ${{ steps.review.outputs.execution_file }}
           if-no-files-found: warn
           retention-days: 7
+
+      - name: Verify review was posted
+        if: steps.review.outputs.execution_file != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          SINCE: ${{ steps.start.outputs.at }}
+        run: |
+          filter=".[] | select(.user.login == \"claude[bot]\" and .created_at >= \"$SINCE\") | .id"
+          count=$( { gh api --paginate "repos/$REPO/issues/$PR/comments" --jq "$filter"
+                     gh api --paginate "repos/$REPO/pulls/$PR/comments" --jq "$filter"; } | wc -l )
+          echo "claude[bot] comments since $SINCE: $count"
+          if [ "$count" -eq 0 ]; then
+            echo "::error::Claude 가 리뷰를 게시하지 않았다. claude-execution 아티팩트의 transcript 를 확인할 것."
+            exit 1
+          fi
