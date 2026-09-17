@@ -58,7 +58,21 @@ async def test_pipeline_error_is_not_hidden_by_question_guard():
     assert p._end_reason == EndReason.ERROR
 
 
-async def test_free_conversation_question_does_not_end_call():
-    p = await _finalize("더 궁금한 점이 있으신가요?", step=1, script_len=0, step_done=False)
+@pytest.mark.parametrize("end_call", [False, True])
+@pytest.mark.parametrize("step_done", [False, True])
+async def test_free_conversation_question_does_not_end_call(caplog, end_call, step_done):
+    caplog.set_level("INFO", logger="app.metrics")
+    p = await _finalize(
+        "더 궁금한 점이 있으신가요?", step=1, script_len=0,
+        end_call=end_call, step_done=step_done,
+    )
     assert not p._closing.is_set()
     assert p._state == _State.LISTENING
+    assert p._current_step == 1
+    assert p._completed_script_steps == 0
+    metrics = [record for record in caplog.records if record.name == "app.metrics"]
+    deferred = [record for record in metrics if record.metric == "call_end_deferred"]
+    assert len(deferred) == int(end_call), "빈 스크립트의 STEP_DONE만으로 종료 보류를 기록하면 안 된다"
+    turn = next(record for record in metrics if record.metric == "voice_turn")
+    assert turn.step_done is step_done, "자유 대화에는 억제할 마지막 단계가 없다"
+    assert turn.end_call is False
