@@ -12,6 +12,7 @@ from app.core.logging import setup_logging
 from app.core.metrics import log_metric, now_ms
 from app.db.base import init_db
 from app.deps.redis import close_redis, init_redis
+from app.services import usage_service
 from app.workers.avti_worker import drain as drain_avti
 from app.workers.voice_morph_worker import drain as drain_morphs
 
@@ -26,10 +27,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.redis = await init_redis(settings.redis_url)
 
     await init_db()
+    usage_service.install()
 
     try:
         yield
     finally:
+        await usage_service.drain()
         await drain_avti()
         await drain_morphs()
         await close_redis(app.state.redis)

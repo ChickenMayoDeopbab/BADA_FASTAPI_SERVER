@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.concurrency import loop_semaphore
 from app.core.config import Settings, get_settings
 from app.core.enums import FileType
+from app.core.usage import log_llm_usage
 from app.db.base import AsyncSessionLocal
 from app.db.models import FileORM, ScenarioORM, is_deleted
 
@@ -114,19 +115,46 @@ async def _write_scene_prompt(settings: Settings, row: ScenarioORM) -> str:
         system=_THUMBNAIL_PROMPT_SYSTEM,
         messages=[MessageParam(role="user", content=user_msg)],
     )
+    log_llm_usage(
+        "anthropic",
+        settings.llm_analysis_model,
+        "thumbnail_prompt",
+        usage=getattr(ai_response, "usage", None),
+        user_id=getattr(row, "user_id", None),
+        scenario_id=getattr(row, "scenario_id", None),
+    )
     scene = ai_response.content[0].text.strip()
     if not scene:
         raise ValueError("썸네일 장면 묘사가 비어 있습니다.")
     return scene
 
 
-async def _generate_image(settings: Settings, prompt: str) -> tuple[bytes, str]:
+async def _generate_image(
+    settings: Settings,
+    prompt: str,
+    *,
+    user_id: object = None,
+    scenario_id: object = None,
+) -> tuple[bytes, str]:
     client = genai.Client(api_key=settings.gemini_api_key)
     response = await client.aio.models.generate_content(
         model=settings.gemini_image_model,
         contents=prompt,
     )
-    return _extract_image(response)
+    usage = getattr(response, "usage_metadata", None)
+    try:
+        image, mime = _extract_image(response)
+    except Exception:
+        log_llm_usage(
+            "gemini", settings.gemini_image_model, "thumbnail_image",
+            usage=usage, user_id=user_id, scenario_id=scenario_id, ok=False, images=0,
+        )
+        raise
+    log_llm_usage(
+        "gemini", settings.gemini_image_model, "thumbnail_image",
+        usage=usage, user_id=user_id, scenario_id=scenario_id, images=1,
+    )
+    return image, mime
 
 
 async def _register_file(db: AsyncSession, key: str, title: str) -> None:
@@ -145,7 +173,9 @@ async def _generate_and_store(scenario_id: int, settings: Settings) -> None:
 
         scene = await _write_scene_prompt(settings, row)
         prompt = _build_image_prompt(scene)
-        image, mime = await _generate_image(settings, prompt)
+        image, mime = await _generate_image(
+            settings, prompt, user_id=row.user_id, scenario_id=row.scenario_id
+        )
 
         key = _image_key(scenario_id, prompt, mime)
         stored_key = await asyncio.to_thread(_upload_image, settings, key, image, mime)

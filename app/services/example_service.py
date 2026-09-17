@@ -16,6 +16,7 @@ from app.core.config import Settings, get_settings
 from app.core.metrics import log_metric, now_ms
 from app.core.preset_scenarios import PRESET_MAP
 from app.core.tts_voices import pick_example_user_voice
+from app.core.usage import log_llm_usage, log_tts_usage
 from app.db.base import AsyncSessionLocal
 from app.db.models import ScenarioORM, is_deleted
 from app.schemas.scenario import ExampleConversationResponse, ExampleTurn
@@ -98,6 +99,14 @@ async def _generate_custom_dialogue(settings: Settings, row: ScenarioORM) -> lis
         system=_EXAMPLE_GEN_SYSTEM,
         messages=[MessageParam(role="user", content=user_msg)],
     )
+    log_llm_usage(
+        "anthropic",
+        settings.llm_analysis_model,
+        "example_dialogue",
+        usage=getattr(ai_response, "usage", None),
+        user_id=getattr(row, "user_id", None),
+        scenario_id=getattr(row, "scenario_id", None),
+    )
     raw = ai_response.content[0].text.strip()
     if raw.startswith("```"):
         raw = raw.split("```")[1]
@@ -110,7 +119,12 @@ async def _one_text(text: str) -> AsyncIterator[str]:
     yield text
 
 
-async def _synth_turn(tts_client: ElevenLabsTTSClient, voice_id: str, text: str) -> bytes:
+async def _synth_turn(
+    tts_client: ElevenLabsTTSClient,
+    voice_id: str,
+    text: str,
+    chars: list[int] | None = None,
+) -> bytes:
     session = await tts_client.open(voice_id)
     chunks: list[bytes] = []
     try:
@@ -119,6 +133,9 @@ async def _synth_turn(tts_client: ElevenLabsTTSClient, voice_id: str, text: str)
             chunks.append(pcm)
     finally:
         await session.aclose()
+        if chars is not None:
+            sent = getattr(session, "chars_sent", None)
+            chars.append(sent if isinstance(sent, int) else len(text))
     return b"".join(chunks)
 
 
@@ -127,13 +144,14 @@ async def _synthesize(
     dialogue: list[dict],
     ai_voice: str,
     user_voice: str,
+    chars: list[int] | None = None,
 ) -> bytes:
     semaphore = asyncio.Semaphore(_TTS_MAX_CONCURRENCY)
 
     async def _synth_limited(turn: dict) -> bytes:
         voice = ai_voice if turn["speaker"] == "ai" else user_voice
         async with semaphore:
-            return await _synth_turn(tts_client, voice, turn["text"])
+            return await _synth_turn(tts_client, voice, turn["text"], chars)
 
     parts = await asyncio.gather(*(_synth_limited(turn) for turn in dialogue))
     return _TURN_GAP_PCM.join(parts)
@@ -273,10 +291,11 @@ async def _bake_locked(
     else:
         reason = "unhealthy" if qwen_client.enabled else "disabled"
 
+    eleven_chars: list[int] = []
     if pcm is None:
         engine = "eleven"
         tts_client = ElevenLabsTTSClient(settings)
-        pcm = await _synthesize(tts_client, dialogue, ai_voice, user_voice)
+        pcm = await _synthesize(tts_client, dialogue, ai_voice, user_voice, eleven_chars)
 
     key = key_qwen if engine == "qwen" else key_eleven
     stored_key = storage.upload_wav(key, pcm)
@@ -288,6 +307,17 @@ async def _bake_locked(
         fallback_reason=reason,
         turns=len(dialogue),
         duration_ms=round(now_ms() - started, 1),
+    )
+    log_tts_usage(
+        engine,
+        getattr(settings, "elevenlabs_model", None) if engine == "eleven" else "qwen",
+        "example_audio",
+        chars=sum(eleven_chars) if engine == "eleven" else sum(len(t["text"]) for t in dialogue),
+        pcm_bytes=len(pcm),
+        turns=len(dialogue),
+        user_id=getattr(row, "user_id", None),
+        scenario_id=scenario_id,
+        trigger=trigger,
     )
 
     if row is not None and stored_key:

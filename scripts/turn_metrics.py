@@ -9,7 +9,9 @@ _KV = re.compile(r"(\w+)=(\S+)")
 _NUM = ("stt_ms", "llm_ttft_ms", "llm_total_ms", "tts_ttfb_ms", "tts_total_ms", "response_ms",
         "turn_total_ms", "pcm_chunks", "pcm_bytes", "audio_ms", "odd_chunks", "send_wall_ms",
         "arrival_rtf", "max_gap_ms", "gap0_count", "gap300_count", "engine_chunks", "step",
-        "chunks", "gaps80", "total_gap_ms", "played_ms", "dropped_chunks", "first_play_ms", "turn")
+        "chunks", "gaps80", "total_gap_ms", "played_ms", "dropped_chunks", "first_play_ms", "turn",
+        "llm_prompt_tokens", "llm_cached_tokens", "llm_output_tokens", "llm_thought_tokens",
+        "tts_chars")
 _BOOL = ("error", "watchdog", "fallback", "tts_failed")
 
 

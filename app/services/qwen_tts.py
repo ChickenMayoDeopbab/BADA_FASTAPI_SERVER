@@ -194,6 +194,7 @@ class QwenRealtimeTTSSession:
         self._base_url = base_url
         self._inited = False
         self._closed = False
+        self.chars_sent = 0
 
     async def begin(self, emotion: AiEmotion = AiEmotion.NEUTRAL) -> None:
         """감정 지시는 클론 경로에 없음"""
@@ -216,6 +217,7 @@ class QwenRealtimeTTSSession:
                 yield pcm
 
     async def _synth_sentence(self, text: str) -> AsyncIterator[bytes]:
+        self.chars_sent += len(text)
         try:
             async with self._client.stream(
                 "POST",

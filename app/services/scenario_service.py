@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 import logging
 import re
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from contextlib import suppress
 from datetime import UTC, date, datetime
 from hashlib import sha256
 
@@ -19,6 +20,7 @@ from app.core.preset_scenarios import PRESET_MAP, PRESET_SCENARIOS, scenario_to_
 from app.core.prompt_matrix import PERSONALITY_BASE
 from app.core.timeutil import as_kst, ensure_utc, now_utc
 from app.core.tts_voices import parse_speaker, pick_voice_id
+from app.core.usage import log_llm_usage
 from app.db.models import FeedbackORM, ScenarioORM, is_deleted
 from app.schemas.scenario import (
     CustomScenarioResponse,
@@ -34,7 +36,6 @@ from app.services.recording_storage import RecordingStorageService
 
 logger = logging.getLogger(__name__)
 
-# created_at 이 비어있는 행을 맨 뒤로 보내는 정렬 폴백. 컬럼이 aware 라 폴백도 aware 여야 한다.
 _OLDEST = datetime.min.replace(tzinfo=UTC)
 
 _IMAGE_URL_TTL_SEC = 3600
@@ -520,8 +521,10 @@ async def _generate_validated(
         client: AsyncAnthropic,
         model: str,
         user_msg: str,
+        *,
+        on_usage: Callable[[int, object, bool], None] | None = None,
 ) -> _ScenarioGenOut:
-    """검증을 통과한 생성 결과만 돌려준다"""
+    """검증을 통과한 생성 결과만 돌려줌"""
     last_error: Exception | None = None
     for attempt in range(1, _MAX_ATTEMPTS + 1):
         ai_response = await client.messages.create(
@@ -531,8 +534,11 @@ async def _generate_validated(
             messages=[MessageParam(role="user", content=user_msg)],
         )
         raw = ai_response.content[0].text.strip()
+        ok = False
         try:
-            return _parse_generation(raw)
+            parsed = _parse_generation(raw)
+            ok = True
+            return parsed
         except ScenarioRefusedError as e:
             if not e.retryable:
                 raise
@@ -545,6 +551,10 @@ async def _generate_validated(
             logger.warning(
                 "생성물이 계약을 어겨 재시도(%d/%d): %s", attempt, _MAX_ATTEMPTS, str(e)[:200]
             )
+        finally:
+            if on_usage is not None:
+                with suppress(Exception):
+                    on_usage(attempt, getattr(ai_response, "usage", None), ok)
     raise last_error  # type: ignore[misc]
 
 
@@ -570,41 +580,62 @@ async def create_custom_scenario(
     )
 
     client = AsyncAnthropic(api_key=settings.anthropic_api_key)
-    result = await _generate_validated(client, settings.llm_analysis_model, user_msg)
+    attempts: list[tuple[int, object, bool]] = []
+    scenario_id: int | None = None
+    try:
+        result = await _generate_validated(
+            client,
+            settings.llm_analysis_model,
+            user_msg,
+            on_usage=lambda attempt, usage, ok: attempts.append((attempt, usage, ok)),
+        )
 
-    gender, age, tone = parse_speaker(result.speaker)
-    voice_id = pick_voice_id(gender, age, tone)
+        gender, age, tone = parse_speaker(result.speaker)
+        voice_id = pick_voice_id(gender, age, tone)
 
-    script = [turn.model_dump() for turn in result.script]
-    now = now_utc()
+        script = [turn.model_dump() for turn in result.script]
+        now = now_utc()
 
-    scenario_orm = ScenarioORM(
-        title=request.title,
-        content=result.content,
-        category=request.category.value,
-        scenario_image=None,
-        tts_voice_id=voice_id,
-        ai_prompt=result.ai_prompt,
-        call_target=request.call_target,
-        call_purpose=request.call_purpose,
-        user_id=user_id,
-        is_custom=True,
-        is_warmup=request.is_warmup,
-        script=script,
-        created_at=now,
-    )
-    db.add(scenario_orm)
-    await db.commit()
-    await db.refresh(scenario_orm)
-
-    return CustomScenarioResponse(
-        scenario=GenerateDetailScenario(
-            scenario_id=scenario_orm.scenario_id,
+        scenario_orm = ScenarioORM(
             title=request.title,
             content=result.content,
-            ai_prompt=result.ai_prompt,
+            category=request.category.value,
+            scenario_image=None,
             tts_voice_id=voice_id,
-            script=[ScriptTurnContext(**turn) for turn in script],
-        ),
-        created_at=now,
-    )
+            ai_prompt=result.ai_prompt,
+            call_target=request.call_target,
+            call_purpose=request.call_purpose,
+            user_id=user_id,
+            is_custom=True,
+            is_warmup=request.is_warmup,
+            script=script,
+            created_at=now,
+        )
+        db.add(scenario_orm)
+        await db.commit()
+        await db.refresh(scenario_orm)
+        scenario_id = scenario_orm.scenario_id
+
+        return CustomScenarioResponse(
+            scenario=GenerateDetailScenario(
+                scenario_id=scenario_orm.scenario_id,
+                title=request.title,
+                content=result.content,
+                ai_prompt=result.ai_prompt,
+                tts_voice_id=voice_id,
+                script=[ScriptTurnContext(**turn) for turn in script],
+            ),
+            created_at=now,
+        )
+    finally:
+        for attempt, usage, ok in attempts:
+            log_llm_usage(
+                "anthropic",
+                settings.llm_analysis_model,
+                "scenario_gen",
+                usage=usage,
+                user_id=user_id,
+                scenario_id=scenario_id,
+                attempt=attempt,
+                ok=ok,
+            )

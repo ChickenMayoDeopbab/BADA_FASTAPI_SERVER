@@ -16,6 +16,7 @@ from app.core.config import Settings
 from app.core.enums import SessionType
 from app.core.metrics import log_metric, now_ms
 from app.core.tts_voices import resolve_voice
+from app.core.usage import SessionUsage, emit
 from app.schemas.frames import (
     EndReason,
     NoticeCode,
@@ -231,6 +232,7 @@ class VoicePipeline:
         self._ai_pcm_bytes = 0
         self._server_wait_duration_ms = 0
         self._completed_script_steps = 0
+        self._usage = SessionUsage()
 
         self._user_turn_intervals: list[tuple[float, float]] = []
         self._user_turn_texts: list[str] = []
@@ -613,7 +615,9 @@ class VoicePipeline:
             "error": False,
             "tts_engine": "qwen" if getattr(self, "_qwen_tts", None) else "eleven",
         }
-        usage: dict[str, int | None] = {"prompt": None, "cached": None}
+        usage: dict[str, int | None] = {
+            "prompt": None, "cached": None, "output": None, "thought": None,
+        }
         box: dict[str, TTSSession | QwenRealtimeTTSSession | None] = {"tts": None}
         suggestion_box: dict[str, str | None] = {"text": None}
 
@@ -643,6 +647,8 @@ class VoicePipeline:
                     elif ev.type == LLMEventType.TURN_END:
                         usage["prompt"] = ev.prompt_tokens
                         usage["cached"] = ev.cached_tokens
+                        usage["output"] = ev.output_tokens
+                        usage["thought"] = ev.thought_tokens
                     elif ev.type == LLMEventType.STEP_DONE:
                         flags["step_done"] = True
                     elif ev.type == LLMEventType.END_CALL:
@@ -729,6 +735,7 @@ class VoicePipeline:
                     with suppress(asyncio.CancelledError, Exception):
                         await task
             await self._cleanup_turn_tts(connect_task, box["tts"])
+            flags["tts_chars"] = getattr(box["tts"], "chars_sent", 0) or 0
             if flags.get("cancelled"):
                 await self._salvage_cancelled_turn(user_utterance, ai_parts)
 
@@ -887,9 +894,13 @@ class VoicePipeline:
             tts_failed=flags.get("tts_failed", False),
             llm_prompt_tokens=usage["prompt"],
             llm_cached_tokens=usage["cached"],
+            llm_output_tokens=usage.get("output"),
+            llm_thought_tokens=usage.get("thought"),
+            tts_chars=flags.get("tts_chars", 0),
             **timings.as_metrics(),
             **(audio.as_metrics() if audio is not None else {}),
         )
+        self._account_turn(flags, usage, audio)
         self._turn_done_at = now_ms()
         logger.info(
             "턴 완료 step=%s user=%r ai=%r",
@@ -1016,7 +1027,13 @@ class VoicePipeline:
                         break
                     audio.record(pcm)
         finally:
-            log_metric("fallback_audio", session_id=self._session_id, **audio.as_metrics())
+            chars = getattr(session, "chars_sent", None)
+            if chars is None:
+                chars = len(_TURN_FALLBACK_TEXT)
+            log_metric(
+                "fallback_audio", session_id=self._session_id, chars=chars, **audio.as_metrics()
+            )
+            self._account_fallback(chars, audio)
             with suppress(Exception):
                 await session.aclose()
 
@@ -1176,6 +1193,7 @@ class VoicePipeline:
 
         # Spring의 훈련 기록에 완성된 구간 피드백을 포함하기 위해 콜백 전에 채운다.
         await self._write_segment_feedback(good_segments)
+        self._log_session_usage(reason, recording_pcm)
 
         await self._save_feedback(shake_count, good_segments)
 
@@ -1204,6 +1222,73 @@ class VoicePipeline:
                 await self._send_json(end_frame(reason, feedback))
             with suppress(Exception):
                 await self._ws.close()
+
+    def _usage_acc(self) -> SessionUsage:
+        acc = getattr(self, "_usage", None)
+        if acc is None:
+            acc = self._usage = SessionUsage()
+        return acc
+
+    def _current_tts_engine(self) -> str:
+        return "qwen" if getattr(self, "_qwen_tts", None) else "eleven"
+
+    def _account_turn(self, flags: dict, usage: dict, audio: TurnAudioStats | None) -> None:
+        try:
+            acc = self._usage_acc()
+            acc.add_llm_turn(usage)
+            pcm_bytes = audio.as_metrics().get("pcm_bytes", 0) if audio is not None else 0
+            acc.add_tts(
+                flags.get("tts_engine") or "eleven",
+                chars=flags.get("tts_chars", 0),
+                pcm_bytes=pcm_bytes,
+            )
+        except Exception:
+            logger.warning(
+                "턴 사용량 집계 실패(무시)", exc_info=True, extra={"session_id": self._session_id}
+            )
+
+    def _account_fallback(self, chars: int, audio: TurnAudioStats) -> None:
+        try:
+            self._usage_acc().add_tts(
+                self._current_tts_engine(),
+                chars=chars,
+                pcm_bytes=audio.as_metrics().get("pcm_bytes", 0),
+            )
+        except Exception:
+            logger.warning(
+                "폴백 사용량 집계 실패(무시)", exc_info=True, extra={"session_id": self._session_id}
+            )
+
+    def _record_feedback_usage(self, usage_metadata: object) -> None:
+        try:
+            self._usage_acc().add_feedback(usage_metadata)
+        except Exception:
+            logger.warning(
+                "피드백 사용량 집계 실패(무시)", exc_info=True, extra={"session_id": self._session_id}
+            )
+
+    def _log_session_usage(self, reason: EndReason, recording_pcm: bytes) -> None:
+        """세션당 1줄 session_usage"""
+        try:
+            acc = self._usage_acc()
+            sent = getattr(getattr(self, "_stt", None), "audio_bytes_sent", None)
+            acc.stt_bytes = int(sent) if isinstance(sent, int) else len(recording_pcm)
+            settings = getattr(self, "_settings", None)
+            emit(
+                "session_usage",
+                session_id=self._session_id,
+                user_id=parse_user_id(self._session),
+                scenario_id=parse_scenario_id(self._session),
+                reason=reason.value,
+                stt_engine=getattr(settings, "stt_engine", None),
+                llm_model=getattr(settings, "llm_realtime_model", None),
+                tts_model=getattr(settings, "elevenlabs_model", None),
+                **acc.as_metrics(),
+            )
+        except Exception:
+            logger.warning(
+                "세션 사용량 지표 실패(무시)", exc_info=True, extra={"session_id": self._session_id}
+            )
 
     async def _measure_avti(
         self, recording_pcm: bytes, sustained_spans: list
@@ -1262,6 +1347,7 @@ class VoicePipeline:
         try:
             written = await self._llm.segment_feedback(
                 items,
+                on_usage=self._record_feedback_usage,
                 scenario_title=str(scenario.get("title", "")),
                 call_target=str(scenario.get("callTarget", "")),
                 call_purpose=str(scenario.get("callPurpose", "")),

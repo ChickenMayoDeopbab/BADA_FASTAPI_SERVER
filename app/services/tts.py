@@ -107,6 +107,7 @@ class TTSSession:
         self._difficulty = difficulty
         self._inited = False
         self._closed = False
+        self.chars_sent = 0
 
     def _voice_settings_for(self, emotion: AiEmotion) -> dict:
         settings = dict(self._base_voice_settings)
@@ -130,9 +131,11 @@ class TTSSession:
                 continue
             payload = buf.feed(chunk)
             if payload:
+                self.chars_sent += len(payload)
                 await self._ws.send(json.dumps({"text": payload}))
         rest = buf.flush()
         if rest:
+            self.chars_sent += len(rest)
             await self._ws.send(json.dumps({"text": rest}))
         await self._ws.send(json.dumps({"text": ""}))
 

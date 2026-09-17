@@ -42,6 +42,8 @@ class LLMEvent:
     emotion: AiEmotion | None = None
     prompt_tokens: int | None = None
     cached_tokens: int | None = None
+    output_tokens: int | None = None
+    thought_tokens: int | None = None
 
 @dataclass
 class ScenarioTurn:

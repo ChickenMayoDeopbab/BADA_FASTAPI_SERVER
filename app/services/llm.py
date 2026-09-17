@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import re
+from collections.abc import Callable
 from contextlib import suppress
 from typing import Final
 
@@ -331,6 +332,7 @@ class LLMClient:
         scenario_title: str = "",
         call_target: str = "",
         call_purpose: str = "",
+        on_usage: Callable[[object], None] | None = None,
     ) -> list[tuple[str, str]]:
         """구간마다 (제목, 내용) 한 쌍. 입력 순서 그대로 같은 개수를 돌려준다.
 
@@ -410,6 +412,10 @@ class LLMClient:
         except Exception:
             logger.warning("구간 피드백 생성 실패", exc_info=True)
             return []
+
+        if on_usage is not None:
+            with suppress(Exception):
+                on_usage(getattr(resp, "usage_metadata", None))
 
         if _was_truncated(resp):
             logger.warning(
@@ -613,6 +619,8 @@ class LLMClient:
                     type=LLMEventType.TURN_END,
                     prompt_tokens=getattr(usage, "prompt_token_count", None),
                     cached_tokens=getattr(usage, "cached_content_token_count", None) or 0,
+                    output_tokens=getattr(usage, "candidates_token_count", None),
+                    thought_tokens=getattr(usage, "thoughts_token_count", None),
                 )
             else:
                 yield LLMEvent(type=LLMEventType.TURN_END)

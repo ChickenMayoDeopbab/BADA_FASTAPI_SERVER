@@ -79,6 +79,7 @@ class GoogleSTTClient:
         self._model = model
         self._language = language
         self._sample_rate_hertz = sample_rate_hertz
+        self.audio_bytes_sent = 0
         self._recognizer_path = (
             f"projects/{project_id}/locations/{location}/recognizers/{recognizer}"
         )
@@ -124,6 +125,7 @@ class GoogleSTTClient:
         """streaming_recognize에 넘길 요청 스트림"""
         yield self._build_config_request()
         if first_chunk is not None:
+            self.audio_bytes_sent += len(first_chunk)
             yield cs.StreamingRecognizeRequest(audio=first_chunk)
 
         while True:
@@ -131,6 +133,7 @@ class GoogleSTTClient:
             if chunk is AUDIO_EOS:
                 logger.debug("STT 요청 스트림 종료 신호 수신")
                 return
+            self.audio_bytes_sent += len(chunk)
             yield cs.StreamingRecognizeRequest(audio=chunk)
 
     def _parse_response(
@@ -273,6 +276,7 @@ class GeminiLiveSTTClient:
         self._language = language
         self._silence_duration_ms = silence_duration_ms
         self._mime_type = f"audio/pcm;rate={sample_rate_hertz}"
+        self.audio_bytes_sent = 0
         self._client = genai.Client(api_key=api_key)
 
     def _build_config(self) -> genai_types.LiveConnectConfig:
@@ -295,6 +299,7 @@ class GeminiLiveSTTClient:
         first_chunk: bytes | None,
     ) -> None:
         if first_chunk is not None:
+            self.audio_bytes_sent += len(first_chunk)
             await session.send_realtime_input(
                 audio=genai_types.Blob(data=first_chunk, mime_type=self._mime_type)
             )
@@ -303,6 +308,7 @@ class GeminiLiveSTTClient:
             if chunk is AUDIO_EOS:
                 await session.send_realtime_input(audio_stream_end=True)
                 return
+            self.audio_bytes_sent += len(chunk)
             await session.send_realtime_input(
                 audio=genai_types.Blob(data=chunk, mime_type=self._mime_type)
             )
