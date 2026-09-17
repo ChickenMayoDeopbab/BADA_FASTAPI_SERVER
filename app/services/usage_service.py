@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from sqlalchemy.exc import IntegrityError
 
 from app.core import usage as usage_core
+from app.core.concurrency import loop_semaphore
 from app.core.timeutil import now_utc
 from app.db.base import AsyncSessionLocal
 from app.db.models import UsageEventORM
@@ -16,6 +17,10 @@ logger = logging.getLogger(__name__)
 _KIND = {"session_usage": "session", "llm_usage": "llm", "tts_usage": "tts"}
 
 _running: set[asyncio.Task] = set()
+
+# 사용량 기록이 DB 커넥션 풀(pool_size 10)을 잠식하지 않게 동시 쓰기를 제한한다(리뷰 지적).
+_WRITE_MAX_CONCURRENCY = 2
+_write_semaphore = loop_semaphore(_WRITE_MAX_CONCURRENCY)
 
 
 def _int_or_none(value: object) -> int | None:
@@ -86,13 +91,18 @@ async def record_event(
     return True
 
 
+async def _record_limited(kind: str, fields: Mapping[str, object]) -> bool:
+    async with _write_semaphore():
+        return await record_event(kind, fields)
+
+
 def db_sink(kind: str, fields: dict[str, object]) -> None:
     """emit() 싱크"""
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         return
-    task = loop.create_task(record_event(kind, fields))
+    task = loop.create_task(_record_limited(kind, fields))
     _running.add(task)
     task.add_done_callback(_running.discard)
 

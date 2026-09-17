@@ -216,3 +216,33 @@ async def test_pipeline_close_delivers_session_usage_to_sink(monkeypatch, caplog
     assert fields["user_id"] == 77 and fields["scenario_id"] == 3
     assert fields["stt_sec"] == 2.0
     assert asyncio.iscoroutinefunction(record_event)
+
+
+@pytest.mark.asyncio
+async def test_db_sink_limits_concurrent_db_sessions(monkeypatch) -> None:
+    state = {"active": 0, "max_active": 0, "commits": 0}
+
+    class _SlowSession:
+        async def __aenter__(self):
+            state["active"] += 1
+            state["max_active"] = max(state["max_active"], state["active"])
+            return self
+
+        async def __aexit__(self, *exc) -> bool:
+            state["active"] -= 1
+            return False
+
+        def add(self, obj: object) -> None:
+            pass
+
+        async def commit(self) -> None:
+            await asyncio.sleep(0.01)
+            state["commits"] += 1
+
+    monkeypatch.setattr(usage_service, "AsyncSessionLocal", lambda: _SlowSession())
+    for i in range(10):
+        db_sink("llm_usage", {**_LLM_FIELDS, "attempt": i})
+    await usage_service.drain()
+
+    assert state["commits"] == 10
+    assert state["max_active"] <= usage_service._WRITE_MAX_CONCURRENCY
