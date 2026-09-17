@@ -304,3 +304,22 @@ def test_load_from_db_filters_month_and_user_in_the_query(tmp_path) -> None:
     only_77 = usage_report.load_from_db(url, month="2026-09", tz=KST, user=77)
     assert [e.payload["user_id"] for e in only_77] == [77]
     assert len(usage_report.load_from_db(url)) == 3, "필터 없으면 전체"
+
+
+def test_unpriced_events_do_not_erase_priced_cost_of_the_same_item() -> None:
+    from datetime import datetime
+
+    ts = datetime(2026, 9, 10, tzinfo=UTC)
+    events = [
+        usage_report.Event("llm_usage", ts, dict(_LLM)),
+        usage_report.Event("llm_usage", ts, {**_LLM, "model": "claude-99"}),
+    ]
+    [g] = usage_report.aggregate(events, tz=KST).values()
+
+    priced = g.lines[("input_tokens[scenario_gen]", True)]
+    unpriced = g.lines[("input_tokens[scenario_gen]", False)]
+    assert priced.usd_low == pytest.approx(700 * 3.0 / M) and priced.quantity == 700
+    assert unpriced.priced is False and unpriced.quantity == 700
+    low, _ = g.totals()
+    assert low == pytest.approx(700 * 3.0 / M + 220 * 15.0 / M), "가격 매겨진 토큰은 합계에 남는다"
+    assert {ln.item for ln in g.unpriced()} == {"input_tokens[scenario_gen]", "output_tokens[scenario_gen]"}

@@ -176,18 +176,19 @@ class Group:
     month: str
     sessions: int = 0
     quantities: dict[str, float] = field(default_factory=lambda: defaultdict(float))
-    lines: dict[str, CostLine] = field(default_factory=dict)
+    lines: dict[tuple[str, bool], CostLine] = field(default_factory=dict)
 
     def add_quantity(self, key: str, value: object) -> None:
         with suppress(TypeError, ValueError):
             self.quantities[key] += float(value or 0)
 
     def add_line(self, line: CostLine) -> None:
-        cur = self.lines.get(line.item)
+        key = (line.item, line.priced)
+        cur = self.lines.get(key)
         if cur is None:
-            self.lines[line.item] = line
+            self.lines[key] = line
             return
-        self.lines[line.item] = CostLine(
+        self.lines[key] = CostLine(
             line.item, cur.quantity + line.quantity, line.unit,
             None if cur.usd_low is None or line.usd_low is None else cur.usd_low + line.usd_low,
             None if cur.usd_high is None or line.usd_high is None else cur.usd_high + line.usd_high,
