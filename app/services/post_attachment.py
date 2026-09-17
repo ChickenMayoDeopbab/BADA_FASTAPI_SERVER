@@ -8,11 +8,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.core.enums import AttachmentKind
+from app.core.enums import AttachmentKind, FileType
 from app.core.timeutil import now_utc
-from app.db.external import training_records_table
+from app.db.external import files_table, training_records_table
 from app.db.models import PostAttachmentORM, ScenarioORM
 from app.schemas.community import (
+    AttachedFile,
     AttachedScenario,
     AttachedTrainingRecord,
     AttachmentRequest,
@@ -66,9 +67,21 @@ async def _check_training_record(db: AsyncSession, ref_id: int, user_id: int) ->
         raise AttachmentInvalidError("내 훈련 기록만 첨부할 수 있습니다.")
 
 
+async def _check_file(db: AsyncSession, ref_id: int, user_id: int) -> None:
+    """업로드는 Spring이 하고 여기선 file 테이블만 읽어서 확인. 이미지 여부는 Spring이 업로드 때 막는다."""
+    f = files_table.c
+    stmt = select(f.file_type, f.user_id).where(f.file_id == ref_id)
+    row = (await db.execute(stmt)).first()
+    if row is None or row.file_type != FileType.COMMUNITY_IMAGE:
+        raise AttachmentInvalidError("없는 사진입니다.")
+    if row.user_id != user_id:
+        raise AttachmentInvalidError("내가 올린 사진만 첨부할 수 있습니다.")
+
+
 _CHECKS = {
     AttachmentKind.SCENARIO: _check_scenario,
     AttachmentKind.TRAINING_RECORD: _check_training_record,
+    AttachmentKind.FILE: _check_file,
 }
 
 
@@ -190,6 +203,17 @@ async def _training_record_block(
     )
 
 
+async def _file_block(db: AsyncSession, ref_id: int) -> AttachedFile:
+    f = files_table.c
+    stmt = select(f.title, f.s3_key).where(f.file_id == ref_id)
+    row = (await db.execute(stmt)).first()
+    if row is None:
+        return AttachedFile(is_available=False)
+
+    url = await asyncio.to_thread(_image_url, build_storage(get_settings()), row.s3_key)
+    return AttachedFile(title=row.title, url=url)
+
+
 async def detail_for_post(
     db: AsyncSession, post_id: int, viewer_id: int
 ) -> list[PostAttachment]:
@@ -206,6 +230,8 @@ async def detail_for_post(
         item = PostAttachment(kind=kind, ref_id=row.ref_id)
         if kind is AttachmentKind.SCENARIO:
             item.scenario = await _scenario_block(db, row.ref_id, viewer_id)
+        elif kind is AttachmentKind.FILE:
+            item.file = await _file_block(db, row.ref_id)
         else:
             item.training_record = await _training_record_block(db, row.ref_id, viewer_id)
         out.append(item)
