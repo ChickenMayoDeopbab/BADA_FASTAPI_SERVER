@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 
 import httpx
 from fastapi import FastAPI
-from sqlalchemy import event
+from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
@@ -77,6 +77,8 @@ async def community_app(
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await conn.run_sync(external_metadata.create_all)
+        # file 은 모델 쪽이 먼저 만들어서 Spring 이 붙이는 user_id 칸을 따로 흉내낸다
+        await conn.execute(text("ALTER TABLE file ADD COLUMN user_id BIGINT"))
         for row in users:
             await conn.execute(users_table.insert().values(**row))
 
