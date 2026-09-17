@@ -891,14 +891,15 @@ class VoicePipeline:
         # 선택을 묻고 END_CALL/마지막 STEP_DONE을 함께 내는 모델 오류를 방어한다.
         # 문장 의미 전체를 판정하지 않으므로 나머지 종료 조건은 프롬프트에서도 제한한다.
         awaiting_answer = ai_text.rstrip(" \t\r\n\"'”’").endswith(("?", "？"))
-        if awaiting_answer and (flags["end_call"] or (flags["step_done"] and self._current_step >= self._script_len)):
+        is_last_step = self._script_len > 0 and self._current_step >= self._script_len
+        if awaiting_answer and (flags["end_call"] or (flags["step_done"] and is_last_step)):
             log_metric(
                 "call_end_deferred", session_id=self._session_id,
                 step=self._current_step, reason="awaiting_user_answer",
                 end_call=flags["end_call"], step_done=flags["step_done"],
             )
             flags = {**flags, "end_call": False}
-            if self._current_step >= self._script_len:
+            if is_last_step:
                 flags["step_done"] = False
 
         if timings.first_pcm_at is not None:
