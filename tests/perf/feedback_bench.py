@@ -80,6 +80,9 @@ class FakeLLM:
         self.delay_s = delay_s
         self.called_at: float | None = None
 
+    async def review_turns(self, turns, **kwargs):
+        return set()
+
     async def segment_feedback(self, items, **kwargs):
         self.called_at = time.perf_counter()
         await asyncio.sleep(self.delay_s)

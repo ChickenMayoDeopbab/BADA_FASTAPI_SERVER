@@ -102,8 +102,10 @@ _SEG_IMPROVE = "IMPROVE"
 _INTERNAL_SEGMENT_KEYS = ("turn", "avti", "reason")
 
 
-def _segment_fallback(kind: str) -> tuple[str, str]:
+def _segment_fallback(kind: str, reason: str | None = None) -> tuple[str, str]:
     """LLM 이 못 쓰거나 걸러졌을 때 구간에 남길 최소 문구."""
+    if kind == _SEG_IMPROVE and reason == "content":
+        return ("이 말을 다시 살펴봐요", "상대방이 듣기에 불편했을 수 있는 말이에요. 다음엔 정중하게 바꿔 말해봐요.")
     if kind == _SEG_IMPROVE:
         return ("이 구간을 다시 들어봐요", "말이 흔들린 부분이에요. 다음엔 여기서 한 호흡 쉬고 말해봐요.")
     return ("잘 이야기했어요", "이 구간은 흔들림 없이 이어서 말했어요.")
@@ -1150,8 +1152,12 @@ class VoicePipeline:
 
         # 턴별 AVTI 를 먼저 잰다. 어느 구간을 칭찬하고 어느 구간을 짚을지가
         # 이 값으로 갈리기 때문에 end 프레임보다 앞에 있어야 한다(약 0.2초).
-        avti_by_turn = await self._measure_avti(recording_pcm, sustained_spans)
-        good_segments = self._pick_segments(good_candidates, avti_by_turn)
+        # 말 내용 검토는 떨림과 무관하게 전체 대화로 한다. 둘 다 구간 선택 전에 필요해 함께 돌린다.
+        avti_by_turn, flagged_turns = await asyncio.gather(
+            self._measure_avti(recording_pcm, sustained_spans),
+            self._review_turns(),
+        )
+        good_segments = self._pick_segments(good_candidates, avti_by_turn, flagged_turns)
 
         analysis = None
         try:
@@ -1325,6 +1331,37 @@ class VoicePipeline:
                            exc_info=True, extra={"session_id": self._session_id})
         return {}
 
+    async def _review_turns(self) -> set[int]:
+        """말투·내용을 짚어줘야 할 사용자 턴 번호. 실패하면 빈 집합."""
+        turns = {
+            index: text
+            for index, text in enumerate(getattr(self, "_user_turn_texts", []), start=1)
+            if text.strip()
+        }
+        if not turns:
+            return set()
+        scenario = self._session.get("scenario") or {}
+        if not isinstance(scenario, dict):
+            scenario = {}
+        try:
+            return await asyncio.wait_for(
+                self._llm.review_turns(
+                    turns,
+                    transcript=self._history,
+                    on_usage=self._record_feedback_usage,
+                    scenario_title=str(scenario.get("title", "")),
+                    call_target=str(scenario.get("callTarget", "")),
+                    call_purpose=str(scenario.get("callPurpose", "")),
+                ),
+                timeout=_AVTI_WAIT_SECONDS,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.warning("대화 내용 검토 실패 — 목소리 기준으로만 진행",
+                           exc_info=True, extra={"session_id": self._session_id})
+            return set()
+
     async def _write_segment_feedback(self, segments: list[dict]) -> None:
         """구간마다 title / content 를 채운다. 실패해도 구간 자체는 남는다."""
         if not segments:
@@ -1351,6 +1388,7 @@ class VoicePipeline:
                 scenario_title=str(scenario.get("title", "")),
                 call_target=str(scenario.get("callTarget", "")),
                 call_purpose=str(scenario.get("callPurpose", "")),
+                transcript=self._history,
             )
         except asyncio.CancelledError:
             raise
@@ -1364,7 +1402,7 @@ class VoicePipeline:
                 break
             title, content = pair if pair else ("", "")
             if not is_safe(title, content):
-                title, content = _segment_fallback(seg["type"])
+                title, content = _segment_fallback(seg["type"], seg.get("reason"))
             seg["title"] = title
             seg["content"] = content
             seg["good_point"] = content  # 기존 Spring 매핑 유지
@@ -1484,8 +1522,16 @@ class VoicePipeline:
             turns.append((index, (start, end)))
         return turns
 
-    def _pick_segments(self, candidates, avti_by_turn: dict[int, float]) -> list[dict]:
-        """칭찬할 구간과 아쉬운 구간을 함께 고른다. 발화 없는 턴은 제외한다."""
+    def _pick_segments(
+        self,
+        candidates,
+        avti_by_turn: dict[int, float],
+        flagged_turns: set[int] = frozenset(),
+    ) -> list[dict]:
+        """칭찬할 구간과 아쉬운 구간을 함께 고른다. 발화 없는 턴은 제외한다.
+
+        flagged_turns 는 대화 내용상 짚어야 할 턴 — 목소리 값과 상관없이 IMPROVE.
+        """
         turns = self._spoken_turns(avti_by_turn)
         intervals = [span for _, span in turns]
         clean = self._intersect(candidates, intervals)
@@ -1494,7 +1540,9 @@ class VoicePipeline:
         for index, (start, end) in turns:
             avti = avti_by_turn.get(index)
             band = voice_band(avti)
-            if band is Band.NEEDS_WORK:
+            if index in flagged_turns:
+                kind, reason = _SEG_IMPROVE, "content"
+            elif band is Band.NEEDS_WORK:
                 kind, reason = _SEG_IMPROVE, "voice"
             elif band is Band.GOOD:
                 kind, reason = _SEG_GOOD, "voice"
@@ -1518,7 +1566,11 @@ class VoicePipeline:
             })
 
         # 아쉬운 구간을 먼저 살리고, 남는 자리를 긴 칭찬 구간으로 채운다.
-        improve = [p for p in picked if p["type"] == _SEG_IMPROVE]
+        # 말 내용 문제가 목소리 문제보다 먼저 자리를 차지한다.
+        improve = sorted(
+            (p for p in picked if p["type"] == _SEG_IMPROVE),
+            key=lambda p: p["reason"] != "content",
+        )
         good = sorted(
             (p for p in picked if p["type"] == _SEG_GOOD),
             key=lambda p: p["end"] - p["start"],

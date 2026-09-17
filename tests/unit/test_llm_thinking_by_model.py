@@ -191,3 +191,83 @@ async def test_feedback_cap_leaves_room_for_unmapped_models() -> None:
     llm, models = _with_capture("gemini-3.5-flash-lite")
     await llm.segment_feedback([{"type": "GOOD", "utterance": "안녕하세요", "avti": None}])
     assert models.kwargs["config"].max_output_tokens >= 1536
+
+
+@pytest.mark.asyncio
+async def test_segment_feedback_sends_whole_conversation() -> None:
+    llm, models = _with_capture("gemini-2.5-flash")
+    await llm.segment_feedback(
+        [{"type": "GOOD", "utterance": "내일 세 시요", "avti": None}],
+        transcript=[
+            {"role": "assistant", "text": "언제 방문하실까요?"},
+            {"role": "user", "text": "내일 세 시요 (지금 단계: 2)"},
+        ],
+    )
+    contents = models.kwargs["contents"]
+    assert "상대방: 언제 방문하실까요?" in contents
+    assert "나: 내일 세 시요" in contents
+    assert "지금 단계" not in contents
+    assert contents.index("[전체 대화]") < contents.index("[피드백할 구간]")
+
+
+@pytest.mark.asyncio
+async def test_segment_feedback_without_transcript_sends_segments_only() -> None:
+    llm, models = _with_capture("gemini-2.5-flash")
+    await llm.segment_feedback([{"type": "GOOD", "utterance": "안녕하세요", "avti": None}])
+    assert "[전체 대화]" not in models.kwargs["contents"]
+
+
+class _AnswerModels(_CapturingModels):
+    def __init__(self, answer: str) -> None:
+        super().__init__()
+        self.answer = answer
+
+    async def generate_content(self, **kwargs):
+        self.kwargs = kwargs
+        return type("R", (), {"text": self.answer})()
+
+
+def _with_answer(answer: str) -> tuple[LLMClient, _AnswerModels]:
+    llm = _llm("gemini-2.5-flash")
+    models = _AnswerModels(answer)
+    llm._client = type("C", (), {"aio": type("A", (), {"models": models})()})()
+    return llm, models
+
+
+@pytest.mark.asyncio
+async def test_review_turns_returns_flagged_turn_numbers_with_context() -> None:
+    llm, models = _with_answer("2")
+    flagged = await llm.review_turns(
+        {1: "여보세요", 2: "알빠노?"},
+        transcript=[
+            {"role": "user", "text": "여보세요"},
+            {"role": "assistant", "text": "손님 이건 힘듭니다."},
+            {"role": "user", "text": "알빠노?"},
+        ],
+    )
+    assert flagged == {2}
+    assert "상대방: 손님 이건 힘듭니다." in models.kwargs["contents"]
+
+
+@pytest.mark.asyncio
+async def test_review_turns_ignores_none_and_unknown_numbers() -> None:
+    llm, _ = _with_answer("없음")
+    assert await llm.review_turns({1: "안녕하세요"}) == set()
+    llm, _ = _with_answer("1, 9")
+    assert await llm.review_turns({1: "안녕하세요"}) == {1}
+
+
+@pytest.mark.asyncio
+async def test_content_segment_is_labeled_separately_from_voice() -> None:
+    llm, models = _with_capture("gemini-2.5-flash")
+    await llm.segment_feedback(
+        [{"type": "IMPROVE", "utterance": "알빠노?", "avti": None, "reason": "content"}]
+    )
+    assert "[말을 고칠 구간]" in models.kwargs["contents"]
+
+
+def test_parse_drops_kind_name_written_before_title() -> None:
+    pairs = LLMClient._parse_numbered_pairs(
+        "1. 말을 고칠 구간 | 상대방을 배려하지 않았어요 | 다음엔 정중하게 말해봐요.", 1
+    )
+    assert pairs[0][0] == "상대방을 배려하지 않았어요"

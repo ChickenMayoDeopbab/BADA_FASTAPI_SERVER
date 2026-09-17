@@ -335,3 +335,31 @@ def test_mind_state_checked_per_sentence() -> None:
         "긴장해서 목소리가 작아졌어요. 다음엔 상대방이 잘 들을 수 있게 말해봐요.",
     )
 
+
+
+# --- 대화 내용으로 짚는 구간 ---------------------------------------------
+
+
+def test_rude_turn_becomes_improve_even_with_steady_voice() -> None:
+    """떨림이 없어도 대화 내용상 문제인 턴은 짚어줄 구간이 된다."""
+    p = _pipeline([(0.0, 3.0), (5.0, 12.0)], ["안녕하세요", "알빠노?"])
+    segs = p._pick_segments([(0.5, 2.5), (5.5, 11.0)], {2: 1.8}, {2})
+    rude = next(s for s in segs if s["turn"] == 2)
+    assert rude["type"] == "IMPROVE"
+    assert rude["reason"] == "content"
+
+
+def test_content_issue_takes_a_slot_before_voice_issues() -> None:
+    turns = [(i * 10.0, i * 10.0 + 5.0) for i in range(4)]
+    p = _pipeline(turns)
+    segs = p._pick_segments([], {1: 8.5, 2: 8.5, 3: 8.5}, {4})
+    assert len(segs) == 3
+    assert any(s["turn"] == 4 and s["reason"] == "content" for s in segs)
+
+
+def test_content_fallback_does_not_talk_about_voice() -> None:
+    from app.services.pipeline import _segment_fallback
+
+    title, content = _segment_fallback("IMPROVE", "content")
+    assert "흔들" not in content
+    assert is_safe(title, content)

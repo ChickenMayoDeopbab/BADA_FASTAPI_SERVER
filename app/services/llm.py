@@ -25,6 +25,8 @@ _CONTROL_TAGS: dict[str, LLMEventType] = {
 
 # 모델이 입력의 구간 표시('[칭찬할 구간]')를 제목에 그대로 옮겨 적는 경우
 _SEGMENT_LABEL_PREFIX = re.compile(r"^\s*\[[^\]]{0,16}\]\s*")
+# 괄호 없이 구간 종류 이름만 앞에 붙인 경우('말을 고칠 구간 | 제목 | 내용')
+_SEGMENT_KIND_PREFIX = re.compile(r"^\s*\[?(?:칭찬할|짚어줄|말을 고칠)\s*구간\]?\s*[|:]?\s*")
 
 _SUGGEST_TAG = "[SUGGEST]"
 _ALL_TAGS = (*_CONTROL_TAGS, _SUGGEST_TAG)
@@ -45,6 +47,15 @@ _OPEN_PAREN_TAIL = re.compile(r"\([^()]*$")
 
 def _strip_step_echo(text: str) -> str:
     return _STEP_ECHO_PATTERN.sub("", text)
+
+
+def _conversation_lines(transcript: list[dict] | None) -> list[str]:
+    """히스토리를 '나: ...' / '상대방: ...' 줄로. 스텝 꼬리표는 뗀다."""
+    return [
+        f"{'나' if turn.get('role') == 'user' else '상대방'}: {text}"
+        for turn in transcript or []
+        if (text := _strip_step_echo(str(turn.get("text") or "")).strip())
+    ]
 
 
 def _sanitize_speech(text: str) -> str:
@@ -325,6 +336,93 @@ class LLMClient:
         except Exception:
             logger.debug("LLM 워밍업 실패(무시)", exc_info=True)
 
+    async def review_turns(
+        self,
+        turns: dict[int, str],
+        *,
+        transcript: list[dict] | None = None,
+        scenario_title: str = "",
+        call_target: str = "",
+        call_purpose: str = "",
+        on_usage: Callable[[object], None] | None = None,
+    ) -> set[int]:
+        """전체 대화를 보고 말 내용·말투를 짚어줘야 할 사용자 턴 번호를 고른다.
+
+        떨림·침묵과 무관하게, 무례하거나 상대 말과 동떨어진 답을 잡기 위한 것.
+        실패하면 빈 집합 — 목소리 기준 피드백은 그대로 나간다.
+        """
+        turns = {n: text.strip() for n, text in turns.items() if text and text.strip()}
+        if not turns:
+            return set()
+
+        situation = " / ".join(
+            part for part in (scenario_title, call_target, call_purpose) if part
+        ) or "일반 통화"
+        conversation = _conversation_lines(transcript)
+        numbered = [f"{n}. \"{_strip_step_echo(text)}\"" for n, text in sorted(turns.items())]
+        contents = "\n".join(
+            [*(["[전체 대화]", *conversation, ""] if conversation else []),
+             "[사용자 발화]", *numbered]
+        )
+        system_prompt = (
+            "너는 전화 통화 연습 기록을 검토하는 코치야.\n"
+            f"이번 통화 상황: {situation}\n"
+            "[사용자 발화] 중에서 말 내용이나 말투를 고쳐줘야 할 번호만 골라.\n"
+            "\n"
+            "고를 발화:\n"
+            "- 욕설, 비꼼, 무시하는 말, 반말처럼 상대방이 기분 나빴을 말 "
+            "(예: 상대가 '손님 이건 힘듭니다' 했는데 '알빠노?')\n"
+            "- 바로 앞에 상대방이 한 말과 상관없는 대답\n"
+            "- 통화 목적과 어긋나서 대화를 막는 말\n"
+            "\n"
+            "고르지 말 발화:\n"
+            "- 짧거나 서툴러도 예의 있고 흐름에 맞는 말\n"
+            "- 음성 인식이 잘못돼 글자가 조금 이상한 정도\n"
+            "\n"
+            "형식: 고른 번호만 쉼표로 한 줄에 (예: 2, 5). 없으면 '없음'. 설명은 쓰지 마.\n"
+        )
+
+        try:
+            resp = await self._first_accepted(
+                _off_candidates(self._model),
+                lambda thinking: self._generate_text(
+                    contents, system_prompt, thinking, temperature=0.0, max_output_tokens=64
+                ),
+                learn=True,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.warning("대화 내용 검토 실패", exc_info=True)
+            return set()
+
+        if on_usage is not None:
+            with suppress(Exception):
+                on_usage(getattr(resp, "usage_metadata", None))
+
+        return {int(n) for n in re.findall(r"\d+", resp.text or "") if int(n) in turns}
+
+    async def _generate_text(
+        self,
+        contents: str,
+        system_prompt: str,
+        thinking: types.ThinkingConfig | None,
+        *,
+        temperature: float,
+        max_output_tokens: int,
+    ):
+        return await self._client.aio.models.generate_content(
+            model=self._model,
+            contents=contents,
+            config=types.GenerateContentConfig(
+                system_instruction=system_prompt,
+                safety_settings=_SAFETY_SETTINGS,
+                temperature=temperature,
+                max_output_tokens=max_output_tokens,
+                thinking_config=thinking,
+            ),
+        )
+
     async def segment_feedback(
         self,
         items: list[dict],
@@ -332,12 +430,16 @@ class LLMClient:
         scenario_title: str = "",
         call_target: str = "",
         call_purpose: str = "",
+        transcript: list[dict] | None = None,
         on_usage: Callable[[object], None] | None = None,
     ) -> list[tuple[str, str]]:
         """구간마다 (제목, 내용) 한 쌍. 입력 순서 그대로 같은 개수를 돌려준다.
 
         items[i] = {"type": GOOD|IMPROVE, "utterance": 그 구간 발화,
                     "avti": 그 턴의 떨림 값 or None, "reason": voice|clean|fallback}
+
+        transcript = [{"role": "user"|"assistant", "text": ...}, ...] 전체 대화.
+        구간 발화가 앞뒤 흐름에 맞았는지 판단하는 근거로만 쓴다.
 
         GOOD 구간은 발화 내용을 칭찬하고, IMPROVE 구간은 목소리가 흔들렸다는 것을
         말해야 한다. 그래서 여기서는 음성 얘기를 금지하지 않는다 —
@@ -352,22 +454,41 @@ class LLMClient:
 
         lines = []
         for i, item in enumerate(items, start=1):
-            kind = "칭찬할 구간" if item["type"] == "GOOD" else "짚어줄 구간"
+            if item["type"] == "GOOD":
+                kind = "칭찬할 구간"
+            elif item.get("reason") == "content":
+                kind = "말을 고칠 구간"
+            else:
+                kind = "짚어줄 구간"
             measured = (
                 f", 떨림 {item['avti']:.1f}/10" if item.get("avti") is not None else ""
             )
             said = (item.get("utterance") or "").strip() or "(발화 인식 안 됨)"
             lines.append(f"{i}. [{kind}{measured}] \"{said}\"")
 
+        conversation = _conversation_lines(transcript)
+        if conversation:
+            lines = ["[전체 대화]", *conversation, "", "[피드백할 구간]", *lines]
+
         system_prompt = (
             "너는 전화 통화를 무서워하는 사람을 돕는 코치야.\n"
             f"이번 통화 상황: {situation}\n"
             "통화에서 뽑아낸 구간들에 대해 한 구간씩 피드백을 써.\n"
             "\n"
+            "전체 대화가 함께 주어지면:\n"
+            "- 구간 발화만 떼어 보지 말고, 바로 앞에 상대방이 한 말에 맞게 답했는지, "
+            "통화 목적에 가까워졌는지까지 보고 판단한다.\n"
+            "- 피드백은 [피드백할 구간]에 있는 번호에만 쓴다. 대화 전체 요약은 쓰지 마.\n"
+            "- 대화에서 '나' 가 사용자, '상대방' 이 통화 상대다.\n"
+            "\n"
             "구간 종류:\n"
             "- [칭찬할 구간]: 그 발화에서 잘한 점을 짚어준다.\n"
             "- [짚어줄 구간]: 이 구간에서 목소리가 흔들렸다. "
             "그 얘기를 하고 다음에 어떻게 할지 알려준다.\n"
+            "- [말을 고칠 구간]: 목소리가 아니라 말 내용이나 말투가 상황에 맞지 않았다. "
+            "바로 앞 상대방 말에 비춰 무엇이 문제였는지 짚고, "
+            "대신 어떻게 말하면 좋을지 짧은 예시 문장을 넣어 알려준다. "
+            "이 구간은 목소리 얘기를 하지 마.\n"
             "- '떨림 N/10' 이 붙어 있으면 그 구간의 측정값이다. "
             "낮으면 안정적, 높으면 흔들린 것. 판단에만 쓰고 숫자는 쓰지 마.\n"
             "\n"
@@ -451,6 +572,7 @@ class LLMClient:
                 continue
             text = re.sub(r"^[-*•]\s*", "", text)
             text = re.sub(r"^\d+\s*[.)]\s*", "", text).strip()
+            text = _SEGMENT_KIND_PREFIX.sub("", text)
             if not text:
                 continue
             if "|" in text:

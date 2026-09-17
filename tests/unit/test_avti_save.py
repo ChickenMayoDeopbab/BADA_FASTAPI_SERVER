@@ -107,6 +107,9 @@ class _NullStorage:
 
 
 class _FakeLLM:
+    async def review_turns(self, turns, **kwargs):
+        return set()
+
     async def segment_feedback(self, items, **kwargs):
         self.last_items = items
         self.last_kwargs = kwargs
