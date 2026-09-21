@@ -4,14 +4,14 @@ import logging
 import math
 import time
 from contextlib import aclosing, suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from itertools import zip_longest
 
 from fastapi import WebSocket, WebSocketDisconnect
 from google.api_core.exceptions import GoogleAPICallError
 
-from app.core.audio_stats import TurnAudioStats
+from app.core.audio_stats import BYTES_PER_MS, TurnAudioStats
 from app.core.config import Settings
 from app.core.enums import SessionType
 from app.core.metrics import log_metric, now_ms
@@ -93,6 +93,10 @@ _SILENCE_MIN_SECONDS = 1.5
 _TURN_FALLBACK_TEXT = "죄송해요, 다시 한번 말씀해 주시겠어요?"
 _FALLBACK_TTS_TIMEOUT = 8.0
 _AVTI_WAIT_SECONDS = 20.0
+# 구버전 앱은 재생 완료 ACK가 없으므로 PCM 재생 예상 시각에 기기 버퍼 여유를 더한다.
+_PLAYBACK_GRACE_MS = 1000.0
+_PLAYBACK_ACK_GRACE_MS = 15000.0
+_PLAYBACK_MAX_WAIT_SECONDS = 60.0
 # 구간 피드백
 _MAX_SEGMENTS = 3
 _MIN_GOOD_SEC = 1.0
@@ -152,6 +156,19 @@ class _State(StrEnum):
 
 
 @dataclass
+class _PlaybackTurn:
+    turn_id: int
+    done: asyncio.Event = field(default_factory=asyncio.Event)
+    expected_end_ms: float | None = None
+    sent_end: bool = False
+
+    def record(self, size: int) -> None:
+        if size:
+            now = now_ms()
+            self.expected_end_ms = max(self.expected_end_ms or now, now) + size / BYTES_PER_MS
+
+
+@dataclass
 class _TurnTimings:
     """한 음성 턴의 단계별 시점(monotonic ms). 미도달 시점은 None(부분 턴)."""
 
@@ -187,6 +204,9 @@ class _TurnTimings:
 class VoicePipeline:
     _turn_final_at: float | None = None  # 진행 중인 턴을 연 FINAL 시각
     _turn_done_at: float | None = None   # 마지막 '턴 완료' 시각
+    _playback: _PlaybackTurn | None = None
+    _playback_seq: int = 0
+    _playback_ack_supported: bool = False
 
     def __init__(
         self,
@@ -341,6 +361,18 @@ class VoicePipeline:
                 session_id=self._session_id,
                 **_sanitize_playback_stats(data),
             )
+        elif mtype == "playback_done":
+            playback = self._playback
+            turn_id = data.get("turn_id")
+            if (
+                playback is not None
+                and playback.sent_end
+                and type(turn_id) is int
+                and turn_id == playback.turn_id
+            ):
+                playback.done.set()
+        elif mtype == "playback_capabilities":
+            self._playback_ack_supported = data.get("completion_ack") is True
 
     async def _stt_consumer(self) -> None:
         """stt 소비 발화마다 스트림 재오픈함"""
@@ -588,19 +620,20 @@ class VoicePipeline:
 
     async def _run_turn(self, user_utterance: str, timings: _TurnTimings) -> None:
         """턴 시작"""
+        self._begin_playback()
         ctx = build_turn_context(
             self._session,
             current_step=self._current_step,
             history=self._history,
             user_utterance=user_utterance,
         )
-        first_goal = ctx.script[0].ai_goal if ctx.script else ""
+        current_goal = next((turn.ai_goal for turn in ctx.script if turn.step == self._current_step), "")
         logger.info(
             "LLM 턴 컨텍스트 생성 step=%s title=%r role=%r goal=%r",
             self._current_step,
             ctx.scenario_title,
             ctx.scenario_role,
-            first_goal,
+            current_goal,
             extra={"session_id": self._session_id},
         )
 
@@ -691,6 +724,7 @@ class VoicePipeline:
                     try:
                         await self._ws.send_bytes(pcm)
                         self._ai_pcm_bytes += len(pcm)
+                        self._playback.record(len(pcm))
                     except Exception:
                         self._ws_alive = False
                         break
@@ -698,7 +732,7 @@ class VoicePipeline:
                     if timings.first_pcm_at is None:
                         timings.first_pcm_at = now_ms()
                     timings.last_pcm_at = now_ms()
-            await self._send_json(speaking_end_frame())
+            await self._send_speaking_end()
 
         produce_task = asyncio.create_task(produce())
         consume_task = asyncio.create_task(consume())
@@ -854,6 +888,19 @@ class VoicePipeline:
         audio: TurnAudioStats | None = None,
     ) -> None:
         ai_text = "".join(ai_parts).strip()
+        # 선택을 묻고 END_CALL/마지막 STEP_DONE을 함께 내는 모델 오류를 방어한다.
+        # 문장 의미 전체를 판정하지 않으므로 나머지 종료 조건은 프롬프트에서도 제한한다.
+        awaiting_answer = ai_text.rstrip(" \t\r\n\"'”’").endswith(("?", "？"))
+        is_last_step = self._script_len > 0 and self._current_step >= self._script_len
+        if awaiting_answer and (flags["end_call"] or (flags["step_done"] and is_last_step)):
+            log_metric(
+                "call_end_deferred", session_id=self._session_id,
+                step=self._current_step, reason="awaiting_user_answer",
+                end_call=flags["end_call"], step_done=flags["step_done"],
+            )
+            flags = {**flags, "end_call": False}
+            if is_last_step:
+                flags["step_done"] = False
 
         if timings.first_pcm_at is not None:
             response_wait_ms = max(
@@ -887,6 +934,9 @@ class VoicePipeline:
             "voice_turn",
             session_id=self._session_id,
             step=self._current_step,
+            step_done=flags["step_done"],
+            end_call=flags["end_call"],
+            script_len=self._script_len,
             error=flags["error"],
             watchdog=flags.get("watchdog", False),
             fallback=fallback,
@@ -991,7 +1041,21 @@ class VoicePipeline:
         else:
             self._history.append({"role": "assistant", "text": _TURN_FALLBACK_TEXT})
         await self._send_json(transcript_frame(TranscriptRole.AI, _TURN_FALLBACK_TEXT))
-        await self._send_json(speaking_end_frame())
+        await self._send_speaking_end()
+
+    def _begin_playback(self) -> None:
+        previous = self._playback
+        self._playback_seq += 1
+        self._playback = _PlaybackTurn(turn_id=self._playback_seq)
+        # 부분 응답 뒤 폴백이 이어져도 이미 큐에 보낸 음성 길이는 남아 있다.
+        if previous is not None and not previous.done.is_set():
+            self._playback.expected_end_ms = previous.expected_end_ms
+
+    async def _send_speaking_end(self) -> None:
+        playback = self._playback
+        if playback is not None:
+            playback.sent_end = True
+        await self._send_json(speaking_end_frame(playback.turn_id if playback else None))
 
     def _coalesce_target_bytes(self) -> int:
         """송출 병합 단위(바이트)"""
@@ -1000,6 +1064,7 @@ class VoicePipeline:
         return target_bytes_for(coalesce_ms)
 
     async def _speak_fallback(self) -> None:
+        self._begin_playback()
         session = await self._open_tts()
         audio = TurnAudioStats()
         try:
@@ -1022,6 +1087,7 @@ class VoicePipeline:
                     try:
                         await self._ws.send_bytes(pcm)
                         self._ai_pcm_bytes += len(pcm)
+                        self._playback.record(len(pcm))
                     except Exception:
                         self._ws_alive = False
                         break
@@ -1083,12 +1149,48 @@ class VoicePipeline:
             return
         if self._state == _State.LISTENING:
             self._bank_silence()
-        self._end_reason = reason
         self._state = _State.CLOSING
+        if self._ws_alive and reason in (EndReason.END_CALL, EndReason.SCENARIO_DONE, EndReason.TIMEOUT):
+            # _closing을 먼저 설정하면 teardown이 수신 루프를 취소해 ACK를 받을 수 없다.
+            await self._wait_for_playback()
+        if self._closing.is_set():
+            return
+        self._end_reason = reason
         self._closing.set()
         logger.info(
             "파이프라인 종료 트리거",
             extra={"session_id": self._session_id, "reason": reason.value},
+        )
+
+    async def _wait_for_playback(self) -> None:
+        playback = self._playback
+        if playback is None or playback.expected_end_ms is None or playback.done.is_set():
+            return
+        grace_ms = _PLAYBACK_ACK_GRACE_MS if self._playback_ack_supported else _PLAYBACK_GRACE_MS
+        timeout = min(
+            _PLAYBACK_MAX_WAIT_SECONDS,
+            max(0.0, (playback.expected_end_ms + grace_ms - now_ms()) / 1000.0),
+        )
+        if timeout <= 0:
+            return
+        started = now_ms()
+        acknowledged = asyncio.create_task(playback.done.wait())
+        interrupted = asyncio.create_task(self._closing.wait())
+        try:
+            await asyncio.wait(
+                {acknowledged, interrupted}, timeout=timeout, return_when=asyncio.FIRST_COMPLETED,
+            )
+        finally:
+            for task in (acknowledged, interrupted):
+                task.cancel()
+            await asyncio.gather(acknowledged, interrupted, return_exceptions=True)
+        log_metric(
+            "playback_close_wait",
+            session_id=self._session_id,
+            turn_id=playback.turn_id,
+            acknowledged=playback.done.is_set(),
+            interrupted=self._closing.is_set(),
+            waited_ms=round(now_ms() - started, 1),
         )
 
     async def _teardown(self, *tasks: asyncio.Task | None) -> None:

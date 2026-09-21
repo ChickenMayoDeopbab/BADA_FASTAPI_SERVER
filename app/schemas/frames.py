@@ -39,8 +39,11 @@ def emotion_frame(emotion: AiEmotion) -> dict:
     return {"type": FrameType.EMOTION.value, "value": emotion.value}
 
 
-def speaking_end_frame() -> dict:
-    return {"type": FrameType.SPEAKING_END.value}
+def speaking_end_frame(turn_id: int | None = None) -> dict:
+    frame = {"type": FrameType.SPEAKING_END.value}
+    if turn_id is not None:
+        frame["turn_id"] = turn_id
+    return frame
 
 
 def interrupt_frame() -> dict:
