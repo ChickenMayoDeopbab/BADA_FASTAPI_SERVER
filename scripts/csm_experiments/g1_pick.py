@@ -65,7 +65,8 @@ def main():
     with torch.inference_mode():
         for it in items:
             for role, d_orig, d_mimi in (("prompt", "prompt", "mimi_prompt"), ("target", "human", "mimi")):
-                r = it[role]; pcm = np.frombuffer(zf.read(member[r["id"]]), dtype="<i2")
+                r = it[role]; b = zf.read(member[r["id"]]); pcm = np.frombuffer(b[: len(b) - len(b) % 2], dtype="<i2")   # eval .pcm 은 전부 2N+1 바이트 → 끝 1 B 버림(tok_kspon.py 와 같은 처리)
+                assert abs(pcm.size - r["dur_s"] * 16000) <= 8, (r["id"], pcm.size, r["dur_s"])                       # 토큰화 때 읽은 길이와 같아야 한다(dur_s 는 소수 3자리 → ±8샘플)
                 write_wav(os.path.join(out, d_orig, it["id"] + ".wav"), pcm, 16000)
                 c = codes[:, off[r["idx"]]:off[r["idx"] + 1]]
                 assert c.shape[1] == r["frames"], (r["id"], c.shape, r["frames"])

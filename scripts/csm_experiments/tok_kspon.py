@@ -121,9 +121,12 @@ def main():
             npz, man = os.path.join(a.out, "codes", shard + ".npz"), os.path.join(a.out, "manifest", shard + ".jsonl")
             if os.path.exists(npz) and os.path.exists(man):
                 continue
-            codes, offsets, rows = [], [0], []
+            codes, offsets, rows = [], [0], []; n_odd = 0
             for uid, read in items:
-                pcm = np.frombuffer(read(), dtype="<i2")
+                b = read(); odd = len(b) % 2
+                if odd:                                                 # KsponSpeech_eval 의 .pcm 6,000개는 전부 2N+1 바이트(2026-09-22 확인: 끝 바이트를 버려야 파형이 매끄럽다). 아니면 frombuffer 가 죽는다
+                    n_odd += 1; b = b[:-1]
+                pcm = np.frombuffer(b, dtype="<i2")
                 if pcm.size < SR_IN // 10:                               # 0.1초 미만은 버린다
                     continue
                 x = resample_16k_to_24k(torch.from_numpy(pcm.astype(np.float32) / 32768.0).to(dev), kernel)
@@ -131,7 +134,7 @@ def main():
                 raw = texts.get(uid, ""); spell, pron, flags = parse_text(raw)
                 codes.append(c); offsets.append(offsets[-1] + c.shape[1])
                 rows.append(dict(id=uid, shard=shard, idx=len(rows), frames=int(c.shape[1]), dur_s=round(pcm.size / SR_IN, 3),
-                                 raw=raw, spell=spell, pron=pron, flags=flags, has_text=bool(raw)))
+                                 raw=raw, spell=spell, pron=pron, flags=flags, has_text=bool(raw), odd_byte=bool(odd)))
                 done_s += pcm.size / SR_IN; done_n += 1
             if not rows:
                 continue
@@ -141,7 +144,7 @@ def main():
                 for r in rows: f.write(json.dumps(r, ensure_ascii=False) + "\n")
             os.replace(man + ".tmp", man); os.replace(tmp, npz)          # npz 가 마지막 — 둘 다 있어야 끝난 샤드
             n_shard += 1; el = time.time() - t0
-            print(f"[{shard}] {len(rows):>5}발화 · 누적 {done_n:,}발화 {done_s/3600:.2f} h · 실시간의 {done_s/el:.0f}배 · {el/60:.1f}분", flush=True)
+            print(f"[{shard}] {len(rows):>5}발화 · 누적 {done_n:,}발화 {done_s/3600:.2f} h · 실시간의 {done_s/el:.0f}배 · {el/60:.1f}분" + (f" · 홀수 바이트 {n_odd}개(끝 1 B 버림)" if n_odd else ""), flush=True)
             if a.limit_shards and n_shard >= a.limit_shards:
                 return
     print(f"끝. {done_n:,}발화 · {done_s/3600:.2f} h · {(time.time()-t0)/60:.1f}분 → {a.out}")
