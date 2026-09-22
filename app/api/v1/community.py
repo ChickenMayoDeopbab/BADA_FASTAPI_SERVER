@@ -362,7 +362,7 @@ async def list_comments(
     user_id: int = Depends(get_current_user_id),
 ) -> CommentListResponse:
     try:
-        return await svc_list_comments(db, post_id)
+        return await svc_list_comments(db, post_id, viewer_id=user_id)
     except PostNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

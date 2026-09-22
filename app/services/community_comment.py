@@ -17,7 +17,8 @@ from app.schemas.community import (
     CommentThread,
     CommentUpdateRequest,
 )
-from app.services.community_post import alive_post, is_admin_user, load_author
+from app.services.community_block import blocked_user_exists, is_user_blocked
+from app.services.community_post import PostNotFoundError, alive_post, is_admin_user, load_author, visible_post
 
 
 class CommentNotFoundError(Exception):
@@ -87,6 +88,8 @@ async def create_comment(
     recipient_user_id = post.user_id if parent is None else parent.user_id
     if recipient_user_id == user_id:
         return response, None
+    if await is_user_blocked(db, blocker_user_id=recipient_user_id, blocked_user_id=user_id):
+        return response, None
 
     return response, CommunityNotificationEvent(
         notification_type=(
@@ -101,9 +104,10 @@ async def create_comment(
     )
 
 
-async def list_comments(db: AsyncSession, post_id: int) -> CommentListResponse:
+async def list_comments(db: AsyncSession, post_id: int, *, viewer_id: int) -> CommentListResponse:
     """살아있는 댓글·답글을 오래된 순 2뎁스 트리로. 작성자는 users 조인 1회로 붙임"""
-    await alive_post(db, post_id)
+    if await visible_post(db, post_id, viewer_id=viewer_id) is None:
+        raise PostNotFoundError
 
     stmt = (
         select(PostCommentORM, users_table.c.name, users_table.c.profile_image)
@@ -111,6 +115,7 @@ async def list_comments(db: AsyncSession, post_id: int) -> CommentListResponse:
         .where(
             PostCommentORM.post_id == post_id,
             PostCommentORM.deleted_at.is_(None),
+            ~blocked_user_exists(viewer_id, PostCommentORM.user_id),
         )
         .order_by(PostCommentORM.created_at, PostCommentORM.comment_id)
     )

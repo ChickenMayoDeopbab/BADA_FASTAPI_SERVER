@@ -1,6 +1,8 @@
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
+from sqlalchemy.sql.selectable import Exists
 
 from app.core.timeutil import now_utc
 from app.db.external import users_table
@@ -13,6 +15,22 @@ class BlockedUserNotFoundError(Exception):
 
 class SelfBlockError(Exception):
     """자기 자신 차단 시도."""
+
+
+def blocked_user_exists(blocker_user_id: int, blocked_user_id: int | ColumnElement[int]) -> Exists:
+    """차단자와 콘텐츠 작성자를 연결하는 EXISTS 조건."""
+    return (
+        select(CommunityUserBlockORM.block_id)
+        .where(
+            CommunityUserBlockORM.blocker_user_id == blocker_user_id,
+            CommunityUserBlockORM.blocked_user_id == blocked_user_id,
+        )
+        .exists()
+    )
+
+
+async def is_user_blocked(db: AsyncSession, *, blocker_user_id: int, blocked_user_id: int) -> bool:
+    return bool((await db.execute(select(blocked_user_exists(blocker_user_id, blocked_user_id)))).scalar_one())
 
 
 async def _ensure_target_user(db: AsyncSession, blocked_user_id: int) -> None:
