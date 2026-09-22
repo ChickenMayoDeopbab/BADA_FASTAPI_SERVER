@@ -1,9 +1,9 @@
-# CSM-1B 실험 스크립트 (스터디 레포에서 이관, 2026-09-21)
+# CSM-1B 실험 스크립트 (스터디 레포에서 이관, 2026-09-21~22)
 
-설계 `.harness/plans/DRAFT-대화형-음성-모델-한국어-CSM-설계.md` 의 **G0 속도 게이트 통과(RTF 0.277)** · **KsponSpeech 토큰화** · **A단계 학습**을 만든 스크립트들이다.
+설계 `.harness/plans/DRAFT-대화형-음성-모델-한국어-CSM-설계.md` 의 **G0 속도 게이트 통과(RTF 0.277)** · **KsponSpeech 토큰화** · **A단계 학습** · **G1 평가**를 만든 스크립트들이다.
 
 **원본을 그대로 둔다 — lint 를 위해 고치지 않는다.** `scripts/qwen_tts_experiments/` 와 같은 원칙이다(계획 0045): 코드가 바뀌면 그 스크립트가 낸 숫자가 아니게 된다. 그래서 `pyproject.toml` 의 ruff `extend-exclude` 에 이 디렉터리를 넣었다.
-g0 3종과 `tok_kspon.py` 는 학교 3090·집 PC 4060 에서 실제로 돈 파일과 바이트 단위로 같다(원본: 스터디 레포 `~/School/narsha/2026/LLM-STT-멀티모달/labs/`, `labs/data/`).
+g0 3종과 `tok_kspon.py` 는 학교 3090·집 PC 4060 에서 실제로 돈 파일과 바이트 단위로 같다(원본: 스터디 레포 `~/School/narsha/2026/LLM-STT-멀티모달/labs/`, `labs/data/`, `labs/train/`, `labs/eval/`).
 
 | 파일 | 하는 일 | 낸 숫자 (2026-09-21) |
 |---|---|---|
@@ -15,6 +15,11 @@ g0 3종과 `tok_kspon.py` 는 학교 3090·집 PC 4060 에서 실제로 돈 파�
 | `csm_data.py` | 미리 뽑은 토큰 → CSM 학습 배치(글 ids · 오디오 임베딩 · 3D 레이블 · ratio). HF 가 오디오에서 만드는 것을 토큰에서 똑같이 만든다 | HF 경로와 input_ids·inputs_embeds(차이 0.0)·labels 동일 |
 | `verify_inputs.py` | 위가 HF 경로(오디오 → `CsmProcessor` → `_merge_input_ids_with_input_values`)와 같은지 확인. CPU fp32 | loss **7.31607 = 7.31607** · 패딩 방향이 다른 2발화 배치도 동일 |
 | `train_a.py` | **A단계 학습 루프** — 전체 FT · fp32 가중치 + bf16 autocast · 8-bit AdamW · 체크포인팅 · 검증 loss · 이어받기 | CPU 스모크: depth loss 4.11 → 1.48(6 업데이트), 이어받기 1.48 → 1.42. **GPU 미실행** |
+| `g1_pick.py` | **G1 시험셋**(집 PC) — 학습 제외 `eval_clean` 에서 목표 100 + 프롬프트 100 을 고정 seed 로 짝지어 seed-tts-eval 형식 `meta.lst` + 대조군 음성(사람 원본·Mimi 재합성) + 프롬프트 Mimi 코드 | 가짜 eval zip(사용자 녹음 6조각) → 진짜 `tok_kspon.py` → 세트 생성 확인. 실제 `eval_clean` 미실행 |
+| `g1_generate.py` | **G1 생성**(학교 서버) — 프롬프트 있음/없음 × 정적 루프/HF, TTFA·RTF·끝남 기록, 이어받기, `--check` 로 HF 와 토큰 대조 | CPU fp32 탐욕: 내 입력 구성 + 정적 루프 = HF `generate` **96/96**(프롬프트 있음·없음), 프롬프트 임베딩 = HF merge 차이 **0.0**. **GPU 미실행** |
+| `g1_score.py` | **G1 채점**(맥) — 심판 `gemini-3.5-transcribe-live`(B `GeminiLiveSTTClient` 와 같은 호출) CER/WER + UTMOS(`utmos22_strong`) + SIM(WavLM-large SV, seed-tts-eval 과 같은 모델) + `gen.jsonl` 의 TTFA·RTF → `result.md`·`listen.html`. 전 측정 캐시 | 편집거리·집계·리샘플·캐시 31항목 통과 · UTMOS 실모델 동작(사용자 녹음 3.09, Mimi 재합성 2.76) · **진짜 심판 호출·SIM 공식 모델 미실행**(키·체크포인트 없음) |
+| `test_g1.py` | 위 두 파일의 순수 함수 시험(모델·네트워크 없음) | 31/31 |
+| `test_judge_flow.py` | 심판의 비동기 흐름을 가짜 세션으로 시험 — 턴 단위 끊김·늦은 FINAL·송신 실패 | 4/4. **송신 실패 시 수신이 영원히 기다리던 결함**을 잡아 고쳤다 |
 
 ## 실행 환경
 - **학교 GPU 서버**: GPU 0(3090, 비어 있었음 — 1·2 는 운영 Qwen 워커) · venv `~/csm-venv` = Python 3.12 / torch 2.9.1+cu126 / transformers 5.17.0 · 파일 `~/CSM/` · 모델은 `sesame/csm-1b` 의 HF 형식 파일만(7.1 GB), 학교망에선 `HF_HUB_DISABLE_XET=1` 로 받았다 · `HF_HOME=~/.cache/hf`
@@ -27,6 +32,12 @@ g0 3종과 `tok_kspon.py` 는 학교 3090·집 PC 4060 에서 실제로 돈 파�
 - 세 파일(`csm_data.py`·`verify_inputs.py`·`train_a.py`)은 같은 폴더에 둔다. 입력은 `tok_kspon.py` 의 출력 폴더이고 오디오·Mimi 는 필요 없다.
 - 서버에서 처음 돌릴 때: `uv pip install bitsandbytes` → `--max-updates 20` 으로 메모리(추정 17~18 GB)·속도·loss 하강을 먼저 본다. 명령·기본값·이유는 `.harness/records/2026-09-21-csm-g0/train-README.md`.
 - 이 디렉터리에 둔 이유: 학습 run 의 숫자를 낸 파일을 그대로 남기기 위해서다(서버에서 도는 파일과 바이트 단위로 같다). 계획 0058 에서 워커·파이프라인으로 굳힐 때는 lint 를 맞춘 별도 모듈로 옮긴다.
+
+## G1 평가 (2026-09-22 추가)
+- 2026-09-22 사용자 결정: **TTFA · RTF · UTMOS · WER · SIM 을 seed-tts-eval 방식으로**, 심판 STT 는 **`gemini-3.5-transcribe-live`**. 원본 채점 코드를 읽고 확인한 것 — seed-tts-eval 은 WER·SIM 두 개만 잰다(WER = 발화별 (S+D+I)/N 의 **산술평균**, 중국어는 글자 단위 · SIM = 합성음 ↔ **프롬프트 음성** WavLM-large SV 코사인). UTMOS 는 F5-TTS 가 같은 셋에 붙여 쓰는 방식, TTFA·RTF 는 이 레포의 Qwen 측정(`scripts/qwen_tts_experiments/gate6.py`)과 같은 정의. 한국어 심판이 seed-tts-eval 에 없어 **공개 표와 직접 비교는 안 된다.**
+- 세 기계에 세 파일: `g1_pick.py`(집 PC) → `g1_generate.py`(학교 서버, `g0c_static_loop.py` 옆에) → `g1_score.py`(맥, `GEMINI_API_KEY` 환경변수). 조건 하나 = `<문장 id>.wav` 폴더 하나라서 Qwen·ElevenLabs 폴더는 나중에 `--cond` 로 붙이면 된다. 명령·규칙·검증 표는 `.harness/records/2026-09-21-csm-g0/eval-README.md`.
+- 심판 호출은 `app/services/stt.py` 의 `GeminiLiveSTTClient` 와 같은 설정(`google-genai==2.22.0`, `VERBATIM`, 16 kHz PCM, `audio_stream_end`)이지만 **코드를 import 하지 않고 따로 짰다**(스터디 레포 맥에서 돌고, 클립 하나 = 세션 하나라 파이프라인용 재활용 로직이 필요 없다). B 의 9/9 실측(F76)대로 Gemini 는 chirp 보다 오인식이 있으므로 `human` 행을 기준선으로 읽는다.
+- `test_*.py` 두 개는 `testpaths = ["tests"]` 라 CI 의 pytest 에 걸리지 않는다. 돌리려면 스터디 레포 venv(numpy·torch·transformers·google-genai·torchaudio)에서 `python test_g1.py`.
 
 ## 주의
 - **`tok_kspon.py` 를 같은 출력 폴더에 동시에 두 개 돌리지 말 것.** 끝난 묶음은 건너뛰지만 잠금이 없어, 같은 미완료 묶음을 두 프로세스가 만들면 임시 파일 이름이 같아 서로 덮어쓴다(2026-09-21 에 실수로 겹쳐 띄운 적이 있다). 겹쳤다면 `pgrep -af tok_kspon.py` 로 **파이썬 PID** 를 찾아 죽이고(작업 번호·감싼 셸의 PID 는 자식을 안 죽인다) 끝난 뒤 `check_tokens.py` 를 돌린다.
