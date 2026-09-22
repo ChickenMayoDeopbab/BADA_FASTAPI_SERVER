@@ -22,6 +22,9 @@ from app.schemas.community import (
     ReactionStateResponse,
     ScenarioCopyResponse,
 )
+from app.services.community_block import BlockedUserNotFoundError, SelfBlockError
+from app.services.community_block import block_user as svc_block_user
+from app.services.community_block import unblock_user as svc_unblock_user
 from app.services.community_comment import (
     CommentForbiddenError,
     CommentNotFoundError,
@@ -59,6 +62,18 @@ from app.services.spring_client import SpringInternalClient
 router = APIRouter(prefix="/api/v1/community", tags=["community"])
 
 
+async def _change_block_state(db: AsyncSession, *, blocker_user_id: int, blocked_user_id: int, blocked: bool) -> None:
+    try:
+        if blocked:
+            await svc_block_user(db, blocker_user_id=blocker_user_id, blocked_user_id=blocked_user_id)
+        else:
+            await svc_unblock_user(db, blocker_user_id=blocker_user_id, blocked_user_id=blocked_user_id)
+    except BlockedUserNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="사용자를 찾을 수 없습니다.") from e
+    except SelfBlockError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="본인은 차단할 수 없습니다.") from e
+
+
 async def _create_report(
     db: AsyncSession,
     *,
@@ -82,6 +97,31 @@ async def _create_report(
     except DuplicateReportError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="이미 신고한 콘텐츠입니다.") from e
 
+
+@router.put(
+    "/users/{user_id}/block",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="사용자 차단",
+)
+async def block_user(
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+) -> None:
+    await _change_block_state(db, blocker_user_id=current_user_id, blocked_user_id=user_id, blocked=True)
+
+
+@router.delete(
+    "/users/{user_id}/block",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="사용자 차단 해제",
+)
+async def unblock_user(
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+) -> None:
+    await _change_block_state(db, blocker_user_id=current_user_id, blocked_user_id=user_id, blocked=False)
 
 
 @router.post(
