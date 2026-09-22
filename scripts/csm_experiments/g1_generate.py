@@ -153,7 +153,17 @@ def main():
         print(f"  input_ids 동일: {inp['input_ids'][0].tolist() == ids}  ({len(ids)}위치)")
         if a.mode == "prompted":
             ref = model._merge_input_ids_with_input_values(inp["input_ids"], inp["input_values"], inp["input_values_cutoffs"], None)["inputs_embeds"]
-            print(f"  inputs_embeds 최대 차이: {(ref - embed_inputs(model, ids, spans)).abs().max().item():.2e}  (0 이어야 한다 = 저장된 코드가 HF 가 뽑는 코드와 같다)")
+            d_saved = (ref - embed_inputs(model, ids, spans)).abs().max().item()
+            # 저장 코드(집 PC 가 뽑음)는 이 기계의 코덱이 뽑는 코드와 세부 코드북이 몇 % 다를 수 있다(2026-09-22 맥 실측: 코드북0 100 %, 1~31 87~95 %).
+            # 토큰 비교는 HF 와 **같은 코드**로 해야 뜻이 있으므로 이 기계의 코덱으로 다시 뽑아 쓴다.
+            au = resample_16k_to_24k(read_wav16(os.path.join(set_dir, "prompt", it["id"] + ".wav")))
+            with torch.no_grad():
+                here = model.codec_model.encode(au[None, None].to(dev, model.dtype)).audio_codes[0].T.cpu()
+            saved = spans[0][1]; T = min(len(here), len(saved)); eq = (here[:T] == saved[:T])
+            print(f"  저장 코드 vs 이 기계 코덱: 코드북0 {eq[:, 0].float().mean() * 100:.0f} % · 1~31 {eq[:, 1:].float().mean() * 100:.1f} % 일치 ({len(saved)}/{len(here)}프레임)")
+            if len(here) == len(saved):
+                spans = [(spans[0][0], here)]
+            print(f"  inputs_embeds 최대 차이: 저장 코드 {d_saved:.2e} · 이 기계 코드 {(ref - embed_inputs(model, ids, spans)).abs().max().item():.2e}  (뒤가 0 이어야 아래 비교가 성립한다)")
         hf = model.generate(**inp, max_new_tokens=a.check, do_sample=False, depth_decoder_do_sample=False, output_audio=False)[0]
         mine = gen_static(StaticCsm(model, True, comp, a.backend), model, ids, spans, a.check, 1)[0]
         n = min(hf.shape[0], mine.shape[0]); same = hf[:n] == mine[:n]

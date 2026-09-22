@@ -312,7 +312,9 @@ def main():
         name, rest = c.split("=", 1); d, _, opt = rest.partition(":")
         conds.append(dict(name=name, dir=os.path.expanduser(d), ref="prompt_text" if opt == "ref=prompt" else "infer_text"))
     metrics, cache = set(a.metrics.split(",")), Cache(os.path.join(out, "cache.jsonl"))
-    jname, judge = make_judge(a) if "wer" in metrics else (None, None)
+    # 심판은 캐시에 없는 클립이 있을 때만 만든다(전부 캐시면 API 키 없이도 표를 다시 만들 수 있다)
+    jname = ("judge:fake" if a.judge == "fake" else f"judge:{a.judge_model}:{a.language}") if "wer" in metrics else None
+    judge = None
     uname, utmos = make_utmos(a) if "utmos" in metrics else (None, None)
     sname, emb = make_sim(a) if "sim" in metrics else (None, None)
     print(f"문장 {len(items)}개 · 조건 {len(conds)}개 · 지표 {sorted(metrics)}")
@@ -322,10 +324,11 @@ def main():
         have = [(it, os.path.join(c["dir"], it["id"] + ".wav")) for it in items]
         miss = [it["id"] for it, p in have if not os.path.exists(p)]; have = [(it, p) for it, p in have if os.path.exists(p)]
         hs = {p: sha1(p) for _, p in have}; rows = {}
-        if judge:
+        if jname:
             todo = [(it, p) for it, p in have if cache.get(jname, hs[p]) is None]
             if todo:
                 print(f"[{c['name']}] 심판 {len(todo)}개 (캐시 {len(have) - len(todo)}개)", flush=True)
+                judge = judge or make_judge(a)[1]
                 for (it, p), hyp in zip(todo, judge([p for _, p in todo], [it[c["ref"]] for it, _ in todo])):
                     if hyp is not None:
                         cache.put(jname, hs[p], hyp)
@@ -334,7 +337,7 @@ def main():
             gen = {r["id"]: r for r in map(json.loads, open(os.path.join(c["dir"], "gen.jsonl"), encoding="utf-8"))}
         for it, p in have:
             r = dict(id=it["id"]); x, sr = read_wav(p); r["audio_s"] = len(x) / sr
-            if judge and cache.get(jname, hs[p]) is not None:
+            if jname and cache.get(jname, hs[p]) is not None:
                 r.update(error_rates(it[c["ref"]], cache.get(jname, hs[p])))
             long_enough = r["audio_s"] >= 0.5                     # 첫 프레임에서 끝난 빈 소리는 UTMOS·SIM 모델에 넣지 않는다(지표에서 빠지고 CER 은 100 % 로 잡힌다)
             if utmos and long_enough:
@@ -346,11 +349,11 @@ def main():
                 g, gsr = read_wav(it["gt_wav"]); r["len_ratio"] = r["audio_s"] / max(len(g) / gsr, 1e-6)
             r.update({k: gen[it["id"]].get(k) for k in ("ttfa_ms", "rtf", "eos", "frames") if it["id"] in gen})
             rows[it["id"]] = r
-        for i in miss if judge else []:                          # 파일이 없으면 = 생성 실패 → 오류율 100 % 로 센다(지표에서 빼 주지 않는다)
+        for i in miss if jname else []:                          # 파일이 없으면 = 생성 실패 → 오류율 100 % 로 센다(지표에서 빼 주지 않는다)
             ref = normalize(next(it for it in items if it["id"] == i)[c["ref"]])
             rows[i] = dict(id=i, cer=1.0, wer=1.0, n_char=len(ref.replace(" ", "")), e_char=len(ref.replace(" ", "")), n_word=len(ref.split()), e_word=len(ref.split()), hyp="(파일 없음)")
         per[c["name"]] = rows
-        scored = [r for r in rows.values() if "cer" in r]; s = dict(name=c["name"], n=len(rows), missing=len(miss), judge_failed=len(rows) - len(scored) if judge else 0)
+        scored = [r for r in rows.values() if "cer" in r]; s = dict(name=c["name"], n=len(rows), missing=len(miss), judge_failed=len(rows) - len(scored) if jname else 0)
         if scored:
             s.update(aggregate(scored)); s["cer_ci"] = bootstrap_ci([r["cer"] for r in scored])
         for k in ("utmos", "sim", "len_ratio"):
