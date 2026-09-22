@@ -2,6 +2,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, R
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.enums import CommunityReportTargetType
 from app.deps.auth import get_current_user_id
 from app.deps.db import get_db
 from app.deps.redis import get_redis
@@ -11,6 +12,8 @@ from app.schemas.community import (
     CommentListResponse,
     CommentResponse,
     CommentUpdateRequest,
+    CommunityReportCreateRequest,
+    CommunityReportResponse,
     PostCreateRequest,
     PostDetailResponse,
     PostListResponse,
@@ -38,6 +41,12 @@ from app.services.community_reaction import clear_reaction as svc_clear_reaction
 from app.services.community_reaction import (
     set_reaction_with_notification as svc_set_reaction,
 )
+from app.services.community_report import (
+    DuplicateReportError,
+    OwnContentReportError,
+    ReportTargetNotFoundError,
+)
+from app.services.community_report import create_report as svc_create_report
 from app.services.post_attachment import AttachmentInvalidError
 from app.services.scenario_share import (
     NothingToCopyError,
@@ -48,6 +57,30 @@ from app.services.scenario_share import copy_attached_scenario as svc_copy_scena
 from app.services.spring_client import SpringInternalClient
 
 router = APIRouter(prefix="/api/v1/community", tags=["community"])
+
+
+async def _create_report(
+    db: AsyncSession,
+    *,
+    reporter_user_id: int,
+    target_type: CommunityReportTargetType,
+    target_id: int,
+    body: CommunityReportCreateRequest,
+) -> CommunityReportResponse:
+    try:
+        return await svc_create_report(
+            db,
+            reporter_user_id=reporter_user_id,
+            target_type=target_type,
+            target_id=target_id,
+            reason=body.reason,
+        )
+    except ReportTargetNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="신고 대상을 찾을 수 없습니다.") from e
+    except OwnContentReportError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="본인 콘텐츠는 신고할 수 없습니다.") from e
+    except DuplicateReportError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="이미 신고한 콘텐츠입니다.") from e
 
 
 
@@ -106,6 +139,23 @@ async def get_post(
             detail="게시글을 찾을 수 없습니다.",
         )
     return detail
+
+
+@router.post(
+    "/posts/{post_id}/reports",
+    response_model=CommunityReportResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="게시글 신고",
+)
+async def report_post(
+    post_id: int,
+    body: CommunityReportCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    user_id: int = Depends(get_current_user_id),
+) -> CommunityReportResponse:
+    return await _create_report(
+        db, reporter_user_id=user_id, target_type=CommunityReportTargetType.POST, target_id=post_id, body=body
+    )
 
 
 @router.patch(
@@ -278,6 +328,23 @@ async def list_comments(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="게시글을 찾을 수 없습니다.",
         ) from e
+
+
+@router.post(
+    "/comments/{comment_id}/reports",
+    response_model=CommunityReportResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="댓글 신고",
+)
+async def report_comment(
+    comment_id: int,
+    body: CommunityReportCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    user_id: int = Depends(get_current_user_id),
+) -> CommunityReportResponse:
+    return await _create_report(
+        db, reporter_user_id=user_id, target_type=CommunityReportTargetType.COMMENT, target_id=comment_id, body=body
+    )
 
 
 @router.patch(
