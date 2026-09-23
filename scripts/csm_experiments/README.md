@@ -21,6 +21,9 @@ g0 3종과 `tok_kspon.py` 는 학교 3090·집 PC 4060 에서 실제로 돈 파�
 | `make_fake_tokens.py` | `train_a.py` 의 GPU 경로를 진짜 토큰 없이 보려고 만든 난수 토큰 셋(tok_kspon 출력 모양, loss 값은 무의미) | 서버 3090 20업데이트: peak 17.7 GB · 3,850 위치/s · 에러 없음 |
 | `test_g1.py` | 위 두 파일의 순수 함수 시험(모델·네트워크 없음) | 31/31 |
 | `test_judge_flow.py` | 심판의 비동기 흐름을 가짜 세션으로 시험 — 턴 단위 끊김·늦은 FINAL·송신 실패 | 4/4. **송신 실패 시 수신이 영원히 기다리던 결함**을 잡아 고쳤다 |
+| `tok_ktel.py` | **B단계 재료(2026-09-23)** — 상담 음성(AIHub 100, KtelSpeech) 라벨·wav zip → 세션·턴 구조 Mimi 토큰(행 = 턴: role·spk_id·utts·raw/spell/pron·flags). 세션 json 의 `dialogs[]` 순서, 같은 화자 연속 발화는 0.3 s 무음으로 한 턴(20 s 상한), 8 k→24 k Kaiser-sinc 449탭, wav zip 당 100세션 샤드, `.lock` flock, 건너뜀 3종 집계. `tok_kspon.py` 와 같은 폴더 필요 | 리샘플 실측 저지대역 −87.8 dB·통과대역 리플 ±0.0003 dB · Mimi 프레임 수 = ceil(N/1920) 실측 · 시험 3/3 · **실데이터 미실행**(검증 D60 라벨 zip 대기) |
+| `stat_ktel.py` | 위 출력의 분포 — 세션당 턴 수·턴당 발화 수·턴 길이·역할별·문맥 예산(90 s) 안에 드는 직전 턴 수·전사 표기 합계. B단계 로더 설정용 | 가짜 데이터로 동작 확인 |
+| `test_tok_ktel.py` | 리샘플 수치(3톤 이득·4 kHz 위 ≤ −80 dB)·턴 병합·가짜 라벨/wav zip 4세션 끝까지(건너뜀 3종·이어 돌리기·잠금 거부·check_tokens·stat). pytest 없이 실행 가능 | 3/3 |
 
 ## 실행 환경
 - **학교 GPU 서버**: GPU 0(3090, 비어 있었음 — 1·2 는 운영 Qwen 워커) · venv `~/csm-venv` = Python 3.12 / torch 2.9.1+cu126 / transformers 5.17.0 · 파일 `~/CSM/` · 모델은 `sesame/csm-1b` 의 HF 형식 파일만(7.1 GB), 학교망에선 `HF_HUB_DISABLE_XET=1` 로 받았다 · `HF_HOME=~/.cache/hf`
