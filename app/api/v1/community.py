@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.enums import CommunityReportTargetType
 from app.deps.auth import get_current_user_id
+from app.deps.community_moderation import get_community_content_moderator
 from app.deps.db import get_db
 from app.deps.redis import get_redis
 from app.deps.spring import get_spring_client
@@ -34,6 +35,11 @@ from app.services.community_comment import create_comment as svc_create_comment
 from app.services.community_comment import delete_comment as svc_delete_comment
 from app.services.community_comment import list_comments as svc_list_comments
 from app.services.community_comment import update_comment as svc_update_comment
+from app.services.community_content_moderation import (
+    CommunityContentModerator,
+    ContentModerationUnavailableError,
+    ObjectionableContentError,
+)
 from app.services.community_post import PostForbiddenError, PostNotFoundError
 from app.services.community_post import create_post as svc_create_post
 from app.services.community_post import delete_post as svc_delete_post
@@ -60,6 +66,18 @@ from app.services.scenario_share import copy_attached_scenario as svc_copy_scena
 from app.services.spring_client import SpringInternalClient
 
 router = APIRouter(prefix="/api/v1/community", tags=["community"])
+
+
+def _moderation_http_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, ObjectionableContentError):
+        return HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="커뮤니티 운영정책에 위반되는 내용은 등록할 수 없습니다.",
+        )
+    return HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="콘텐츠 안전성 검사를 완료할 수 없습니다. 잠시 후 다시 시도해 주세요.",
+    )
 
 
 async def _change_block_state(db: AsyncSession, *, blocker_user_id: int, blocked_user_id: int, blocked: bool) -> None:
@@ -135,9 +153,12 @@ async def create_post(
     body: PostCreateRequest,
     db: AsyncSession = Depends(get_db),
     user_id: int = Depends(get_current_user_id),
+    moderator: CommunityContentModerator = Depends(get_community_content_moderator),
 ) -> PostDetailResponse:
     try:
-        return await svc_create_post(db, body, user_id)
+        return await svc_create_post(db, body, user_id, moderator)
+    except (ObjectionableContentError, ContentModerationUnavailableError) as e:
+        raise _moderation_http_error(e) from e
     except AttachmentInvalidError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
@@ -209,9 +230,10 @@ async def update_post(
     body: PostUpdateRequest,
     db: AsyncSession = Depends(get_db),
     user_id: int = Depends(get_current_user_id),
+    moderator: CommunityContentModerator = Depends(get_community_content_moderator),
 ) -> PostDetailResponse:
     try:
-        return await svc_update_post(db, post_id, body, user_id)
+        return await svc_update_post(db, post_id, body, user_id, moderator)
     except PostNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -226,6 +248,8 @@ async def update_post(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
         ) from e
+    except (ObjectionableContentError, ContentModerationUnavailableError) as e:
+        raise _moderation_http_error(e) from e
 
 
 @router.delete(
@@ -323,11 +347,10 @@ async def create_comment(
     db: AsyncSession = Depends(get_db),
     user_id: int = Depends(get_current_user_id),
     spring: SpringInternalClient = Depends(get_spring_client),
+    moderator: CommunityContentModerator = Depends(get_community_content_moderator),
 ) -> CommentResponse:
     try:
-        comment, notification_event = await svc_create_comment(
-            db, post_id, body, user_id
-        )
+        comment, notification_event = await svc_create_comment(db, post_id, body, user_id, moderator)
         if notification_event is not None:
             background_tasks.add_task(
                 spring.notify_community_notification,
@@ -348,6 +371,8 @@ async def create_comment(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="답글을 달 수 없는 댓글입니다. 답글에는 답글을 달 수 없습니다.",
         ) from e
+    except (ObjectionableContentError, ContentModerationUnavailableError) as e:
+        raise _moderation_http_error(e) from e
 
 
 @router.get(
@@ -398,9 +423,10 @@ async def update_comment(
     body: CommentUpdateRequest,
     db: AsyncSession = Depends(get_db),
     user_id: int = Depends(get_current_user_id),
+    moderator: CommunityContentModerator = Depends(get_community_content_moderator),
 ) -> CommentResponse:
     try:
-        return await svc_update_comment(db, comment_id, body, user_id)
+        return await svc_update_comment(db, comment_id, body, user_id, moderator)
     except CommentNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -411,6 +437,8 @@ async def update_comment(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="본인이 작성한 댓글만 수정할 수 있습니다.",
         ) from e
+    except (ObjectionableContentError, ContentModerationUnavailableError) as e:
+        raise _moderation_http_error(e) from e
 
 
 @router.delete(

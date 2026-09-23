@@ -18,6 +18,7 @@ from app.schemas.community import (
     CommentUpdateRequest,
 )
 from app.services.community_block import blocked_user_exists, is_user_blocked
+from app.services.community_content_moderation import CommunityContentModerator
 from app.services.community_post import PostNotFoundError, alive_post, is_admin_user, load_author, visible_post
 
 
@@ -57,7 +58,11 @@ async def _check_parent(
 
 
 async def create_comment(
-    db: AsyncSession, post_id: int, body: CommentCreateRequest, user_id: int
+    db: AsyncSession,
+    post_id: int,
+    body: CommentCreateRequest,
+    user_id: int,
+    moderator: CommunityContentModerator,
 ) -> tuple[CommentResponse, CommunityNotificationEvent | None]:
     """댓글 생성"""
     post = await alive_post(db, post_id)
@@ -65,6 +70,7 @@ async def create_comment(
     if body.parent_comment_id is not None:
         parent = await _check_parent(db, post_id, body.parent_comment_id)
 
+    await moderator.moderate(content=body.content)
     now = now_utc()
     row = PostCommentORM(
         post_id=post_id,
@@ -174,7 +180,11 @@ async def _alive_comment(db: AsyncSession, comment_id: int) -> PostCommentORM:
 
 
 async def update_comment(
-    db: AsyncSession, comment_id: int, body: CommentUpdateRequest, user_id: int
+    db: AsyncSession,
+    comment_id: int,
+    body: CommentUpdateRequest,
+    user_id: int,
+    moderator: CommunityContentModerator,
 ) -> CommentResponse:
     """작성자 본인만 수정 가능"""
     row = await _alive_comment(db, comment_id)
@@ -182,6 +192,7 @@ async def update_comment(
         raise CommentForbiddenError
 
     if body.content != row.content:
+        await moderator.moderate(content=body.content)
         row.content = body.content
         row.updated_at = now_utc()
         await db.commit()

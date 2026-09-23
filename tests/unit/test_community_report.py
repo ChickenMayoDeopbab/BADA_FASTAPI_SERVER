@@ -43,7 +43,9 @@ async def test_report_comment_stores_comment_snapshot() -> None:
     async with community_app(user_id=7) as env:
         post_id = await create_post(env)
         async with env.sessions() as session:
-            comment, _ = await create_comment(session, post_id, CommentCreateRequest(content="문제 댓글"), 8)
+            comment, _ = await create_comment(
+                session, post_id, CommentCreateRequest(content="문제 댓글"), 8, env.moderator
+            )
         resp = await env.client.post(
             f"/api/v1/community/comments/{comment.comment_id}/reports", json={"reason": "SPAM"}
         )
@@ -98,7 +100,9 @@ async def test_reporting_deleted_comment_returns_404() -> None:
     async with community_app(user_id=7) as env:
         post_id = await create_post(env)
         async with env.sessions() as session:
-            comment, _ = await create_comment(session, post_id, CommentCreateRequest(content="삭제 댓글"), 8)
+            comment, _ = await create_comment(
+                session, post_id, CommentCreateRequest(content="삭제 댓글"), 8, env.moderator
+            )
         env.login(8)
         await env.client.delete(f"/api/v1/community/comments/{comment.comment_id}")
         env.login(7)

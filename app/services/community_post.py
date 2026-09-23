@@ -24,6 +24,7 @@ from app.schemas.community import (
     to_nfc,
 )
 from app.services.community_block import blocked_user_exists
+from app.services.community_content_moderation import CommunityContentModerator
 from app.services.post_attachment import (
     AttachmentInvalidError,
     build_rows,
@@ -100,8 +101,9 @@ async def is_admin_user(db: AsyncSession, user_id: int) -> bool:
 
 
 async def create_post(
-    db: AsyncSession, body: PostCreateRequest, user_id: int
+    db: AsyncSession, body: PostCreateRequest, user_id: int, moderator: CommunityContentModerator
 ) -> PostDetailResponse:
+    await moderator.moderate(title=body.title, content=body.content)
     now = now_utc()
     row = PostORM(
         user_id=user_id,
@@ -325,7 +327,11 @@ async def visible_post(db: AsyncSession, post_id: int, *, viewer_id: int) -> Pos
 
 
 async def update_post(
-    db: AsyncSession, post_id: int, body: PostUpdateRequest, user_id: int
+    db: AsyncSession,
+    post_id: int,
+    body: PostUpdateRequest,
+    user_id: int,
+    moderator: CommunityContentModerator,
 ) -> PostDetailResponse:
     """작성자 본인만 수정 가능"""
     row = await alive_post(db, post_id)
@@ -334,6 +340,11 @@ async def update_post(
 
     changed = False
     pending_morphs: list = []
+    text_changed = (body.title is not None and body.title != row.title) or (
+        body.content is not None and body.content != row.content
+    )
+    if text_changed:
+        await moderator.moderate(title=body.title or row.title, content=body.content or row.content)
     if body.title is not None and body.title != row.title:
         row.title = body.title
         changed = True
