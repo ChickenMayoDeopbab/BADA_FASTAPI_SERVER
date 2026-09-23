@@ -3,7 +3,7 @@
 
   라벨 zip  D60/J91/S00000001/S00000001.json (dataSet.typeInfo.speakers[] · dataSet.dialogs[] = 발화 순서) + 0001.txt …  ← 전부 줘도 wav zip 의 도메인 것만 연다
   wav zip   D60/J91/S00000001/0001.wav (8 kHz · 16 bit · mono)                                                      ← 갖고 있는 것만. 샤드 = wav zip 당 100세션
-  세션 → dialogs 순서 → 같은 화자의 연속 발화를 한 턴으로(사이 --gap-s 무음, --max-turn-s 넘으면 새 턴)
+  세션 → dialogs 순서(한쪽 화자만 있는 세션은 뺀다) → 같은 화자의 연속 발화를 한 턴으로(사이 --gap-s 무음, --max-turn-s 넘으면 새 턴)
        → 8 k→24 k(0 채우기 ×3 + Kaiser-sinc 저역 통과, 4 kHz 위는 빈 채로) → Mimi 로 **턴 하나씩** 인코딩
        → codes/<샤드>.npz(codes[32, 합] + offsets) + manifest/<샤드>.jsonl(행 = 턴). 전사는 tok_kspon.parse_text(raw/spell/pron/flags).
   화자 태그([0]/[1])는 여기서 정하지 않는다 — 행의 role(상담원/고객)·spk_id 로 로더가 정한다.
@@ -93,6 +93,8 @@ def load_session(sess, labels, wz):
         utts.append((os.path.splitext(os.path.basename(ap_))[0], dl["speaker"], read_text(b_txt), read_wav(b_wav)))
     if not utts:
         raise SessionSkip("dialogs 비어 있음")
+    if len({u[1] for u in utts}) < 2:                                 # 검증 D60 의 16/189 세션은 한쪽(고객) 발화만 녹음돼 있다(2026-09-23) — 대화 문맥이 없으니 뺀다
+        raise SessionSkip("한쪽 화자만 있음")
     try: order_ok = all(int(u[0]) < int(v[0]) for u, v in zip(utts, utts[1:]))
     except ValueError: order_ok = False
     return utts, dict(category=info.get("category"), spk=spk, order_ok=order_ok)

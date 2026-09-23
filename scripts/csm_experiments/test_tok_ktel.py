@@ -54,12 +54,13 @@ def test_build_turns_merges_same_speaker_with_gap_and_cap():
 
 
 def make_zips(tmp):
-    """세션 4개: S1 정상(A,B,B,A) · S2 wav 하나 빠짐 · S3 16 kHz wav · S4 정상(A,B). 라벨 없는 S5 는 wav 만."""
+    """세션 5개: S1 정상(A,B,B,A) · S2 wav 하나 빠짐 · S3 16 kHz wav · S4 정상(A,B) · S6 한쪽 화자만. 라벨 없는 S5 는 wav 만."""
     lab, wav = os.path.join(tmp, "KtelSpeech_valid_D60_label_0.zip"), os.path.join(tmp, "KtelSpeech_valid_D60_wav_0.zip")
     texts = {SESS[0]: [("0001", "9855", "안녕하세요 n/ 상담원입니다.", 2.0), ("0002", "tczpppab", "네 (1권)/(한 권) 어/ 문의요", 1.0), ("0003", "tczpppab", "b/ 배송이요   ", 1.5), ("0004", "9855", "예", 1.0)],
              SESS[1]: [("0001", "9855", "여보세요", 1.0), ("0002", "tczpppab", "네", 1.0)],
              SESS[2]: [("0001", "9855", "여보세요", 1.0)],
-             SESS[3]: [("0001", "9855", "안녕하세요", 1.2), ("0002", "tczpppab", "네 안녕하세요", 1.4)]}
+             SESS[3]: [("0001", "9855", "안녕하세요", 1.2), ("0002", "tczpppab", "네 안녕하세요", 1.4)],
+             "D60/J91/S00000006": [("0001", "tczpppab", "어르신 한글 공부", 1.0), ("0002", "tczpppab", "다행이네요", 1.0)]}      # 한쪽 화자만
     with zipfile.ZipFile(lab, "w") as lz, zipfile.ZipFile(wav, "w") as wz:
         for sess, utts in texts.items():
             dialogs = [dict(speaker=spk, audioPath=f"KtelSpeech/{sess}/{uid}.wav", textPath=f"KtelSpeech/{sess}/{uid}.txt") for uid, spk, _, _ in utts]
@@ -81,7 +82,7 @@ def test_end_to_end_fake_codec(tmp_path=None):
     tmp_path = pathlib.Path(tmp_path or tempfile.mkdtemp()); lab, wav, texts = make_zips(str(tmp_path)); out = str(tmp_path / "tok")
     base = ["--label", lab, "--wav", wav, "--out", out, "--codec", "fake", "--sessions-per-shard", "2", "--device", "cpu"]
     r = run(base); assert r.returncode == 0, r.stderr
-    names = sorted(os.listdir(os.path.join(out, "manifest"))); assert names == ["KtelSpeech_valid_D60_wav_0_0001.jsonl", "KtelSpeech_valid_D60_wav_0_0002.jsonl"]     # 3번째 샤드(S5 만)는 안 쓴다
+    names = sorted(os.listdir(os.path.join(out, "manifest"))); assert names == ["KtelSpeech_valid_D60_wav_0_0001.jsonl", "KtelSpeech_valid_D60_wav_0_0002.jsonl"]     # 3번째 샤드(S5·S6)는 쓸 세션이 없어 안 쓴다
     rows = [json.loads(l) for l in open(os.path.join(out, "manifest", names[0]), encoding="utf-8")]
     assert len(rows) == 3 and [r["role"] for r in rows] == ["상담원", "고객", "상담원"] and [r["utts"] for r in rows] == [["0001"], ["0002", "0003"], ["0004"]]
     b = rows[1]
@@ -94,7 +95,8 @@ def test_end_to_end_fake_codec(tmp_path=None):
     assert z["codes"].shape == (32, sum(r["frames"] for r in rows)) and off[-1] == z["codes"].shape[1] and len(off) - 1 == 3 and list(z["ids"]) == [r["id"] for r in rows]
     assert z["codes"].dtype == np.int16 and 0 <= z["codes"].min() and z["codes"].max() < 2048
     rows2 = [json.loads(l) for l in open(os.path.join(out, "manifest", names[1]), encoding="utf-8")]; assert [r["session"] for r in rows2] == [SESS[3]] * 2
-    assert "'라벨 없음': 1" in r.stdout and "'파일 빠짐(wav 또는 txt)': 1" in r.stdout and "'wav 형식 아님(8000 Hz·16 bit·mono 가 아니다)': 1" in r.stdout, r.stdout
+    assert "'라벨 없음': 1" in r.stdout and "'파일 빠짐(wav 또는 txt)': 1" in r.stdout and "'wav 형식 아님(8000 Hz·16 bit·mono 가 아니다)': 1" in r.stdout
+    assert "'한쪽 화자만 있음': 1" in r.stdout, r.stdout
     assert "세션 2 · 턴 5" in r.stdout and json.load(open(os.path.join(out, "meta.json")))["codec"] == "fake"
     # 이어 돌리기: 끝난 샤드는 건너뛴다(파일이 안 바뀐다)
     m0 = os.path.getmtime(os.path.join(out, "codes", names[0][:-6] + ".npz")); r2 = run(base); assert r2.returncode == 0 and "세션 0 · 턴 0" in r2.stdout
