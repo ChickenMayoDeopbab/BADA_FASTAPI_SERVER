@@ -132,6 +132,7 @@ def main():
     ap.add_argument("--mode", default="prompted", choices=["prompted", "noprompt"]); ap.add_argument("--engine", default="static", choices=["static", "hf"])
     ap.add_argument("--max-seconds", type=float, default=20.0); ap.add_argument("--first-frames", type=int, default=1, help="TTFA 를 재는 첫 청크의 프레임 수")
     ap.add_argument("--limit", type=int, default=0); ap.add_argument("--seed", type=int, default=0); ap.add_argument("--check", type=int, default=0)
+    ap.add_argument("--temperature", type=float, default=0.9); ap.add_argument("--top-k", type=int, default=50)      # 저장소 기본값. 온도 실험용(정적 경로만)
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu"); ap.add_argument("--dtype", default=None, choices=["bfloat16", "float32"])
     ap.add_argument("--compile", dest="compile_", action=argparse.BooleanOptionalAction, default=None, help="기본: GPU 면 켬"); ap.add_argument("--backend", default="inductor")
     a = ap.parse_args()
@@ -175,8 +176,10 @@ def main():
     if all(it["id"] in done for it in items):
         print("전부 끝나 있다 — 새로 만들 문장이 없다")
     elif a.engine == "static":
-        from g0c_static_loop import StaticCsm
+        from g0c_static_loop import StaticCsm, make_sampler
         sc = StaticCsm(model, False, comp, a.backend)
+        if (a.temperature, a.top_k) != (0.9, 50):                 # 컴파일 전(첫 호출 전)에 바꿔야 그래프에 들어간다
+            sc.bb.sample = sc.dd.sample = make_sampler(False, a.temperature, a.top_k)
         ids, spans = build_ids(tok, cfg, items[0], codes_of(items[0]), a.mode)
         for i in range(3 if comp else 1):                         # 컴파일 + CUDA Graph 캡처 + Mimi 디코드 커널을 데운다(기록 안 함)
             t = time.perf_counter(); gen_static(sc, model, ids, spans, 6, a.first_frames); print(f"  예열 {i + 1}: {time.perf_counter() - t:.1f} s", flush=True)
@@ -193,7 +196,8 @@ def main():
             codes, audio, eos, ttfa, total, T = gen_hf(model, hf_inputs(proc, model, it, set_dir, a.mode), max_frames)
         write_wav(os.path.join(out, it["id"] + ".wav"), audio); n = int(codes.shape[0]); sec = max(n * FRAME_S, FRAME_S)
         r = dict(id=it["id"], mode=a.mode, engine=a.engine, weights=a.weights, frames=n, eos=bool(eos), audio_s=round(n * FRAME_S, 2),
-                 ttfa_ms=None if ttfa is None else round(ttfa * 1e3, 1), total_s=round(total, 3), rtf=round(total / sec, 4), ctx_positions=T, first_frames=a.first_frames, seed=a.seed)
+                 ttfa_ms=None if ttfa is None else round(ttfa * 1e3, 1), total_s=round(total, 3), rtf=round(total / sec, 4), ctx_positions=T, first_frames=a.first_frames, seed=a.seed,
+                 temperature=a.temperature if a.engine == "static" else None, top_k=a.top_k if a.engine == "static" else None)
         with open(log, "a", encoding="utf-8") as f:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
         rows.append(r)
