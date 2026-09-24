@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import StaticPool
 
 from app.api.v1.community import router as community_router
+from app.api.v1.community_admin import router as community_admin_router
 from app.db.base import Base
 from app.db.external import external_metadata, users_table
 from app.deps.auth import get_current_user_id
@@ -129,6 +130,7 @@ async def community_app(
 
     app = FastAPI()
     app.include_router(community_router)
+    app.include_router(community_admin_router)
     app.state.redis = fake_redis
     app.dependency_overrides[get_db] = _get_db
     app.dependency_overrides[get_current_user_id] = lambda: current["user_id"]
