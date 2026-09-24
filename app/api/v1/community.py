@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.enums import CommunityReportTargetType
 from app.deps.auth import get_current_user_id
 from app.deps.community_moderation import get_community_content_moderator
+from app.deps.community_report_alert import get_community_report_alert_service
 from app.deps.db import get_db
 from app.deps.redis import get_redis
 from app.deps.spring import get_spring_client
@@ -56,6 +57,7 @@ from app.services.community_report import (
     ReportTargetNotFoundError,
 )
 from app.services.community_report import create_report as svc_create_report
+from app.services.community_report_alert import CommunityReportAlertService
 from app.services.post_attachment import AttachmentInvalidError
 from app.services.scenario_share import (
     NothingToCopyError,
@@ -211,12 +213,16 @@ async def get_post(
 async def report_post(
     post_id: int,
     body: CommunityReportCreateRequest,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     user_id: int = Depends(get_current_user_id),
+    report_alerts: CommunityReportAlertService = Depends(get_community_report_alert_service),
 ) -> CommunityReportResponse:
-    return await _create_report(
+    report = await _create_report(
         db, reporter_user_id=user_id, target_type=CommunityReportTargetType.POST, target_id=post_id, body=body
     )
+    background_tasks.add_task(report_alerts.notify_report_created, report)
+    return report
 
 
 @router.patch(
@@ -404,12 +410,16 @@ async def list_comments(
 async def report_comment(
     comment_id: int,
     body: CommunityReportCreateRequest,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     user_id: int = Depends(get_current_user_id),
+    report_alerts: CommunityReportAlertService = Depends(get_community_report_alert_service),
 ) -> CommunityReportResponse:
-    return await _create_report(
+    report = await _create_report(
         db, reporter_user_id=user_id, target_type=CommunityReportTargetType.COMMENT, target_id=comment_id, body=body
     )
+    background_tasks.add_task(report_alerts.notify_report_created, report)
+    return report
 
 
 @router.patch(

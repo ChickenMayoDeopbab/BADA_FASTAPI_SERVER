@@ -14,6 +14,7 @@ from app.db.base import Base
 from app.db.external import external_metadata, users_table
 from app.deps.auth import get_current_user_id
 from app.deps.community_moderation import get_community_content_moderator
+from app.deps.community_report_alert import get_community_report_alert_service
 from app.deps.db import get_db
 from app.deps.spring import get_spring_client
 from app.services.community_content_moderation import (
@@ -82,12 +83,22 @@ class FakeContentModerator:
 
 
 @dataclass
+class FakeCommunityReportAlertService:
+    reports: list = field(default_factory=list)
+
+    async def notify_report_created(self, report) -> bool:  # noqa: ANN001
+        self.reports.append(report)
+        return True
+
+
+@dataclass
 class Env:
     client: httpx.AsyncClient
     sessions: async_sessionmaker[AsyncSession]
     redis: FakeRedis
     spring: FakeSpringClient
     moderator: FakeContentModerator
+    report_alerts: FakeCommunityReportAlertService
     queries: list[str] = field(default_factory=list)
     _current: dict = field(default_factory=dict)
 
@@ -102,6 +113,7 @@ async def community_app(
     user_id: int = 7,
     redis: FakeRedis | None = None,
     moderator: FakeContentModerator | None = None,
+    report_alerts: FakeCommunityReportAlertService | None = None,
     users: tuple[dict, ...] = DEFAULT_USERS,
 ) -> AsyncIterator[Env]:
     engine = create_async_engine(
@@ -133,6 +145,7 @@ async def community_app(
     fake_redis = redis or FakeRedis()
     fake_spring = FakeSpringClient()
     fake_moderator = moderator or FakeContentModerator()
+    fake_report_alerts = report_alerts or FakeCommunityReportAlertService()
 
     app = FastAPI()
     app.include_router(community_router)
@@ -142,6 +155,7 @@ async def community_app(
     app.dependency_overrides[get_current_user_id] = lambda: current["user_id"]
     app.dependency_overrides[get_spring_client] = lambda: fake_spring
     app.dependency_overrides[get_community_content_moderator] = lambda: fake_moderator
+    app.dependency_overrides[get_community_report_alert_service] = lambda: fake_report_alerts
 
     transport = httpx.ASGITransport(app=app)
     try:
@@ -152,6 +166,7 @@ async def community_app(
                 redis=fake_redis,
                 spring=fake_spring,
                 moderator=fake_moderator,
+                report_alerts=fake_report_alerts,
                 queries=queries,
                 _current=current,
             )
