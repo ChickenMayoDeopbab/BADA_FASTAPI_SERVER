@@ -22,9 +22,15 @@ from app.services.community_content_moderation import (
 )
 
 DEFAULT_USERS = (
-    {"user_id": 7, "name": "사용자1", "profile_image": "profiles/7.png", "role": "USER"},
-    {"user_id": 8, "name": "사용자2", "profile_image": None, "role": "USER"},
-    {"user_id": 9, "name": "운영자", "profile_image": None, "role": "ADMIN"},
+    {
+        "user_id": 7,
+        "name": "사용자1",
+        "profile_image": "profiles/7.png",
+        "role": "USER",
+        "status": "ACTIVE",
+    },
+    {"user_id": 8, "name": "사용자2", "profile_image": None, "role": "USER", "status": "ACTIVE"},
+    {"user_id": 9, "name": "운영자", "profile_image": None, "role": "ADMIN", "status": "ACTIVE"},
 )
 
 
