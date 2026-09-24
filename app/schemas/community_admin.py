@@ -1,6 +1,12 @@
-from pydantic import BaseModel
+from pydantic import AwareDatetime, BaseModel, Field
 
-from app.core.enums import CommunityReportReason, CommunityReportStatus, CommunityReportTargetType
+from app.core.enums import (
+    CommunityReportReason,
+    CommunityReportResolutionAction,
+    CommunityReportStatus,
+    CommunityReportTargetType,
+    UserModerationStatus,
+)
 from app.core.timeutil import KstDatetime
 
 
@@ -29,3 +35,15 @@ class AdminCommunityReportListResponse(BaseModel):
     size: int
     total: int
     has_next: bool
+
+
+class AdminCommunityReportResolutionRequest(BaseModel):
+    action: CommunityReportResolutionAction
+    note: str = Field(min_length=1, max_length=500)
+    suspended_until: AwareDatetime | None = None
+
+
+class AdminUserModerationRequest(BaseModel):
+    status: UserModerationStatus
+    suspended_until: AwareDatetime | None = None
+    reason: str | None = Field(default=None, max_length=500)

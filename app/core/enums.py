@@ -62,6 +62,18 @@ class CommunityReportStatus(StrEnum):
     DISMISSED = "DISMISSED"
 
 
+class CommunityReportResolutionAction(StrEnum):
+    DISMISS = "DISMISS"
+    SUSPEND = "SUSPEND"
+    BAN = "BAN"
+
+
+class UserModerationStatus(StrEnum):
+    ACTIVE = "ACTIVE"
+    SUSPENDED = "SUSPENDED"
+    BANNED = "BANNED"
+
+
 class AttachmentKind(StrEnum):
     """게시글에 첨부 가능한거"""
 

@@ -56,9 +56,15 @@ class FakeRedis:
 @dataclass
 class FakeSpringClient:
     notifications: list[dict] = field(default_factory=list)
+    moderation_updates: list[dict] = field(default_factory=list)
+    moderation_succeeds: bool = True
 
     async def notify_community_notification(self, **notification) -> None:
         self.notifications.append(notification)
+
+    async def update_user_moderation_status(self, user_id: int, **moderation) -> bool:
+        self.moderation_updates.append({"user_id": user_id, **moderation})
+        return self.moderation_succeeds
 
 
 @dataclass

@@ -1,15 +1,37 @@
-from sqlalchemy import func, select
+from datetime import datetime
+
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.enums import CommunityReportReason, CommunityReportStatus, CommunityReportTargetType
+from app.core.enums import (
+    CommunityReportReason,
+    CommunityReportResolutionAction,
+    CommunityReportStatus,
+    CommunityReportTargetType,
+    UserModerationStatus,
+)
 from app.core.timeutil import ensure_utc, now_utc
 from app.db.external import users_table
-from app.db.models import CommunityReportORM
-from app.schemas.community_admin import AdminCommunityReportListResponse, AdminCommunityReportResponse
+from app.db.models import CommunityReportORM, PostCommentORM, PostORM
+from app.schemas.community_admin import (
+    AdminCommunityReportListResponse,
+    AdminCommunityReportResolutionRequest,
+    AdminCommunityReportResponse,
+    AdminUserModerationRequest,
+)
+from app.services.spring_client import SpringInternalClient
 
 
 class CommunityReportNotFoundError(Exception):
     """존재하지 않는 신고."""
+
+
+class InvalidReportResolutionError(Exception):
+    """신고 처리 동작과 제재 기간이 맞지 않음."""
+
+
+class UserModerationFailedError(Exception):
+    """Spring 사용자 제재 호출 실패."""
 
 
 def _to_response(
@@ -71,3 +93,102 @@ async def get_report(db: AsyncSession, report_id: int) -> AdminCommunityReportRe
     if row is None:
         raise CommunityReportNotFoundError
     return _to_response(*row)
+
+
+def _sanction_values(
+    action: CommunityReportResolutionAction, suspended_until: datetime | None
+) -> tuple[UserModerationStatus, datetime | None]:
+    if action is CommunityReportResolutionAction.SUSPEND:
+        if suspended_until is None or ensure_utc(suspended_until) <= now_utc():
+            raise InvalidReportResolutionError
+        return UserModerationStatus.SUSPENDED, suspended_until
+    if action is CommunityReportResolutionAction.BAN:
+        if suspended_until is not None:
+            raise InvalidReportResolutionError
+        return UserModerationStatus.BANNED, None
+    raise InvalidReportResolutionError
+
+
+async def _soft_delete_target(db: AsyncSession, report: CommunityReportORM, deleted_at: datetime) -> None:
+    if report.target_type == CommunityReportTargetType.POST.value:
+        post = await db.get(PostORM, report.target_id)
+        if post is not None and post.deleted_at is None:
+            post.deleted_at = deleted_at
+        return
+
+    comment = await db.get(PostCommentORM, report.target_id)
+    if comment is None or comment.deleted_at is not None:
+        return
+    comment.deleted_at = deleted_at
+    if comment.parent_comment_id is None:
+        await db.execute(
+            update(PostCommentORM)
+            .where(PostCommentORM.parent_comment_id == comment.comment_id, PostCommentORM.deleted_at.is_(None))
+            .values(deleted_at=deleted_at)
+        )
+
+
+async def resolve_report(
+    db: AsyncSession,
+    spring: SpringInternalClient,
+    *,
+    report_id: int,
+    admin_user_id: int,
+    request: AdminCommunityReportResolutionRequest,
+) -> AdminCommunityReportResponse:
+    stmt = select(CommunityReportORM).where(CommunityReportORM.report_id == report_id).with_for_update()
+    report = (await db.execute(stmt)).scalar_one_or_none()
+    if report is None:
+        raise CommunityReportNotFoundError
+    if report.status != CommunityReportStatus.PENDING.value:
+        return await get_report(db, report_id)
+
+    processed_at = now_utc()
+    if request.action is CommunityReportResolutionAction.DISMISS:
+        report.status = CommunityReportStatus.DISMISSED.value
+    else:
+        moderation_status, suspended_until = _sanction_values(request.action, request.suspended_until)
+        await _soft_delete_target(db, report, processed_at)
+        succeeded = await spring.update_user_moderation_status(
+            report.reported_user_id,
+            moderation_status=moderation_status,
+            suspended_until=suspended_until,
+            reason=request.note,
+            actor_user_id=admin_user_id,
+        )
+        if not succeeded:
+            await db.rollback()
+            raise UserModerationFailedError
+        report.status = CommunityReportStatus.RESOLVED.value
+
+    report.resolved_at = processed_at
+    report.resolved_by_user_id = admin_user_id
+    report.resolution_note = request.note
+    await db.commit()
+    return await get_report(db, report_id)
+
+
+async def update_user_moderation_status(
+    spring: SpringInternalClient,
+    *,
+    user_id: int,
+    admin_user_id: int,
+    request: AdminUserModerationRequest,
+) -> None:
+    if request.status is UserModerationStatus.SUSPENDED:
+        if request.suspended_until is None or ensure_utc(request.suspended_until) <= now_utc():
+            raise InvalidReportResolutionError
+    elif request.suspended_until is not None:
+        raise InvalidReportResolutionError
+    if request.status is not UserModerationStatus.ACTIVE and (request.reason is None or not request.reason.strip()):
+        raise InvalidReportResolutionError
+
+    succeeded = await spring.update_user_moderation_status(
+        user_id,
+        moderation_status=request.status,
+        suspended_until=request.suspended_until,
+        reason=request.reason.strip() if request.reason is not None else None,
+        actor_user_id=admin_user_id,
+    )
+    if not succeeded:
+        raise UserModerationFailedError
