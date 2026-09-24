@@ -6,13 +6,14 @@
   레이블    문맥 턴 = 코드북 0 만(백본), 목표 턴 = 전부(depth, --ratio) — verify_inputs_b.py 가 HF 다중 턴 경로와 같음을 확인(2026-09-23)
   시작점    --init <체크포인트>: 가중치만(옵티마이저·상태는 새로). --resume <체크포인트>: 가중치+옵티마이저+상태(이어받기)
   검증      dev 샤드(이름에 valid)의 같은 목표 턴을 문맥 있음/없음으로 재서 Δ = 없음 − 있음 을 같이 남긴다(문맥을 쓰기 시작하면 Δ 가 커진다)
-  나머지    train_a.py 와 같다(fp32 + bf16 autocast · 8-bit AdamW · 체크포인팅 · 임베딩 묶기 · 250업데이트마다 검증·저장). 에폭 끝마다 epoch_k 링크.
+  나머지    train_a.py 와 같다(fp32 + bf16 autocast · 8-bit AdamW · 체크포인팅 · 임베딩 묶기 · 250업데이트마다 검증·저장). 에폭 끝 체크포인트는 epoch_k 폴더로 보존(--keep 정리에서 제외).
+  우회      depth 학습 프레임이 정확히 32개인 배치는 HF 마스크 결함으로 터진다 → csm_data_b.dodge_depth_32 (2026-09-23 서버 가짜 시험 2업데이트째에서 발견)
 
 사용 (학교 서버):
-  HF_HUB_OFFLINE=1 CUDA_VISIBLE_DEVICES=0 python train_b.py --data ~/CSM/data/ktel --mix-data ~/CSM/data/kspon --init ~/CSM/runs/a2/last --out ~/CSM/runs/b1 --epochs 4 --keep 4
+  HF_HUB_OFFLINE=1 CUDA_VISIBLE_DEVICES=0 python train_b.py --data ~/CSM/data/ktel --mix-data ~/CSM/data/kspon --init ~/CSM/runs/a2/last --out ~/CSM/runs/b1 --epochs 4 --keep 2      # 체크포인트 ≈ 10 GB 씩: step_* 2개 + epoch_k 4개
   ... --resume ~/CSM/runs/b1/last        # 끊기면 이어서
 """
-import argparse, json, math, os, random, re, time
+import argparse, json, math, os, random, re, shutil, time
 import numpy as np, torch
 import csm_data as D, csm_data_b as B, train_a as TA
 
@@ -21,7 +22,7 @@ import csm_data as D, csm_data_b as B, train_a as TA
 def evaluate(model, dev, a, device, amp, no_ctx):
     model.eval(); tot = dict(loss=0.0, bb=0.0, dd=0.0); n = ex = 0
     for batch in dev.batches(a.batch_positions // 2, 1.0, seed=0, epoch=0, shuffle=False, no_ctx=no_ctx):     # 같은 목표 턴, 같은 순서
-        batch = {k: v.to(device) for k, v in batch.items()}
+        batch = {k: v.to(device) for k, v in batch.items()}; batch["labels"] = B.dodge_depth_32(batch["labels"])
         with amp():
             emb, lab = D.build_inputs(model, batch)
             o = model(inputs_embeds=emb, attention_mask=batch["attention_mask"], labels=lab, use_cache=False)
@@ -123,7 +124,7 @@ def main():
             skip = state["micro_in_epoch"]
             for i, (k, batch) in enumerate(epoch_batches(state["epoch"])):
                 if i < skip: continue                           # 이어받기: 같은 seed 라 같은 순서
-                batch = {kk: v.to(device, non_blocking=True) for kk, v in batch.items()}
+                batch = {kk: v.to(device, non_blocking=True) for kk, v in batch.items()}; batch["labels"] = B.dodge_depth_32(batch["labels"])   # A·B 배치 모두
                 with amp():
                     emb, lab = D.build_inputs(model, batch)
                     o = model(inputs_embeds=emb, attention_mask=batch["attention_mask"], labels=lab, use_cache=False)
@@ -146,9 +147,10 @@ def main():
                 if u >= a.max_updates: break
             else:
                 state["epoch"] += 1; state["micro_in_epoch"] = 0; optim.zero_grad(set_to_none=True); state["micro"] -= state["micro"] % a.grad_accum
-                d = TA.save_checkpoint(model, optim, state, a.out, a.keep); link = os.path.join(a.out, f"epoch_{state['epoch']}")
-                if os.path.islink(link): os.unlink(link)
-                os.symlink(os.path.basename(d), link); print(f"        에폭 {state['epoch']} 끝 → {d} (epoch_{state['epoch']})", flush=True)
+                d = TA.save_checkpoint(model, optim, state, a.out, a.keep); ep = os.path.join(a.out, f"epoch_{state['epoch']}")
+                if os.path.isdir(ep) and not os.path.islink(ep): shutil.rmtree(ep)
+                os.rename(d, ep); last = os.path.join(a.out, "last"); os.unlink(last); os.symlink(os.path.basename(ep), last)     # 폴더째 보존(--keep 정리 대상은 step_* 뿐). last → epoch_k
+                print(f"        에폭 {state['epoch']} 끝 → {ep} (last 도 여기)", flush=True)
                 if dev.names: run_eval(state["update"])
     except KeyboardInterrupt:
         print("\n중단 — 저장한다")

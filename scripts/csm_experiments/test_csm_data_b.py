@@ -62,6 +62,14 @@ def test_collate_labels_table():
     assert b4["input_ids"].shape == (2, L) and int(b4["attention_mask"][1].sum()) == len(tgt["ids"]) + 41 and (b4["labels"][1][len(tgt["ids"]) + 41:] == -100).all()
 
 
+def test_dodge_depth_32():
+    ctx = [mk(20, 0), mk(20, 1)]
+    for T, want in ((29, 31), (30, 33), (5, 8)):                          # depth 프레임 = T + eos 3 → 32 일 때만 하나 줄인다
+        lab = B.collate_b([(ctx, mk(T, 0))], CFG, 0, 1.0, random.Random(0))["labels"]; before = lab.clone()
+        out = B.dodge_depth_32(lab); n = (~(out[:, :, 1:] == -100).all(-1)).sum().item()
+        assert n == want and (out[:, :, 0] == before[:, :, 0]).all()        # 코드북 0(백본)은 그대로
+
+
 def test_mixed_order():
     out = list(B.mixed(iter(["b%d" % i for i in range(7)]), iter(["a0", "a1"]), 4))
     assert [k for k, _ in out] == ["B", "B", "B", "A", "B", "B", "B", "A", "B"] and [v for _, v in out] == ["b0", "b1", "b2", "a0", "b3", "b4", "b5", "a1", "b6"]

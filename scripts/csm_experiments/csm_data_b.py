@@ -62,6 +62,15 @@ def collate_b(examples, cfg, pad_id, ratio, rng):
     return dict(input_ids=ids, attention_mask=att, codes=codes, audio_mask=amask, labels=labels, target_mask=tmask)
 
 
+def dodge_depth_32(labels):
+    """HF 결함 우회(2026-09-23 재현, transformers 5.17·서버판): depth decoder 가 position_ids 를 1차원 arange(32) 로 넘기고 마스크 함수는 "배치 크기 ≠ 길이" 일 때만 2차원으로 펴므로,
+    depth 학습 프레임(코드북 1~31 이 전부 −100 이 아닌 위치)이 **정확히 32개**인 배치에서 IndexError 가 난다. 그럴 때만 마지막 프레임 하나를 백본 전용(1~31 → −100)으로 바꾼다."""
+    m = ~(labels[:, :, 1:] == -100).all(-1)
+    if m.sum().item() == 32:
+        b, t = m.nonzero(as_tuple=True); labels[b[-1], t[-1], 1:] = -100
+    return labels
+
+
 def mixed(b_iter, a_iter, every):
     """("B", 배치) 를 every−1 개 낼 때마다 ("A", 배치) 하나. every 는 0(안 섞음) 또는 2 이상. A 가 바닥나면 B 만 낸다."""
     n = 0
