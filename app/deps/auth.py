@@ -1,3 +1,6 @@
+import logging
+from contextlib import suppress
+
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
@@ -10,6 +13,7 @@ from app.db.base import AsyncSessionLocal
 from app.db.external import users_table
 from app.deps.db import get_db
 
+logger = logging.getLogger(__name__)
 _bearer = HTTPBearer()
 
 
@@ -48,5 +52,10 @@ async def authenticate_ws_user(ws, token: str) -> tuple[int, str | None]:
             await ensure_user_can_access(db, user_id)
     except HTTPException as exc:
         await ws.close(code=status.WS_1008_POLICY_VIOLATION, reason=str(exc.detail))
+        raise
+    except Exception:
+        logger.exception("웹소켓 사용자 상태 확인 실패", extra={"user_id": user_id})
+        with suppress(Exception):
+            await ws.close(code=status.WS_1011_INTERNAL_ERROR, reason="AUTHENTICATION_UNAVAILABLE")
         raise
     return user_id, role
