@@ -145,6 +145,8 @@ async def resolve_report(
 
     processed_at = now_utc()
     if request.action is CommunityReportResolutionAction.DISMISS:
+        if request.suspended_until is not None:
+            raise InvalidReportResolutionError
         report.status = CommunityReportStatus.DISMISSED.value
     else:
         moderation_status, suspended_until = _sanction_values(request.action, request.suspended_until)

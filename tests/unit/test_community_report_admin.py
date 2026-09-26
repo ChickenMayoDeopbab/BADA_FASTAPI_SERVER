@@ -99,6 +99,24 @@ async def test_admin_dismisses_report_without_deleting_content_or_sanctioning_us
     assert env.spring.moderation_updates == []
 
 
+async def test_dismiss_rejects_suspended_until() -> None:
+    async with community_app() as env:
+        report_id = await _create_report(env)
+        env.login(9)
+        resp = await env.client.post(
+            f"/api/v1/admin/community/reports/{report_id}/resolve",
+            json={
+                "action": "DISMISS",
+                "note": "위반 아님",
+                "suspended_until": (now_utc() + timedelta(days=1)).isoformat(),
+            },
+        )
+        detail = await env.client.get(f"/api/v1/admin/community/reports/{report_id}")
+
+    assert resp.status_code == 400
+    assert detail.json()["status"] == "PENDING"
+
+
 async def test_admin_bans_author_and_deletes_reported_post() -> None:
     async with community_app() as env:
         report_id = await _create_report(env)
