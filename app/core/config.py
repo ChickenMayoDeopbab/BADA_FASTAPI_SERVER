@@ -38,6 +38,13 @@ class Settings(BaseSettings):
     llm_realtime_model: str = "gemini-3.5-flash-lite"
     llm_thinking_budget: int | None = None
 
+    # 커뮤니티 유해 콘텐츠 검사
+    community_moderation_model: str = "gemini-3.5-flash-lite"
+    community_moderation_timeout_seconds: float = 5.0
+
+    # 커뮤니티 신고 운영 알림
+    community_report_alert_webhook_url: str | None = None
+
     # LLM(분석)
     anthropic_api_key: str
     llm_analysis_model: str = "claude-sonnet-4-20250514"

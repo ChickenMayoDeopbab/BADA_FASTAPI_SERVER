@@ -3,7 +3,7 @@
 여기 정의된 Spring 테이블은 FastAPI 가 생성이나 변경 절대 금지
 """
 
-from sqlalchemy import BigInteger, Column, DateTime, MetaData, SmallInteger, String, Table
+from sqlalchemy import BigInteger, Column, DateTime, MetaData, SmallInteger, String, Table, text
 
 external_metadata = MetaData()
 
@@ -14,6 +14,8 @@ users_table = Table(
     Column("name", String(50)),
     Column("profile_image", String(255)),
     Column("role", String(20)),
+    Column("status", String(20), nullable=False, server_default=text("'ACTIVE'")),
+    Column("suspended_until", DateTime(timezone=True)),
 )
 
 # FileORM 과 같은 테이블. user_id 는 Spring 업로드가 채우는 칸이라 여기서만 읽는다.

@@ -41,6 +41,39 @@ class CommunityNotificationType(StrEnum):
     REACTION = "REACTION"
 
 
+class CommunityReportTargetType(StrEnum):
+    POST = "POST"
+    COMMENT = "COMMENT"
+
+
+class CommunityReportReason(StrEnum):
+    ABUSE = "ABUSE"
+    SEXUAL = "SEXUAL"
+    HATE = "HATE"
+    VIOLENCE = "VIOLENCE"
+    SPAM = "SPAM"
+    PRIVACY = "PRIVACY"
+    OTHER = "OTHER"
+
+
+class CommunityReportStatus(StrEnum):
+    PENDING = "PENDING"
+    RESOLVED = "RESOLVED"
+    DISMISSED = "DISMISSED"
+
+
+class CommunityReportResolutionAction(StrEnum):
+    DISMISS = "DISMISS"
+    SUSPEND = "SUSPEND"
+    BAN = "BAN"
+
+
+class UserModerationStatus(StrEnum):
+    ACTIVE = "ACTIVE"
+    SUSPENDED = "SUSPENDED"
+    BANNED = "BANNED"
+
+
 class AttachmentKind(StrEnum):
     """게시글에 첨부 가능한거"""
 

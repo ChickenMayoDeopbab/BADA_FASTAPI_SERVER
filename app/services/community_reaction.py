@@ -10,6 +10,7 @@ from app.core.enums import CommunityNotificationType, ReactionKind
 from app.core.timeutil import now_utc
 from app.db.models import PostReactionORM
 from app.schemas.community import ReactionCounts, ReactionStateResponse
+from app.services.community_block import is_user_blocked
 from app.services.community_post import alive_post, reaction_summary
 
 
@@ -60,7 +61,9 @@ async def _set_reaction(
             await db.flush()
             reaction_id = new_reaction.reaction_id
             await db.commit()
-            if post.user_id != user_id:
+            if post.user_id != user_id and not await is_user_blocked(
+                db, blocker_user_id=post.user_id, blocked_user_id=user_id
+            ):
                 notification_event = CommunityReactionNotificationEvent(
                     notification_type=CommunityNotificationType.REACTION,
                     recipient_user_id=post.user_id,

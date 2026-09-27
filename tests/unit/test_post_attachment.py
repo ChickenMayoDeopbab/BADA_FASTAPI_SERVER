@@ -232,7 +232,7 @@ async def test_service_rolls_back_the_flushed_post_itself() -> None:
                 ],
             )
             with pytest.raises(AttachmentInvalidError):
-                await svc_create_post(db, body, user_id=7)
+                await svc_create_post(db, body, user_id=7, moderator=env.moderator)
 
             remaining = await db.scalar(select(func.count()).select_from(PostORM))
             assert remaining == 0, "검증 실패 후에도 게시글이 세션에 남아 있다"

@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect, s
 from redis.asyncio import Redis
 
 from app.core.config import get_settings
-from app.core.security import authenticate_ws
+from app.deps.auth import authenticate_ws_user as authenticate_ws
 from app.deps.redis import get_redis
 from app.schemas.frames import error_frame, scenario_info_frame
 from app.services.pipeline import VoicePipeline

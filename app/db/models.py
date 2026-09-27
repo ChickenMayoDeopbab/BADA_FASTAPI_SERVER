@@ -4,6 +4,7 @@ from sqlalchemy import (
     JSON,
     BigInteger,
     Boolean,
+    CheckConstraint,
     DateTime,
     Float,
     ForeignKey,
@@ -141,6 +142,48 @@ class PostCommentORM(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class CommunityReportORM(Base):
+    """커뮤니티 게시글·댓글 신고."""
+
+    __tablename__ = "community_report"
+    __table_args__ = (
+        UniqueConstraint(
+            "reporter_user_id", "target_type", "target_id", name="uq_community_report_reporter_target"
+        ),
+        Index("ix_community_report_status_due", "status", "due_at"),
+        Index("ix_community_report_reported_user", "reported_user_id"),
+    )
+
+    report_id: Mapped[int] = mapped_column(_AUTO_PK, primary_key=True, autoincrement=True)
+    reporter_user_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    reported_user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    target_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    target_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    reason: Mapped[str] = mapped_column(String(32), nullable=False)
+    content_snapshot: Mapped[dict] = mapped_column(JSON, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="PENDING")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolved_by_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    resolution_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class CommunityUserBlockORM(Base):
+    """커뮤니티 사용자 간 차단 관계."""
+
+    __tablename__ = "community_user_block"
+    __table_args__ = (
+        UniqueConstraint("blocker_user_id", "blocked_user_id", name="uq_community_user_block_pair"),
+        CheckConstraint("blocker_user_id <> blocked_user_id", name="ck_community_user_block_not_self"),
+    )
+
+    block_id: Mapped[int] = mapped_column(_AUTO_PK, primary_key=True, autoincrement=True)
+    blocker_user_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    blocked_user_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class PostReactionORM(Base):

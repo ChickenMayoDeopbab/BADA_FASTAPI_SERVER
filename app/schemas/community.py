@@ -3,7 +3,13 @@ from typing import Annotated
 
 from pydantic import BaseModel, BeforeValidator, Field, StringConstraints
 
-from app.core.enums import AttachmentKind, ReactionKind
+from app.core.enums import (
+    AttachmentKind,
+    CommunityReportReason,
+    CommunityReportStatus,
+    CommunityReportTargetType,
+    ReactionKind,
+)
 from app.core.timeutil import KstDatetime
 
 
@@ -203,3 +209,17 @@ class CommentThread(CommentResponse):
 
 class CommentListResponse(BaseModel):
     comments: list[CommentThread]
+
+
+class CommunityReportCreateRequest(BaseModel):
+    reason: CommunityReportReason
+
+
+class CommunityReportResponse(BaseModel):
+    report_id: int
+    target_type: CommunityReportTargetType
+    target_id: int
+    reason: CommunityReportReason
+    status: CommunityReportStatus
+    created_at: KstDatetime
+    due_at: KstDatetime

@@ -1,10 +1,11 @@
 import asyncio
 import logging
+from datetime import datetime
 
 import httpx
 
 from app.core.config import Settings
-from app.core.enums import CommunityNotificationType, ReactionKind
+from app.core.enums import CommunityNotificationType, ReactionKind, UserModerationStatus
 from app.schemas.frames import EndReason
 from app.schemas.training_analysis import TrainingAnalysisPayload
 
@@ -23,6 +24,49 @@ class SpringInternalClient:
         self._base_url = settings.spring_boot_internal_url.rstrip("/")
         self._secret = settings.internal_secret
         self._transport = transport
+
+    async def update_user_moderation_status(
+        self,
+        user_id: int,
+        *,
+        moderation_status: UserModerationStatus,
+        suspended_until: datetime | None,
+        reason: str | None,
+        actor_user_id: int,
+    ) -> bool:
+        url = f"{self._base_url}/internal/v1/users/{user_id}/moderation-status"
+        payload = {
+            "status": moderation_status,
+            "suspendedUntil": suspended_until.isoformat() if suspended_until is not None else None,
+            "reason": reason,
+            "actorUserId": actor_user_id,
+        }
+        last_error: Exception | None = None
+        for attempt in range(_RETRY_ATTEMPTS):
+            try:
+                async with httpx.AsyncClient(timeout=5.0, transport=self._transport) as client:
+                    response = await client.patch(
+                        url, json=payload, headers={"X-Internal-Secret": self._secret}
+                    )
+                    response.raise_for_status()
+                return True
+            except httpx.HTTPStatusError as error:
+                if error.response.status_code < 500:
+                    logger.error("사용자 제재 콜백 400번대 에러, 재시도 안 함: %s", error)
+                    return False
+                last_error = error
+            except httpx.HTTPError as error:
+                last_error = error
+            except Exception as error:
+                logger.exception("사용자 제재 콜백 처리 중 예외")
+                last_error = error
+                break
+
+            if attempt < _RETRY_ATTEMPTS - 1:
+                await asyncio.sleep(_RETRY_BASE_DELAY_SECONDS * (2**attempt))
+
+        logger.error("사용자 제재 콜백 최종 실패(%d회): %s", _RETRY_ATTEMPTS, last_error)
+        return False
 
     async def notify_session_closed(
         self,

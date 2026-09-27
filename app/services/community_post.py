@@ -23,6 +23,8 @@ from app.schemas.community import (
     preview_of,
     to_nfc,
 )
+from app.services.community_block import blocked_user_exists
+from app.services.community_content_moderation import CommunityContentModerator
 from app.services.post_attachment import (
     AttachmentInvalidError,
     build_rows,
@@ -80,7 +82,7 @@ async def _detail_with_aggregates(
     db: AsyncSession, row: PostORM, viewer_id: int
 ) -> PostDetailResponse:
     """상세도 목록과 같은 통계 싣기"""
-    comment_counts = await _comment_counts(db, [row.post_id])
+    comment_counts = await _comment_counts(db, [row.post_id], viewer_id)
     counts, mine = await reaction_summary(db, [row.post_id], viewer_id)
 
     detail = _to_detail(row, await load_author(db, row.user_id))
@@ -99,8 +101,9 @@ async def is_admin_user(db: AsyncSession, user_id: int) -> bool:
 
 
 async def create_post(
-    db: AsyncSession, body: PostCreateRequest, user_id: int
+    db: AsyncSession, body: PostCreateRequest, user_id: int, moderator: CommunityContentModerator
 ) -> PostDetailResponse:
+    await moderator.moderate(title=body.title, content=body.content)
     now = now_utc()
     row = PostORM(
         user_id=user_id,
@@ -146,8 +149,8 @@ async def get_post(
     db: AsyncSession, post_id: int, *, viewer_id: int, redis: Redis
 ) -> PostDetailResponse | None:
     """삭제되지 않은 게시글 1건 + 조회수 증가"""
-    row = await db.get(PostORM, post_id)
-    if row is None or row.deleted_at is not None:
+    row = await visible_post(db, post_id, viewer_id=viewer_id)
+    if row is None:
         return None
 
     if await _should_count_view(redis, post_id, viewer_id):
@@ -168,7 +171,7 @@ def _like_pattern(q: str) -> str:
     return f"%{escaped}%"
 
 
-async def _comment_counts(db: AsyncSession, post_ids: list[int]) -> dict[int, int]:
+async def _comment_counts(db: AsyncSession, post_ids: list[int], viewer_id: int) -> dict[int, int]:
     """게시글별 댓글+답글 수"""
     if not post_ids:
         return {}
@@ -179,6 +182,7 @@ async def _comment_counts(db: AsyncSession, post_ids: list[int]) -> dict[int, in
         .where(
             parent.comment_id == PostCommentORM.parent_comment_id,
             parent.deleted_at.is_(None),
+            ~blocked_user_exists(viewer_id, parent.user_id),
         )
         .exists()
     )
@@ -187,6 +191,7 @@ async def _comment_counts(db: AsyncSession, post_ids: list[int]) -> dict[int, in
         .where(
             PostCommentORM.post_id.in_(post_ids),
             PostCommentORM.deleted_at.is_(None),
+            ~blocked_user_exists(viewer_id, PostCommentORM.user_id),
             or_(PostCommentORM.parent_comment_id.is_(None), alive_parent),
         )
         .group_by(PostCommentORM.post_id)
@@ -248,7 +253,7 @@ async def list_posts(
     author_id: int | None = None,
 ) -> PostListResponse:
     """삭제되지 않은 게시글을 최신순으로. size+1 개를 읽어 has_next 를 판단한다."""
-    conditions = [PostORM.deleted_at.is_(None)]
+    conditions = [PostORM.deleted_at.is_(None), ~blocked_user_exists(viewer_id, PostORM.user_id)]
     if author_id is not None:
         conditions.append(PostORM.user_id == author_id)
     if q:
@@ -280,7 +285,7 @@ async def list_posts(
     rows = rows[:size]
 
     post_ids = [row.post_id for row, _, _, _ in rows]
-    comment_counts = await _comment_counts(db, post_ids)
+    comment_counts = await _comment_counts(db, post_ids, viewer_id)
     reaction_counts, my_reactions = await reaction_summary(db, post_ids, viewer_id)
     attachment_kinds = await kinds_by_post(db, post_ids)
 
@@ -312,8 +317,21 @@ async def alive_post(db: AsyncSession, post_id: int) -> PostORM:
     return row
 
 
+async def visible_post(db: AsyncSession, post_id: int, *, viewer_id: int) -> PostORM | None:
+    stmt = select(PostORM).where(
+        PostORM.post_id == post_id,
+        PostORM.deleted_at.is_(None),
+        ~blocked_user_exists(viewer_id, PostORM.user_id),
+    )
+    return (await db.execute(stmt)).scalar_one_or_none()
+
+
 async def update_post(
-    db: AsyncSession, post_id: int, body: PostUpdateRequest, user_id: int
+    db: AsyncSession,
+    post_id: int,
+    body: PostUpdateRequest,
+    user_id: int,
+    moderator: CommunityContentModerator,
 ) -> PostDetailResponse:
     """작성자 본인만 수정 가능"""
     row = await alive_post(db, post_id)
@@ -322,6 +340,11 @@ async def update_post(
 
     changed = False
     pending_morphs: list = []
+    text_changed = (body.title is not None and body.title != row.title) or (
+        body.content is not None and body.content != row.content
+    )
+    if text_changed:
+        await moderator.moderate(title=body.title or row.title, content=body.content or row.content)
     if body.title is not None and body.title != row.title:
         row.title = body.title
         changed = True

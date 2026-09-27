@@ -1,6 +1,7 @@
 import httpx
 import pytest
 
+from app.core.enums import UserModerationStatus
 from app.schemas.frames import EndReason
 from app.services import spring_client as spring_mod
 from app.services.spring_client import SpringInternalClient
@@ -110,3 +111,39 @@ async def test_community_callback_failure_is_retried_and_swallowed(caplog) -> No
 
     assert len(calls) == 3
     assert any("커뮤니티 알림 콜백 최종 실패" in record.getMessage() for record in caplog.records)
+
+
+async def test_user_moderation_callback_sends_expected_payload() -> None:
+    client, calls = _client(lambda _n, _req: httpx.Response(200))
+
+    succeeded = await client.update_user_moderation_status(
+        7,
+        moderation_status=UserModerationStatus.BANNED,
+        suspended_until=None,
+        reason="심각한 위반",
+        actor_user_id=9,
+    )
+
+    assert succeeded is True
+    assert len(calls) == 1
+    assert calls[0].method == "PATCH"
+    assert calls[0].url.path == "/internal/v1/users/7/moderation-status"
+    assert calls[0].headers["X-Internal-Secret"] == "test-secret"
+    assert calls[0].read().decode() == (
+        '{"status":"BANNED","suspendedUntil":null,"reason":"심각한 위반","actorUserId":9}'
+    )
+
+
+async def test_user_moderation_callback_retries_server_failure() -> None:
+    client, calls = _client(lambda n, _req: httpx.Response(500 if n < 2 else 200))
+
+    succeeded = await client.update_user_moderation_status(
+        7,
+        moderation_status=UserModerationStatus.SUSPENDED,
+        suspended_until=None,
+        reason="위반",
+        actor_user_id=9,
+    )
+
+    assert succeeded is True
+    assert len(calls) == 2
