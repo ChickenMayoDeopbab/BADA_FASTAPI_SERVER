@@ -13,7 +13,7 @@
   환경변수: CSM_WEIGHTS(체크포인트 폴더, 기본 ~/CSM/runs/b1/epoch_1) · CSM_REPO(sesame/csm-1b) · VOICES_FILE · CSM_DEVICE(cuda) · CSM_COMPILE(1) · CSM_TARGET_DB(-26) · CSM_GAIN_DB(3)
   기동: HF_HUB_OFFLINE=1 CUDA_VISIBLE_DEVICES=0 VOICES_FILE=~/voices.json uvicorn server:app --host 127.0.0.1 --port 8020
 """
-import base64, io, json, logging, os, sys, threading, time, wave
+import base64, functools, io, json, logging, os, sys, threading, time, wave
 import numpy as np, torch
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import Response, StreamingResponse
@@ -67,6 +67,16 @@ def _busy():
     if S["lock"].locked(): raise HTTPException(409, "busy: generating")
 
 
+def _locked(fn):
+    """세션 상태(s.pos·s.turns·S["session"])를 바꾸는 핸들러는 speak 와 같은 락을 쥔 채 돈다 — 동기 핸들러라 스레드풀에서 겹칠 수 있다(리뷰 지적). 생성 중이면 409."""
+    @functools.wraps(fn)
+    def wrapper(*a, **k):
+        if not S["lock"].acquire(timeout=0.5): raise HTTPException(409, "busy: generating")
+        try: return fn(*a, **k)
+        finally: S["lock"].release()
+    return wrapper
+
+
 class OpenReq(BaseModel): session_id: str; voice: str
 class TextReq(BaseModel): session_id: str; text: str = Field(min_length=1, max_length=MAX_CHARS)
 class SidReq(BaseModel): session_id: str
@@ -80,9 +90,9 @@ def health():
 
 
 @app.post("/v1/session/open")
+@_locked
 def open_session(r: OpenReq):
     if not S["ready"]: raise HTTPException(503, "warming up")
-    _busy()
     if r.voice not in S["voices"] and r.voice != "none": raise HTTPException(404, f"unknown voice: {r.voice}")
     s = W.Session(S["model"], S["sc"], S["tok"]); ms = 0.0
     if r.voice != "none": v = S["voices"][r.voice]; ms = s.append_turn(0, v["text"], v["codes"])
@@ -94,8 +104,9 @@ class UserReq(BaseModel): session_id: str; text: str = Field(min_length=1, max_l
 
 
 @app.post("/v1/session/user")
+@_locked
 def user_turn(r: UserReq):
-    s = _session(r.session_id); _busy(); body = base64.b64decode(r.pcm_b64)
+    s = _session(r.session_id); body = base64.b64decode(r.pcm_b64)
     if len(body) < 2: raise HTTPException(400, "empty pcm")
     pcm = np.frombuffer(body[: len(body) - len(body) % 2], "<i2"); codes, lv = S["codec"].encode_pcm16k(pcm); ms = s.append_turn(1, r.text, codes)
     log.info("user %s: %.1f s → %d frames, level %.1f dBFS gain %+.1f, prefill %.0f ms, pos %d", r.session_id, len(pcm) / 16000, codes.shape[0], lv["level_db"], lv["gain_db"], ms, s.pos)
@@ -103,8 +114,9 @@ def user_turn(r: UserReq):
 
 
 @app.post("/v1/session/context")
+@_locked
 def context(r: CtxReq):
-    s = _session(r.session_id); _busy()
+    s = _session(r.session_id)
     for t in r.turns:
         pcm = np.frombuffer(base64.b64decode(t.pcm_b64), "<i2"); codes, _ = S["codec"].encode_pcm16k(pcm); s.append_turn(t.tag, t.text, codes)
     return dict(ok=True, positions=s.pos, turns=len(s.turns))
@@ -115,9 +127,10 @@ class CodesReq(BaseModel): session_id: str; turns: list[CodesTurn]
 
 
 @app.post("/v1/session/context_codes")
+@_locked
 def context_codes(r: CodesReq):
     """평가·재생용(W2): 이미 토큰화된 코드(int16 [T,32] little-endian, base64)를 그대로 문맥으로 넣는다 — E-B 와 같은 코드로 재현하기 위해."""
-    s = _session(r.session_id); _busy()
+    s = _session(r.session_id)
     for t in r.turns:
         codes = torch.from_numpy(np.frombuffer(base64.b64decode(t.codes_b64), "<i2").astype(np.int64).reshape(t.frames, W.NCB)); s.append_turn(t.tag, t.text, codes)
     return dict(ok=True, positions=s.pos, turns=len(s.turns))
@@ -156,6 +169,7 @@ def cancel(r: SidReq):
 
 
 @app.post("/v1/session/close")
+@_locked
 def close(r: SidReq):
     if S["session_id"] == r.session_id: S["session"], S["session_id"] = None, None
     return dict(ok=True)

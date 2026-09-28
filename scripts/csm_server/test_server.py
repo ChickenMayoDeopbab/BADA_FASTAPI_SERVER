@@ -28,9 +28,17 @@ def main():
         r = c.post("/v1/session/open", json={"session_id": "s1", "voice": "ai"}).json(); assert r["ok"] and r["positions"] > 30, r
         print(f"  ✓ open: 참조 프리필 {r['prefill_ms']:.0f} ms · 위치 {r['positions']}")
         pcm = wav16(os.path.join(d, "u.wav"), 2.0, 220, amp=0.01)                              # 조용한(−40 dBFS 대) 사용자 턴
+        assert server.S["lock"].acquire(timeout=1)                                                 # 생성 중(락 점유)엔 세션 변경 핸들러가 409
+        try:
+            assert c.post("/v1/session/user", json={"session_id": "s1", "text": "x", "pcm_b64": base64.b64encode(b"\x00\x00" * 16).decode()}).status_code == 409
+        finally: server.S["lock"].release()
+        s = server.S["session"]; seen = []; orig_append = s.append_turn
+        s.append_turn = lambda *a, **k: (seen.append(server.S["lock"].locked()), orig_append(*a, **k))[1]   # 변경 순간 락을 쥐고 있는지
         r = c.post("/v1/session/user", json={"session_id": "s1", "text": "어 제가 어제 주문한 게 아직 안 왔어요.", "pcm_b64": base64.b64encode(pcm.tobytes()).decode()}).json()
         assert r["ok"] and 23 <= r["frames"] <= 27 and r["gain_db"] > 5, r
         print(f"  ✓ user: {r['frames']}프레임 · 레벨 {r['level_db']:+.1f} → 이득 {r['gain_db']:+.1f} dB · 프리필 {r['prefill_ms']:.0f} ms · 위치 {r['positions']}")
+        s.append_turn = orig_append; assert seen == [True], f"세션 변경 핸들러는 락을 쥔 채 돌아야 한다: {seen}"; assert not server.S["lock"].locked()
+        print("  ✓ 세션 변경 핸들러 락: 생성 중 409 · append_turn 은 락 안에서 · 끝나면 해제")
         server.SEG_MAX_S = 1.0                                                                    # CPU 라 짧게(13프레임, 프레임당 ≈ 14 s)
         with c.stream("POST", "/v1/session/speak", json={"session_id": "s1", "text": "네, 확인해 드리겠습니다."}) as resp:
             assert resp.status_code == 200 and resp.headers["x-sample-rate"] == "16000", resp.headers

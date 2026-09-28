@@ -34,6 +34,8 @@
 
 - **2026-09-28 끊김 확정 버그(PR 리뷰 지적)**: `speak()` 가 클라이언트 끊김(`GeneratorExit`) 때 `g.run(cancel)` 을 **새로** 만들어 비웠기 때문에 `frames` 가 비어 **0프레임**이 확정됐다(이미 낸 오디오가 문맥에 안 남음). 고침: `Generator.run` 의 확정(재인코딩 + `commit_audio`)을 `finally` 로 옮겨 EOS·상한·cancel·`GeneratorExit`·예외 어느 쪽으로 끝나든 낸 프레임을 확정하고(`finally` 안에서는 yield 없음, 꼬리 출력은 정상 종료 때만), `speak()` 는 멈춰 있던 **같은** 생성기를 `close()` 한다. 검증(맥 CPU 실물 모델): `test_server.py` 에 응답 `body_iterator` 를 첫 청크 뒤 닫는 시험 추가 → **확정 2프레임(0 아님, 상한 50 미만) · 위치 146 → 166(글 17 + 프레임 2 + eos 1) · cancelled=True · 락 해제**; TestClient 경유 끊기는 생성이 다 끝난 뒤에야 닫혀(CPU) 락 해제·확정만 본다. `test_worker.py` W1a~W1c 재통과(20프레임·청크 11·취소 플래그 2프레임). W2/W3 숫자는 정상 경로(끊김 없음)라 그대로. **서버 배포 번들도 다시 올려야 한다**(스터디 레포 `labs/worker/dist/csm_worker_bundle.tgz`, sha256 `b8460ea0…`).
 
+- **2026-09-28 세션 변경 핸들러 락(PR 리뷰 3회차)**: `open`/`user`/`context`/`context_codes`/`close` 가 `_busy()`(락 상태만 확인)만 보고 세션(`s.pos`·`s.turns`·`S["session"]`)을 바꿨다. 동기 핸들러라 스레드풀에서 겹치면 경쟁 조건. 고침: `_locked` 데코레이터가 `speak` 와 같은 락을 0.5 s 안에 쥐고 핸들러를 돌리며 못 쥐면 409(`cancel` 은 생성 중 불리는 것이라 락을 안 쥔다). 검증(맥 CPU 실물): 락 점유 중 `user` → 409 · `append_turn` 호출 순간 락 보유 · 끝나면 해제, 나머지 시험 전부 재통과. 부작용: `/health` 의 `busy` 가 사용자 턴 프리필(≈ 20 ms) 동안도 true. 번들 sha256 `c9b4d15a398f…`.
+
 ## 다음
 
 W4 실제 통화 시험(`scripts/ws_listen.py ws`, 워커 켠 상태) · `speak` 에 rebase·원 레벨 기록 · 16 kHz 마이크 문맥(E-E) · 페르소나 = 사용자 본인 목소리 · WebSocket 전송(2차) · 끼어들기.
