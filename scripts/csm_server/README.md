@@ -36,6 +36,8 @@
 
 - **2026-09-28 세션 변경 핸들러 락(PR 리뷰 3회차)**: `open`/`user`/`context`/`context_codes`/`close` 가 `_busy()`(락 상태만 확인)만 보고 세션(`s.pos`·`s.turns`·`S["session"]`)을 바꿨다. 동기 핸들러라 스레드풀에서 겹치면 경쟁 조건. 고침: `_locked` 데코레이터가 `speak` 와 같은 락을 0.5 s 안에 쥐고 핸들러를 돌리며 못 쥐면 409(`cancel` 은 생성 중 불리는 것이라 락을 안 쥔다). 검증(맥 CPU 실물): 락 점유 중 `user` → 409 · `append_turn` 호출 순간 락 보유 · 끝나면 해제, 나머지 시험 전부 재통과. 부작용: `/health` 의 `busy` 가 사용자 턴 프리필(≈ 20 ms) 동안도 true. 번들 sha256 `c9b4d15a398f…`.
 
+- **2026-09-28 죽은 코드 정리(PR 리뷰 4회차)**: `Session.rebase()` 의 `i, s = self._ids_spans(...) if False else (None, None)` 한 줄(항상 거짓 분기, 디버깅 잔재) 삭제. `_ids_spans` 는 `append_turn` 에서 계속 쓴다. 동작 변화 없음(py_compile + `test_worker.py` 재실행). 번들 sha256 `01c1523d976f…`.
+
 ## 다음
 
 W4 실제 통화 시험(`scripts/ws_listen.py ws`, 워커 켠 상태) · `speak` 에 rebase·원 레벨 기록 · 16 kHz 마이크 문맥(E-E) · 페르소나 = 사용자 본인 목소리 · WebSocket 전송(2차) · 끼어들기.

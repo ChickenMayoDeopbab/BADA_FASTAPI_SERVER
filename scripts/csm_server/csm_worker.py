@@ -86,7 +86,6 @@ class Session:
         self.turns = keep + rest[::-1]; self.pos = 0
         ids, spans = [], []
         for t in self.turns:
-            i, s = self._ids_spans(t["tag"], None, t["codes"]) if False else (None, None)
             tid = t["ids"]; t["start"] = len(ids)
             if t["codes"] is None: ids += tid
             else: spans.append((len(ids) + len(tid), t["codes"])); ids += tid + [self.cfg.audio_token_id] * t["codes"].shape[0] + [self.cfg.audio_eos_token_id]
