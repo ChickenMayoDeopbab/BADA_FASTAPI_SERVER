@@ -14,6 +14,7 @@
   python scripts/ws_listen.py tts --tts-url http://GPU:8080 --text "안녕하세요, 오늘 날씨 좋네요." --play
   python scripts/ws_listen.py ws --base-url ws://localhost:8000 --session-id SID --token JWT \
       --audio tests/output/tts_check_output.wav --play
+  python scripts/ws_listen.py ws ... --audio t1.wav --audio t2.wav --audio t3.wav   # 한 통화에서 3턴
 """
 
 from __future__ import annotations
@@ -158,60 +159,78 @@ async def _run_tts(args: argparse.Namespace, rec: Recorder) -> None:
 async def _run_ws(args: argparse.Namespace, rec: Recorder) -> None:
     import websockets
 
-    audio = _load_audio(args.audio)
-    if args.tail_silence_ms > 0:
-        audio += b"\x00" * (int(_SR * args.tail_silence_ms / 1000) * _SAMPLE_BYTES)
+    tail = b"\x00" * (int(_SR * args.tail_silence_ms / 1000) * _SAMPLE_BYTES) if args.tail_silence_ms > 0 else b""
+    audios = [_load_audio(path) + tail for path in args.audio]
     chunk_bytes = int(_BYTES_PER_S * args.chunk_ms / 1000)
 
     base = args.url or f"{args.base_url.rstrip('/')}/ws/voice/{args.session_id}"
     uri = f"{base}?{urlencode({'token': args.token})}"
-    print(f"connect {base}  발화 {len(audio) / _BYTES_PER_S:.1f}s")
+    print(f"connect {base}  발화 {len(audios)}턴 " + " ".join(f"{len(a) / _BYTES_PER_S:.1f}s" for a in audios))
 
     async with websockets.connect(uri, max_size=None, open_timeout=args.timeout) as ws:
-        # 송신과 수신을 동시에 돌려야 도착 시각이 실제 값이 된다. 다 보내고 나서 읽으면
-        # 응답이 소켓 버퍼에 고여 있다가 한꺼번에 잡혀 끊김이 통째로 사라진다.
-        sent_at: dict[str, float] = {}
+        # --audio 를 여러 번 주면 한 연결(한 통화) 안에서 턴을 이어 간다: 보내고 → speaking_end 까지 듣고 → 다음.
+        # 같은 통화라야 TTS 워커의 세션 문맥(앞 턴들)이 유지되는지 볼 수 있다.
+        for turn, audio in enumerate(audios, start=1):
+            if turn > 1:
+                await asyncio.sleep(args.turn_gap_ms / 1000.0)
+            print(f"-- 턴 {turn}/{len(audios)}")
+            done = await _run_ws_turn(args, rec, ws, audio, chunk_bytes)
+            if not done:
+                return
 
-        async def send_all() -> None:
-            for i in range(0, len(audio), chunk_bytes):
-                await ws.send(audio[i : i + chunk_bytes])
-                await asyncio.sleep(args.chunk_ms / 1000.0)
-            sent_at["t"] = time.perf_counter()
-            print("  발화 전송 완료 — 응답 대기")
 
-        sender = asyncio.create_task(send_all())
+async def _run_ws_turn(args: argparse.Namespace, rec: Recorder, ws, audio: bytes, chunk_bytes: int) -> bool:
+    """발화 하나를 보내고 이번 턴의 AI 오디오가 끝날 때까지 듣는다. 통화가 이어질 수 있으면 True."""
+    import websockets
 
-        def since_sent() -> str:
-            if "t" not in sent_at:
-                return "발화 중"
-            return f"발화 종료 +{(time.perf_counter() - sent_at['t']) * 1000.0:.0f}ms"
+    # 송신과 수신을 동시에 돌려야 도착 시각이 실제 값이 된다. 다 보내고 나서 읽으면
+    # 응답이 소켓 버퍼에 고여 있다가 한꺼번에 잡혀 끊김이 통째로 사라진다.
+    sent_at: dict[str, float] = {}
 
-        started = time.perf_counter()
-        deadline = started + args.turn_timeout + len(audio) / _BYTES_PER_S
-        try:
-            while True:
-                remaining = deadline - time.perf_counter()
-                if remaining <= 0:
-                    print("  타임아웃")
-                    return
-                try:
-                    msg = await asyncio.wait_for(ws.recv(), timeout=remaining)
-                except (TimeoutError, websockets.ConnectionClosed):
-                    print("  연결 종료/타임아웃")
-                    return
-                if isinstance(msg, bytes):
-                    if rec.empty:
-                        print(f"  첫 PCM ({since_sent()})")
-                    rec.add(msg)
-                    continue
-                frame = json.loads(msg)
-                print(f"  [{since_sent():>16}] {frame}")
-                if frame.get("type") in ("speaking_end", "end", "error"):
-                    return
-        finally:
-            sender.cancel()
-            with suppress(asyncio.CancelledError):
-                await sender
+    async def send_all() -> None:
+        for i in range(0, len(audio), chunk_bytes):
+            await ws.send(audio[i : i + chunk_bytes])
+            await asyncio.sleep(args.chunk_ms / 1000.0)
+        sent_at["t"] = time.perf_counter()
+        print("  발화 전송 완료 — 응답 대기")
+
+    sender = asyncio.create_task(send_all())
+
+    def since_sent() -> str:
+        if "t" not in sent_at:
+            return "발화 중"
+        return f"발화 종료 +{(time.perf_counter() - sent_at['t']) * 1000.0:.0f}ms"
+
+    started = time.perf_counter()
+    deadline = started + args.turn_timeout + len(audio) / _BYTES_PER_S
+    got_pcm = False
+    try:
+        while True:
+            remaining = deadline - time.perf_counter()
+            if remaining <= 0:
+                print("  타임아웃")
+                return False
+            try:
+                msg = await asyncio.wait_for(ws.recv(), timeout=remaining)
+            except (TimeoutError, websockets.ConnectionClosed):
+                print("  연결 종료/타임아웃")
+                return False
+            if isinstance(msg, bytes):
+                if not got_pcm:
+                    got_pcm = True
+                    print(f"  첫 PCM ({since_sent()})")
+                rec.add(msg)
+                continue
+            frame = json.loads(msg)
+            print(f"  [{since_sent():>16}] {frame}")
+            if frame.get("type") == "speaking_end":
+                return True
+            if frame.get("type") in ("end", "error"):
+                return False
+    finally:
+        sender.cancel()
+        with suppress(asyncio.CancelledError):
+            await sender
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -237,7 +256,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_ws.add_argument("--base-url", default="ws://localhost:8000")
     p_ws.add_argument("--session-id", default=None)
     p_ws.add_argument("--token", default="")
-    p_ws.add_argument("--audio", required=True, help="발화 오디오(.wav 16k/mono/16bit 또는 .pcm)")
+    p_ws.add_argument("--audio", required=True, action="append",
+                      help="발화 오디오(.wav 16k/mono/16bit 또는 .pcm). 여러 번 주면 한 통화 안에서 턴을 이어 간다")
+    p_ws.add_argument("--turn-gap-ms", type=int, default=500, help="앞 턴 speaking_end 뒤 다음 발화까지 쉼")
     p_ws.add_argument("--chunk-ms", type=int, default=100)
     p_ws.add_argument("--tail-silence-ms", type=int, default=800)
     p_ws.add_argument("--timeout", type=float, default=10.0)
