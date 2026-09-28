@@ -130,14 +130,14 @@ def speak(r: TextReq):
     cancel = threading.Event(); S["cancel"] = cancel
 
     def gen():
-        t0 = time.perf_counter(); g = None
+        t0 = time.perf_counter(); g = None; it = None
         try:
             s.append_text(0, r.text); g = W.Generator(S["model"], S["sc"], s, S["codec"], max_frames=int(SEG_MAX_S / W.FRAME_S), gain_db=S["gen_gain"])
-            for chunk in g.run(cancel): yield chunk
-        except GeneratorExit:                                       # 클라이언트가 끊음 → 프레임 사이에서 멈추고 낸 만큼 확정
+            it = g.run(cancel)                                      # 같은 생성기를 잡아 둔다 — 끊김 뒤에도 이 생성기를 이어서 비워야 낸 프레임이 확정된다
+            for chunk in it: yield chunk
+        except GeneratorExit:                                       # 클라이언트가 끊음 → 멈춰 있던 그 생성기를 닫는다(run 의 finally 가 낸 프레임까지 재인코딩·확정)
             cancel.set()
-            if g is not None:
-                for _ in g.run(cancel): pass                        # 생성기가 이미 끝난 상태면 아무것도 안 함
+            if it is not None: it.close()                           # 새 생성기를 만들면 frames 가 비어 0프레임이 확정된다(리뷰 지적)
             raise
         finally:
             info = g.info if g is not None else {}

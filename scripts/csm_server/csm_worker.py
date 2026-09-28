@@ -157,34 +157,40 @@ class Generator:
     def run(self, cancel=None):
         dev, sc, s = self.model.device, self.sc, self.session; t0 = now(dev); T0 = s.pos
         limit = min(self.max_frames, self.model.config.max_position_embeddings - 2 - T0, 2048 - 2 - T0)
-        frames, eos, ttfa, sent16 = [], False, None, 0; y24 = np.zeros(0, np.float32)
-        for f in range(limit):
-            if cancel is not None and cancel.is_set(): break
-            if f: sc.bb_step(sc.P[T0 + f - 1])
-            for p in range(NCB): sc.dd_step(sc.P[p])
-            fr = sc.s.frame.clone()
-            if bool((fr[:, 1:] == 0).all()): eos = True; break
-            frames.append(fr[0].cpu())
-            if len(frames) % self.chunk == 0:
-                y24 = apply_gain(self.codec.decode_tail(torch.stack(frames), len(frames)), self.gain_db)   # 세그먼트 전체(프리픽스) 디코드
-                y16 = self.rs(y24); settled = len(y16) - self.rs.holdback
-                if settled > sent16:
+        frames, eos, ttfa, sent16, done = [], False, None, 0, False; y24 = np.zeros(0, np.float32); raw_level = None
+        try:
+            for f in range(limit):
+                if cancel is not None and cancel.is_set(): break
+                if f: sc.bb_step(sc.P[T0 + f - 1])
+                for p in range(NCB): sc.dd_step(sc.P[p])
+                fr = sc.s.frame.clone()
+                if bool((fr[:, 1:] == 0).all()): eos = True; break
+                frames.append(fr[0].cpu())
+                if len(frames) % self.chunk == 0:
+                    y24 = apply_gain(self.codec.decode_tail(torch.stack(frames), len(frames)), self.gain_db)   # 세그먼트 전체(프리픽스) 디코드
+                    y16 = self.rs(y24); settled = len(y16) - self.rs.holdback
+                    if settled > sent16:
+                        if ttfa is None: ttfa = (now(dev) - t0) * 1e3
+                        yield (np.clip(y16[sent16:settled], -1, 1) * 32767).astype("<i2").tobytes(); sent16 = settled
+            # 정상 끝(EOS·상한·cancel): 남은 꼬리까지 내보낸다
+            if frames:
+                y24 = apply_gain(self.codec.decode_tail(torch.stack(frames), len(frames)), self.gain_db); y16 = self.rs(y24)
+                if len(y16) > sent16:
                     if ttfa is None: ttfa = (now(dev) - t0) * 1e3
-                    yield (np.clip(y16[sent16:settled], -1, 1) * 32767).astype("<i2").tobytes(); sent16 = settled
-        # 끝: 남은 꼬리까지 내보내고, 이득 준 파형을 재인코딩해 캐시 확정
-        if frames:
-            y24 = apply_gain(self.codec.decode_tail(torch.stack(frames), len(frames)), self.gain_db); y16 = self.rs(y24)
-            if len(y16) > sent16:
-                if ttfa is None: ttfa = (now(dev) - t0) * 1e3
-                yield (np.clip(y16[sent16:], -1, 1) * 32767).astype("<i2").tobytes(); sent16 = len(y16)
-            raw_level = speech_rms_db(y24, SR24) - self.gain_db; lv = analyze(y24, SR24, self.target)     # 재인코딩은 정확히 −26 으로
-            codes_re = self.codec.encode_pcm24k(apply_gain(y24, lv["gain_db"]))
-            s.commit_audio(codes_re[: len(frames)] if codes_re.shape[0] >= len(frames) else codes_re)
-        else:
-            s.commit_audio(torch.zeros(0, NCB, dtype=torch.long)); raw_level = None
-        total = (now(dev) - t0) * 1e3
-        self.info = dict(frames=len(frames), eos=eos, cancelled=bool(cancel is not None and cancel.is_set()), ttfa_ms=ttfa, total_ms=total,
-                         rtf=(total / 1e3) / max(len(frames) * FRAME_S, FRAME_S), raw_level_db=raw_level, gain_db=self.gain_db, samples16=sent16)
+                    yield (np.clip(y16[sent16:], -1, 1) * 32767).astype("<i2").tobytes(); sent16 = len(y16)
+            done = True
+        finally:
+            # 어떻게 끝났든(EOS·상한·cancel·소비자가 끊어 GeneratorExit·예외) 낸 프레임을 이득 준 파형으로 재인코딩해 캐시에 확정한다(여기서는 yield 없음).
+            if frames:
+                if not done: y24 = apply_gain(self.codec.decode_tail(torch.stack(frames), len(frames)), self.gain_db)   # 끊긴 경우: 마지막 청크 뒤 프레임까지 다시 디코드
+                raw_level = speech_rms_db(y24, SR24) - self.gain_db; lv = analyze(y24, SR24, self.target)     # 재인코딩은 정확히 −26 으로
+                codes_re = self.codec.encode_pcm24k(apply_gain(y24, lv["gain_db"]))
+                s.commit_audio(codes_re[: len(frames)] if codes_re.shape[0] >= len(frames) else codes_re)
+            else:
+                s.commit_audio(torch.zeros(0, NCB, dtype=torch.long))
+            total = (now(dev) - t0) * 1e3
+            self.info = dict(frames=len(frames), eos=eos, cancelled=(not done) or bool(cancel is not None and cancel.is_set()), ttfa_ms=ttfa, total_ms=total,
+                             rtf=(total / 1e3) / max(len(frames) * FRAME_S, FRAME_S), raw_level_db=raw_level, gain_db=self.gain_db, samples16=sent16)
 
 
 def load_model(weights, repo="sesame/csm-1b", device="cpu", dtype=None, greedy=False, compile_=False, backend="inductor"):
