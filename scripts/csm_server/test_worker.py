@@ -55,10 +55,30 @@ def main():
     t0 = time.time(); tok, model, sc = W.load_model(a.weights, device="cpu", greedy=True); print(f"모델 로드 {time.time() - t0:.0f} s (CPU fp32, 탐욕)")
     test_session_incremental_equals_oneshot(tok, model, sc)
     test_commit_and_rebase(tok, model, sc)
+    test_bandpass(tok, model, sc)
     test_codec(tok, model, sc)
     test_generator(tok, model, sc)
     print("전부 통과 ✓")
 
+
+
+def _band_ratio(y, sr):
+    """4~7 kHz 대 에너지 / 0.3~3.4 kHz 대 에너지 (dB). 전화 대역이면 −40 dB 아래."""
+    f = np.fft.rfft(y * np.hanning(len(y))); pw = np.abs(f) ** 2; fr = np.fft.rfftfreq(len(y), 1 / sr)
+    return 10 * np.log10(pw[(fr >= 4000) & (fr < 7000)].sum() / max(pw[(fr >= 300) & (fr < 3400)].sum(), 1e-20))
+
+
+def test_bandpass(tok, model, sc):
+    sr = 24000; t = np.arange(int(2.0 * sr)) / sr; bp = W.BandPass(sr, torch.device("cpu"))
+    def gain_db(hz):
+        x = np.sin(2 * np.pi * hz * t).astype(np.float32); y = bp(x)[sr // 2: -sr // 2]           # 가장자리 제외
+        return 20 * np.log10(np.sqrt((y ** 2).mean()) / np.sqrt(0.5))
+    g = {hz: gain_db(hz) for hz in (150, 1000, 3000, 4000, 6000)}
+    assert abs(g[1000]) < 0.5 and abs(g[3000]) < 1.0 and g[150] < -40 and g[4000] < -50 and g[6000] < -60, g
+    rng = np.random.default_rng(0); x = rng.standard_normal(int(1.5 * sr)).astype(np.float32); full = bp(x)
+    d = max(np.abs(bp(x[:n])[: n - bp.holdback] - full[: n - bp.holdback]).max() for n in range(bp.holdback + 1, len(x), 1920 * 2))
+    assert d < 1e-5, f"프리픽스 대역 필터 vs 전체 최대 차 {d:.2e}"
+    print(f"  ✓ BandPass(24 k, {2 * bp.half + 1}탭): 150 Hz {g[150]:.0f} · 1 k {g[1000]:+.2f} · 3 k {g[3000]:+.2f} · 4 k {g[4000]:.0f} · 6 k {g[6000]:.0f} dB · 프리픽스 스트리밍 = 전체(차 {d:.1e}, holdback {bp.holdback})")
 
 
 @torch.no_grad()
@@ -74,6 +94,12 @@ def test_codec(tok, model, sc):
     out = np.concatenate([codec.decode_tail(codes[: i + 2], 2) for i in range(0, codes.shape[0] - 1, 2)]); n = min(len(out), len(full))
     d = np.abs(out[:n] - full[:n]).max(); assert d < 1e-5, f"프리픽스 재디코드 꼬리 vs 전체 디코드 최대 차 {d:.2e}"
     print(f"  ✓ decode_tail(프리픽스 재디코드, 2프레임씩): 전체 디코드와 최대 차 {d:.1e}")
+    codec_p = W.Codec(model, band="phone"); rng = np.random.default_rng(1)
+    wide = (0.05 * rng.standard_normal(int(3.0 * 16000))).astype(np.float32); pcm_w = (np.clip(wide, -1, 1) * 32767).astype(np.int16)   # 광대역 잡음(마이크 입력 흉내)
+    cw, _ = codec.encode_pcm16k(pcm_w); cp, _ = codec_p.encode_pcm16k(pcm_w)
+    yw = codec.mimi.decode(cw.T[None]).audio_values[0, 0].float().numpy(); yp = codec.mimi.decode(cp.T[None]).audio_values[0, 0].float().numpy()
+    bw, bpn = _band_ratio(yw, 24000), _band_ratio(yp, 24000); assert bpn < -30 and bw > bpn + 15, (bw, bpn)
+    print(f"  ✓ Codec(band=phone): 광대역 입력 대역비 {bw:.1f} dB → 전화 대역 입력 {bpn:.1f} dB(코덱 왕복 뒤)")
 
 
 @torch.no_grad()
@@ -89,6 +115,17 @@ def test_generator(tok, model, sc):
     y = codec.mimi.decode(s.turns[-1]["codes"].T[None]).audio_values[0, 0].float().numpy(); lv = speech_rms_db(y, 24000)
     print(f"  ✓ Generator: {info['frames']}프레임 · 청크 {len(chunks)}개 · {n16} 샘플 · eos {info['eos']} · TTFA {info['ttfa_ms']:.0f} ms(CPU) · 캐시 확정 위치 {s.pos} · 재인코딩 턴 레벨 {lv:+.1f} dBFS(모델 원 레벨 {info['raw_level_db']:+.1f})")
     assert abs(lv + 26) < 2.5, lv
+    # phone + AGC: 참조를 배음 버즈(300~3,400 Hz 안에 에너지)로 — 순음 참조는 대역 제한 뒤 거의 사라져 레벨 검사가 무의미하다
+    buzz = sum(np.sin(2 * np.pi * 180 * k * t) / k for k in range(1, 13)); ref_p = (0.05 * buzz / np.abs(buzz).max() * (0.5 + 0.5 * np.sin(2 * np.pi * 3 * t)) * 32767).astype(np.int16)
+    codec_p = W.Codec(model, band="phone"); s3 = W.Session(model, sc, tok); cp, _ = codec_p.encode_pcm16k(ref_p); s3.append_turn(0, "네, 안녕하세요. 무엇을 도와드릴까요?", cp); s3.append_text(0, "네, 확인해 드리겠습니다.")
+    g3 = W.Generator(model, sc, s3, codec_p, max_frames=20, chunk_frames=2, band="phone", gain_db=0.0); ch3 = list(g3.run()); i3 = g3.info   # 시작 이득 0 → AGC 가 올려야 한다
+    out16 = np.frombuffer(b"".join(ch3), dtype="<i2").astype(np.float32) / 32768; br = _band_ratio(out16, 16000); l_out = speech_rms_db(out16[int(0.3 * 16000):], 16000); pk = 20 * np.log10(max(np.abs(out16).max(), 1e-9))
+    y3 = codec.mimi.decode(s3.turns[-1]["codes"].T[None]).audio_values[0, 0].float().numpy(); lv3 = speech_rms_db(y3, 24000)
+    assert br < -30, f"출력 대역비 {br:.1f} dB — phone 모드인데 광대역"
+    want = -26.0 - i3["raw_level_db"]                                                                # AGC 가 가야 할 이득(원 레벨이 목표 위면 음수)
+    assert abs(i3["gain_db"] - want) <= 2.5 and abs(l_out + 26) < 3.5, f"AGC 수렴 실패: 원 {i3['raw_level_db']:.1f} → 출력 {l_out:.1f}, 이득 0 → {i3['gain_db']:.1f}(목표 {want:+.1f})"
+    assert pk <= -1.5, f"클리핑/피크 상한 위반: 피크 {pk:.1f} dBFS"
+    print(f"  ✓ phone + AGC: 원 {i3['raw_level_db']:+.1f} → 출력 {l_out:+.1f} dBFS(이득 0 → {i3['gain_db']:+.1f}, 피크 {pk:.1f}) · 대역비 {br:.1f} dB · 재인코딩 턴 {lv3:+.1f} dBFS")
     ev = threading.Event(); s2 = W.Session(model, sc, tok); s2.append_turn(0, "네, 안녕하세요.", codes); s2.append_text(0, "네, 확인해 드리겠습니다.")
     g2 = W.Generator(model, sc, s2, codec, max_frames=20, chunk_frames=2); out = []
     for c in g2.run(ev):

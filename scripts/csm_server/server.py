@@ -24,6 +24,7 @@ import csm_worker as W
 log = logging.getLogger("csm"); logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 MAX_CHARS, SEG_MAX_S = 300, 20.0
 S = dict(ready=False, tok=None, model=None, sc=None, codec=None, session=None, session_id=None, voices={}, lock=threading.Lock(), cancel=None, gen_gain=float(os.environ.get("CSM_GAIN_DB", "3")))
+BAND = os.environ.get("CSM_BAND", "phone")                    # phone(기본): 페르소나·사용자 턴·출력 전부 300~3,400 Hz — 모델이 배운 대화 문맥(8 kHz 상담 음성)과 같은 대역. wide: 실제 통화 5턴에서 3턴부터 대역·목소리가 무너짐(2026-09-28)
 app = FastAPI()
 
 
@@ -42,7 +43,7 @@ def startup():
     weights = os.path.expanduser(os.environ.get("CSM_WEIGHTS", "~/CSM/runs/b1/epoch_1")); dev = os.environ.get("CSM_DEVICE", "cuda" if torch.cuda.is_available() else "cpu")
     comp = os.environ.get("CSM_COMPILE", "1" if dev.startswith("cuda") else "0") == "1"
     t0 = time.time(); tok, model, sc = W.load_model(weights, os.environ.get("CSM_REPO", "sesame/csm-1b"), dev, greedy=False, compile_=comp)
-    S.update(tok=tok, model=model, sc=sc, codec=W.Codec(model, float(os.environ.get("CSM_TARGET_DB", "-26"))))
+    S.update(tok=tok, model=model, sc=sc, codec=W.Codec(model, float(os.environ.get("CSM_TARGET_DB", "-26")), band=BAND))
     vf = os.environ.get("VOICES_FILE")
     if vf:
         for k, v in json.load(open(os.path.expanduser(vf), encoding="utf-8")).items():
@@ -54,7 +55,7 @@ def startup():
     s.append_text(0, "네, 안녕하세요."); list(W.Generator(model, sc, s, S["codec"], max_frames=6).run())
     if comp:
         s.reset(); s.append_text(0, "네, 안녕하세요."); list(W.Generator(model, sc, s, S["codec"], max_frames=6).run())
-    S["ready"] = True; log.info("ready in %.0f s (%s, compile=%s, voices=%d)", time.time() - t0, dev, comp, len(S["voices"]))
+    S["ready"] = True; log.info("ready in %.0f s (%s, compile=%s, voices=%d, band=%s)", time.time() - t0, dev, comp, len(S["voices"]), BAND)
 
 
 def _session(sid):
@@ -86,7 +87,7 @@ class CtxReq(BaseModel): session_id: str; turns: list[CtxTurn]
 
 @app.get("/health")
 def health():
-    return dict(ready=S["ready"], busy=S["lock"].locked(), session=S["session_id"], voices=list(S["voices"]))
+    return dict(ready=S["ready"], busy=S["lock"].locked(), session=S["session_id"], voices=list(S["voices"]), band=BAND)
 
 
 @app.post("/v1/session/open")
@@ -145,7 +146,7 @@ def speak(r: TextReq):
     def gen():
         t0 = time.perf_counter(); g = None; it = None; rb0 = s.rebases
         try:
-            s.append_text(0, r.text); g = W.Generator(S["model"], S["sc"], s, S["codec"], max_frames=int(SEG_MAX_S / W.FRAME_S), gain_db=S["gen_gain"])
+            s.append_text(0, r.text); g = W.Generator(S["model"], S["sc"], s, S["codec"], max_frames=int(SEG_MAX_S / W.FRAME_S), gain_db=S["gen_gain"], band=BAND)
             it = g.run(cancel)                                      # 같은 생성기를 잡아 둔다 — 끊김 뒤에도 이 생성기를 이어서 비워야 낸 프레임이 확정된다
             for chunk in it: yield chunk
         except GeneratorExit:                                       # 클라이언트가 끊음 → 멈춰 있던 그 생성기를 닫는다(run 의 finally 가 낸 프레임까지 재인코딩·확정)
@@ -154,7 +155,7 @@ def speak(r: TextReq):
             raise
         finally:
             info = g.info if g is not None else {}
-            if info.get("raw_level_db") is not None: S["gen_gain"] = float(np.clip(S["gen_gain"] + (float(os.environ.get("CSM_TARGET_DB", "-26")) - info["raw_level_db"] - S["gen_gain"]) * 0.5, -6, 12))   # 다음 세그먼트 이득 절반씩 보정
+            if info.get("gain_db") is not None and info.get("frames"): S["gen_gain"] = float(np.clip(info["gain_db"], -6, 12))   # 다음 세그먼트의 시작 이득 = 이번 세그먼트 AGC 가 도달한 이득
             log.info("speak %s: %s → %s frames eos=%s cancelled=%s ttfa %s ms rtf %s level %s gain→%.1f pos %d rebase %d (%.2f s)", r.session_id, r.text[:20], info.get("frames"), info.get("eos"), info.get("cancelled"),
                      None if info.get("ttfa_ms") is None else round(info["ttfa_ms"]), None if info.get("rtf") is None else round(info["rtf"], 3), None if info.get("raw_level_db") is None else round(info["raw_level_db"], 1), S["gen_gain"], s.pos, s.rebases - rb0, time.perf_counter() - t0)
             S["cancel"] = None; S["lock"].release()
