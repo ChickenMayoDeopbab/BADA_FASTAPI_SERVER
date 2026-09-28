@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.enums import (
@@ -19,6 +19,8 @@ from app.schemas.community_admin import (
     AdminCommunityReportResponse,
     AdminUserModerationRequest,
 )
+from app.services.community_comment import hard_delete_comment_thread
+from app.services.community_post import hard_delete_post
 from app.services.spring_client import SpringInternalClient
 
 
@@ -109,23 +111,17 @@ def _sanction_values(
     raise InvalidReportResolutionError
 
 
-async def _soft_delete_target(db: AsyncSession, report: CommunityReportORM, deleted_at: datetime) -> None:
+async def _delete_target(db: AsyncSession, report: CommunityReportORM) -> None:
     if report.target_type == CommunityReportTargetType.POST.value:
         post = await db.get(PostORM, report.target_id)
         if post is not None and post.deleted_at is None:
-            post.deleted_at = deleted_at
+            await hard_delete_post(db, post)
         return
 
     comment = await db.get(PostCommentORM, report.target_id)
     if comment is None or comment.deleted_at is not None:
         return
-    comment.deleted_at = deleted_at
-    if comment.parent_comment_id is None:
-        await db.execute(
-            update(PostCommentORM)
-            .where(PostCommentORM.parent_comment_id == comment.comment_id, PostCommentORM.deleted_at.is_(None))
-            .values(deleted_at=deleted_at)
-        )
+    await hard_delete_comment_thread(db, comment)
 
 
 async def resolve_report(
@@ -150,7 +146,7 @@ async def resolve_report(
         report.status = CommunityReportStatus.DISMISSED.value
     else:
         moderation_status, suspended_until = _sanction_values(request.action, request.suspended_until)
-        await _soft_delete_target(db, report, processed_at)
+        await _delete_target(db, report)
         succeeded = await spring.update_user_moderation_status(
             report.reported_user_id,
             moderation_status=moderation_status,

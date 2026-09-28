@@ -33,6 +33,21 @@ async def ensure_user_can_access(db: AsyncSession, user_id: int) -> None:
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="USER_INACTIVE")
 
 
+async def ensure_sensitive_information_consent(db: AsyncSession, user_id: int) -> None:
+    stmt = select(
+        users_table.c.sensitive_information_agreed_at,
+        users_table.c.sensitive_information_withdrawn_at,
+    ).where(users_table.c.user_id == user_id)
+    row = (await db.execute(stmt)).first()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="USER_NOT_FOUND")
+    if row.sensitive_information_agreed_at is None or row.sensitive_information_withdrawn_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="SENSITIVE_INFORMATION_CONSENT_REQUIRED",
+        )
+
+
 async def get_current_user_id(
     credentials: HTTPAuthorizationCredentials = Depends(_bearer), db: AsyncSession = Depends(get_db)
 ) -> int:
@@ -50,6 +65,7 @@ async def authenticate_ws_user(ws, token: str) -> tuple[int, str | None]:
     try:
         async with AsyncSessionLocal() as db:
             await ensure_user_can_access(db, user_id)
+            await ensure_sensitive_information_consent(db, user_id)
     except HTTPException as exc:
         await ws.close(code=status.WS_1008_POLICY_VIOLATION, reason=str(exc.detail))
         raise

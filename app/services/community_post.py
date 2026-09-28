@@ -381,5 +381,19 @@ async def delete_post(db: AsyncSession, post_id: int, *, user_id: int) -> None:
     if row.user_id != user_id and not await is_admin_user(db, user_id):
         raise PostForbiddenError
 
-    row.deleted_at = now_utc()
+    await hard_delete_post(db, row)
     await db.commit()
+
+
+async def hard_delete_post(db: AsyncSession, row: PostORM) -> None:
+    """신고 스냅샷은 별도 보존하므로 원본 게시글과 종속 행은 실제 삭제한다."""
+    await db.execute(
+        delete(PostAttachmentORM).where(PostAttachmentORM.post_id == row.post_id)
+    )
+    await db.execute(
+        delete(PostReactionORM).where(PostReactionORM.post_id == row.post_id)
+    )
+    await db.execute(
+        delete(PostCommentORM).where(PostCommentORM.post_id == row.post_id)
+    )
+    await db.delete(row)

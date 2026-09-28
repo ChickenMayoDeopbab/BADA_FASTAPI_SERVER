@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -11,17 +12,22 @@ from hashlib import sha256
 from anthropic import AsyncAnthropic
 from anthropic.types import MessageParam
 from pydantic import BaseModel, Field, ValidationError, field_validator
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.core.enums import ALL_DIFFICULTIES, ALL_PERSONALITIES, ScenarioCategory
+from app.core.enums import (
+    ALL_DIFFICULTIES,
+    ALL_PERSONALITIES,
+    AttachmentKind,
+    ScenarioCategory,
+)
 from app.core.preset_scenarios import PRESET_MAP, PRESET_SCENARIOS, scenario_to_info
 from app.core.prompt_matrix import PERSONALITY_BASE
 from app.core.timeutil import as_kst, ensure_utc, now_utc
 from app.core.tts_voices import parse_speaker, pick_voice_id
 from app.core.usage import log_llm_usage
-from app.db.models import FeedbackORM, ScenarioORM, is_deleted
+from app.db.models import FeedbackORM, FileORM, PostAttachmentORM, ScenarioORM, is_deleted
 from app.schemas.scenario import (
     CustomScenarioResponse,
     CustomSessionRequest,
@@ -299,6 +305,7 @@ async def delete_custom_scenario(
         db: AsyncSession,
         scenario_id: int,
         user_id: int,
+        storage: RecordingStorageService | None = None,
 ) -> bool:
     """본인 소유 커스텀 시나리오를 삭제"""
     row = await db.get(ScenarioORM, scenario_id, with_for_update=True)
@@ -306,7 +313,23 @@ async def delete_custom_scenario(
         return False
     if is_deleted(row):
         return False
-    row.deleted_at = now_utc()
+
+    keys = {key for key in (row.scenario_image, row.example_audio_url) if key}
+    if keys:
+        recording_storage = storage or RecordingStorageService(get_settings())
+        for key in sorted(keys):
+            await asyncio.to_thread(recording_storage.delete, key)
+
+    await db.execute(
+        delete(PostAttachmentORM).where(
+            PostAttachmentORM.kind == AttachmentKind.SCENARIO.value,
+            PostAttachmentORM.ref_id == scenario_id,
+        )
+    )
+    await db.execute(delete(FeedbackORM).where(FeedbackORM.scenario_id == scenario_id))
+    if keys:
+        await db.execute(delete(FileORM).where(FileORM.s3_key.in_(keys)))
+    await db.delete(row)
     await db.commit()
     return True
 
