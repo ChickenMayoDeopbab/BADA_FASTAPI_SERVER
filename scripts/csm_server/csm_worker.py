@@ -30,7 +30,7 @@ class Session:
         self.reset()
 
     def reset(self):
-        self.turns, self.pos = [], 0
+        self.turns, self.pos, self.rebases = [], 0, 0          # rebases: 재프리필 횟수(지연 진단용 — speak 로그에 남긴다)
 
     # ── 임베딩 ──
     def _ids_spans(self, tag, text, codes):
@@ -77,6 +77,7 @@ class Session:
     @torch.no_grad()
     def rebase(self):
         """참조 턴(0번) + 뒤에서부터 예산 안에 드는 턴만 남기고 처음부터 다시 프리필한다."""
+        self.rebases += 1
         keep = [self.turns[0]] if self.turns else []; used = self._turn_len(keep[0]) if keep else 0
         rest = []
         for t in reversed(self.turns[1:]):
