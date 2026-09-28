@@ -1,8 +1,20 @@
 import wave
 from io import BytesIO
 
+import pytest
+
 from app.core.config import Settings
+from app.services import recording_crypto
 from app.services.recording_storage import RecordingStorageService
+from tests.unit.fake_kms import FakeKms
+
+
+class _Body:
+    def __init__(self, data: bytes) -> None:
+        self._data = data
+
+    def read(self) -> bytes:
+        return self._data
 
 
 class _S3Client:
@@ -10,9 +22,14 @@ class _S3Client:
         self.calls: list[dict] = []
         self.delete_calls: list[dict] = []
         self.presign_calls: list[tuple] = []
+        self.objects: dict[str, bytes] = {}
 
     def put_object(self, **kwargs) -> None:
         self.calls.append(kwargs)
+        self.objects[kwargs["Key"]] = kwargs["Body"]
+
+    def get_object(self, *, Bucket, Key):  # noqa: N803
+        return {"Body": _Body(self.objects[Key])}
 
     def delete_object(self, **kwargs) -> None:
         self.delete_calls.append(kwargs)
@@ -36,12 +53,13 @@ def _settings() -> Settings:
         database_url="postgresql+asyncpg://user:pass@localhost/db",
         s3_bucket="bucket",
         aws_region="ap-northeast-2",
+        recording_kms_key_id="alias/bada-recording",
     )
 
 
-def test_upload_pcm_wraps_wav_and_returns_key() -> None:
-    s3 = _S3Client()
-    storage = RecordingStorageService(_settings(), client=s3)
+def test_upload_pcm_encrypts_wav_and_returns_key() -> None:
+    s3, kms = _S3Client(), FakeKms()
+    storage = RecordingStorageService(_settings(), client=s3, kms_client=kms)
 
     key = storage.upload_pcm("sess-123", b"\x01\x00\x02\x00")
 
@@ -52,13 +70,27 @@ def test_upload_pcm_wraps_wav_and_returns_key() -> None:
     call = s3.calls[0]
     assert call["Bucket"] == "bucket"
     assert call["Key"] == key
-    assert call["ContentType"] == "audio/wav"
+    assert call["ContentType"] == "application/octet-stream"
+    assert recording_crypto.is_encrypted(call["Body"])
+    assert kms.generate_calls[0]["KeyId"] == "alias/bada-recording"
 
-    with wave.open(BytesIO(call["Body"]), "rb") as wav:
+    plain = recording_crypto.decrypt(call["Body"], s3_key=key, kms=kms)
+    with wave.open(BytesIO(plain), "rb") as wav:
         assert wav.getnchannels() == 1
         assert wav.getsampwidth() == 2
         assert wav.getframerate() == 16_000
         assert wav.readframes(2) == b"\x01\x00\x02\x00"
+
+
+def test_upload_pcm_refuses_plaintext_without_kms_key() -> None:
+    settings = _settings()
+    settings.recording_kms_key_id = None
+    s3 = _S3Client()
+    storage = RecordingStorageService(settings, client=s3, kms_client=FakeKms())
+
+    with pytest.raises(RuntimeError):
+        storage.upload_pcm("sess-123", b"\x01\x00")
+    assert s3.calls == []
 
 
 def test_upload_pcm_returns_none_without_bucket() -> None:
@@ -67,6 +99,31 @@ def test_upload_pcm_returns_none_without_bucket() -> None:
     storage = RecordingStorageService(settings, client=_S3Client())
 
     assert storage.upload_pcm("sess-123", b"\x01\x00") is None
+
+
+def test_download_pcm_opens_encrypted_recording() -> None:
+    s3, kms = _S3Client(), FakeKms()
+    storage = RecordingStorageService(_settings(), client=s3, kms_client=kms)
+    key = storage.upload_pcm("sess-123", b"\x01\x00\x02\x00")
+
+    assert storage.download_pcm(key) == b"\x01\x00\x02\x00"
+
+
+def test_download_pcm_still_reads_legacy_plain_recording() -> None:
+    s3 = _S3Client()
+    storage = RecordingStorageService(_settings(), client=s3, kms_client=FakeKms())
+    s3.objects["recordings/old.wav"] = RecordingStorageService._to_wav(b"\x03\x00")
+
+    assert storage.download_pcm("recordings/old.wav") == b"\x03\x00"
+
+
+def test_download_pcm_returns_none_when_key_cannot_be_opened() -> None:
+    s3, kms = _S3Client(), FakeKms()
+    storage = RecordingStorageService(_settings(), client=s3, kms_client=kms)
+    key = storage.upload_pcm("sess-123", b"\x01\x00")
+    s3.objects["recordings/moved.wav"] = s3.objects[key]
+
+    assert storage.download_pcm("recordings/moved.wav") is None
 
 
 def test_presigned_url_signs_get_object() -> None:
