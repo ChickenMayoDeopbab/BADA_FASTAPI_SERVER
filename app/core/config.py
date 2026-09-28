@@ -86,6 +86,8 @@ class Settings(BaseSettings):
     aws_secret_key: str | None = None
     aws_region: str = "ap-northeast-2"
     s3_bucket: str | None = None
+    # 녹음 원본을 잠그는 KMS 키(ARN 또는 alias/...). 없으면 녹음을 올리지 않는다.
+    recording_kms_key_id: str | None = None
 
     # DB
     database_url: str
