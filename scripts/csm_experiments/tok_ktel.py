@@ -4,6 +4,7 @@
   라벨 zip  D60/J91/S00000001/S00000001.json (dataSet.typeInfo.speakers[] · dataSet.dialogs[] = 발화 순서) + 0001.txt …  ← 전부 줘도 wav zip 의 도메인 것만 연다
   wav zip   D60/J91/S00000001/0001.wav (8 kHz · 16 bit · mono)                                                      ← 갖고 있는 것만. 샤드 = wav zip 당 100세션
   세션 → dialogs 순서(한쪽 화자만 있는 세션은 뺀다) → 같은 화자의 연속 발화를 한 턴으로(사이 --gap-s 무음, --max-turn-s 넘으면 새 턴)
+       → (--level-target 이 있으면) 턴 말소리 RMS 를 목표 dBFS 로 맞추는 선형 이득(level.analyze, 피크 상한·이득 상한) — 8 kHz 에서 재고 리샘플 전에 건다
        → 8 k→24 k(0 채우기 ×3 + Kaiser-sinc 저역 통과, 4 kHz 위는 빈 채로) → Mimi 로 **턴 하나씩** 인코딩
        → codes/<샤드>.npz(codes[32, 합] + offsets) + manifest/<샤드>.jsonl(행 = 턴). 전사는 tok_kspon.parse_text(raw/spell/pron/flags).
   화자 태그([0]/[1])는 여기서 정하지 않는다 — 행의 role(상담원/고객)·spk_id 로 로더가 정한다.
@@ -21,6 +22,7 @@ import numpy as np, torch, torch.nn.functional as F
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tok_kspon import parse_text                                   # 같은 폴더의 tok_kspon.py 가 필요하다
+from level import analyze, apply_gain                             # 턴 레벨 정규화(--level-target). 채점기·워커와 같은 함수(설계 15)
 
 SR_IN, SR_OUT, UP = 8000, 24000, 3
 HALF, CUTOFF_HZ, BETA = 224, 3825.0, 8.6                            # 449탭 @24k · 통과대역 ~3.7 kHz · 저지대역 4.0 kHz 부터 ≈ -85 dB(계산값 — test_tok_ktel.py 가 잰다)
@@ -132,6 +134,8 @@ def main():
     ap.add_argument("--gap-s", type=float, default=0.3, help="같은 화자 발화를 이을 때 사이 무음(초)")
     ap.add_argument("--max-turn-s", type=float, default=20.0, help="이어 붙인 턴의 최대 길이(초)")
     ap.add_argument("--sessions-per-shard", type=int, default=100)
+    ap.add_argument("--level-target", type=float, default=None, help="턴 말소리 RMS 목표 dBFS(예: -26). 없으면 레벨만 기록하고 이득은 안 준다")
+    ap.add_argument("--level-peak-cap", type=float, default=-2.0); ap.add_argument("--level-gain-max", type=float, default=30.0)
     ap.add_argument("--limit-shards", type=int, default=0, help="시험용: 샤드 n개만")
     a = ap.parse_args()
     dev = torch.device(a.device)
@@ -147,9 +151,10 @@ def main():
     encode = make_codec(a, dev); kernel = resample_kernel(dev)
     json.dump(dict(source="AIHub 100 상담 음성(KtelSpeech)", row="turn", mimi=a.mimi, codec=a.codec, codebooks=32, frame_hz=12.5, sr_src=SR_IN, sr_mimi=SR_OUT, dtype="int16",
                    resampler=f"zero-stuff x{UP} + kaiser-sinc {2*HALF+1}tap cutoff {CUTOFF_HZ:.0f}Hz beta {BETA}", gap_s=a.gap_s, max_turn_s=a.max_turn_s,
-                   sessions_per_shard=a.sessions_per_shard, layout="codes[32, sum(frames)] + offsets[N+1]"),
+                   sessions_per_shard=a.sessions_per_shard, layout="codes[32, sum(frames)] + offsets[N+1]",
+                   level=dict(fn="level.analyze: 20 ms frames, gate max(p90-20, p10+10)", target=a.level_target, peak_cap=a.level_peak_cap, gain_max=a.level_gain_max)),
               open(os.path.join(a.out, "meta.json"), "w"), ensure_ascii=False, indent=1)
-    skipped, roles, done_sess, done_turn, done_s, n_shard, order_bad, n_spk_odd = collections.Counter(), collections.Counter(), 0, 0, 0.0, 0, 0, 0; t0 = time.time()
+    skipped, roles, done_sess, done_turn, done_s, n_shard, order_bad, n_spk_odd = collections.Counter(), collections.Counter(), 0, 0, 0.0, 0, 0, 0; n_capped = n_weak = 0; t0 = time.time()
     for wpath in a.wav:
         wz = zipfile.ZipFile(wpath); stem = os.path.splitext(os.path.basename(wpath))[0]
         sessions = sorted({os.path.dirname(i.filename) for i in wz.infolist() if i.filename.lower().endswith(".wav")})
@@ -167,13 +172,18 @@ def main():
                 turns = build_turns(utts, a.gap_s, a.max_turn_s)
                 order_bad += not meta["order_ok"]; n_spk_odd += len(meta["spk"]) != 2
                 for ti, t in enumerate(turns):
-                    x = resample_8k_to_24k(torch.from_numpy(t["pcm"].astype(np.float32) / 32768.0).to(dev), kernel)
+                    x8 = t["pcm"].astype(np.float32) / 32768.0
+                    lv = analyze(x8, SR_IN, a.level_target if a.level_target is not None else 0.0, a.level_peak_cap, a.level_gain_max)
+                    if a.level_target is None: lv["gain_db"], lv["capped"] = 0.0, False                # 기록만
+                    else: x8 = apply_gain(x8, lv["gain_db"])
+                    n_capped += lv["capped"]; n_weak += lv["weak"]
+                    x = resample_8k_to_24k(torch.from_numpy(x8).to(dev), kernel)
                     c = encode(x); s = meta["spk"][t["spk"]]
                     raw = " ".join(r for r in t["raws"] if r); spell, pron, flags = parse_text(raw)
                     rows.append(dict(id=f"{sess}/t{ti:03d}", shard=shard, idx=len(rows), session=sess, domain=sess.split("/")[0], category=meta["category"],
                                      turn=ti, n_turns=len(turns), role=s.get("type"), spk_id=t["spk"], gender=s.get("gender"), age=s.get("age"),
                                      utts=t["utts"], n_utt=len(t["utts"]), utt_s=t["utt_s"], frames=int(c.shape[1]), dur_s=round(t["pcm"].size / SR_IN, 3),
-                                     raw=raw, spell=spell, pron=pron, flags=flags, has_text=bool(raw), order_ok=meta["order_ok"]))
+                                     raw=raw, spell=spell, pron=pron, flags=flags, has_text=bool(raw), order_ok=meta["order_ok"], **lv))
                     codes.append(c); offsets.append(offsets[-1] + c.shape[1]); done_s += t["pcm"].size / SR_IN; roles[s.get("type")] += 1
                 done_sess += 1; done_turn += len(turns)
             skipped.update(sk)
@@ -194,6 +204,7 @@ def main():
         break
     print(f"끝. 세션 {done_sess:,} · 턴 {done_turn:,} · {done_s/3600:.2f} h · {(time.time()-t0)/60:.1f}분 → {a.out}")
     print(f"  역할별 턴 {dict(roles)} · 번호 순서 어긋난 세션 {order_bad} · 화자가 2명이 아닌 세션 {n_spk_odd}" + (f" · 건너뜀 {dict(skipped)}" if skipped else ""))
+    print(f"  레벨: 목표 {a.level_target} dBFS · 피크 상한 걸린 턴 {n_capped} · weak(말소리 < 0.3 s 또는 SNR < 10 dB) {n_weak}")
 
 
 if __name__ == "__main__":

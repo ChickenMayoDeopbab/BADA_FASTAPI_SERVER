@@ -17,6 +17,9 @@
 """
 import argparse, asyncio, hashlib, html, json, math, os, random, re, sys, time, unicodedata, wave
 import numpy as np
+sys.path[:0] = [os.path.dirname(os.path.abspath(__file__)), os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data")]
+from level import analyze, apply_gain                    # --norm: 채점 입력 레벨 정규화(설계 15 §3) — 토큰화·워커와 같은 함수
+NORM = dict(target=None, peak_cap=-2.0, gain_max=30.0); RAW_LEVEL = {}   # RAW_LEVEL[path] = 정규화 전 말소리 RMS(dBFS)
 
 JUDGE_MODEL, LANGUAGE, EOS_IDLE_S, EOS_MAX_S = "gemini-3.5-transcribe-live", "ko-KR", 2.0, 10.0
 
@@ -68,11 +71,17 @@ def read_wav(path):
         with wave.open(path, "rb") as w:
             assert w.getsampwidth() == 2
             x = np.frombuffer(w.readframes(w.getnframes()), dtype="<i2").astype(np.float32) / 32768.0
-            return (x.reshape(-1, w.getnchannels()).mean(1) if w.getnchannels() > 1 else x), w.getframerate()
+            x, sr = (x.reshape(-1, w.getnchannels()).mean(1) if w.getnchannels() > 1 else x), w.getframerate()
     except (wave.Error, AssertionError):
         import soundfile as sf
-        x, sr = sf.read(path, dtype="float32", always_2d=True)
-        return x.mean(1), sr
+        x, sr = sf.read(path, dtype="float32", always_2d=True); x = x.mean(1)
+    return _level_hook(path, x, sr)
+
+
+def _level_hook(path, x, sr):
+    """모든 읽기가 여기를 지난다: 정규화 전 레벨을 기록하고, --norm 이면 같은 이득을 심판·UTMOS·SIM 이 다 보게 건다."""
+    lv = analyze(x, sr, NORM["target"] if NORM["target"] is not None else 0.0, NORM["peak_cap"], NORM["gain_max"]); RAW_LEVEL[path] = lv["level_db"]
+    return (apply_gain(x, lv["gain_db"]) if NORM["target"] is not None else x), sr
 
 
 def resample(x, sr_in, sr_out):
@@ -298,6 +307,7 @@ def main():
     ap.add_argument("--language", default=LANGUAGE); ap.add_argument("--workers", type=int, default=8)
     ap.add_argument("--pace", type=float, default=1.0, help="실시간의 몇 배로 보낼지. B 가 검증한 것은 1.0(실시간)뿐이다")
     ap.add_argument("--sim", default="unispeech", choices=["unispeech", "xvector", "fake"]); ap.add_argument("--sim-ckpt"); ap.add_argument("--unispeech-dir")
+    ap.add_argument("--norm", type=float, default=None, help="채점 입력 정규화 목표 dBFS(예: -26). 모든 행에 같은 함수(level.analyze). 캐시 키에 :norm 접미"); ap.add_argument("--norm-peak-cap", type=float, default=-2.0); ap.add_argument("--norm-gain-max", type=float, default=30.0)
     ap.add_argument("--sort-by", default=None, help="듣기 페이지 정렬 기준 조건(기본: 마지막 --cond)")
     ap.add_argument("--selftest", choices=["judge", "utmos", "sim"]); ap.add_argument("--wav"); ap.add_argument("--wav2")
     a = ap.parse_args()
@@ -313,10 +323,14 @@ def main():
         conds.append(dict(name=name, dir=os.path.expanduser(d), ref="prompt_text" if opt == "ref=prompt" else "infer_text"))
     metrics, cache = set(a.metrics.split(",")), Cache(os.path.join(out, "cache.jsonl"))
     # 심판은 캐시에 없는 클립이 있을 때만 만든다(전부 캐시면 API 키 없이도 표를 다시 만들 수 있다)
-    jname = ("judge:fake" if a.judge == "fake" else f"judge:{a.judge_model}:{a.language}") if "wer" in metrics else None
+    NORM.update(target=a.norm, peak_cap=a.norm_peak_cap, gain_max=a.norm_gain_max); nsuf = f":norm{a.norm:g}" if a.norm is not None else ""
+    jname = (("judge:fake" if a.judge == "fake" else f"judge:{a.judge_model}:{a.language}") + nsuf) if "wer" in metrics else None
     judge = None
-    uname, utmos = make_utmos(a) if "utmos" in metrics else (None, None)
-    sname, emb = make_sim(a) if "sim" in metrics else (None, None)
+    uname, utmos = make_utmos(a) if "utmos" in metrics else (None, None); uname = uname + nsuf if uname else None
+    sname, emb = make_sim(a) if "sim" in metrics else (None, None); sname = sname + nsuf if sname else None
+    plev = {}
+    for it in items:
+        if it["prompt_wav"] and os.path.exists(it["prompt_wav"]): read_wav(it["prompt_wav"]); plev[it["id"]] = RAW_LEVEL[it["prompt_wav"]]
     print(f"문장 {len(items)}개 · 조건 {len(conds)}개 · 지표 {sorted(metrics)}")
 
     per, summary = {}, []
@@ -336,7 +350,7 @@ def main():
         if os.path.exists(os.path.join(c["dir"], "gen.jsonl")):
             gen = {r["id"]: r for r in map(json.loads, open(os.path.join(c["dir"], "gen.jsonl"), encoding="utf-8"))}
         for it, p in have:
-            r = dict(id=it["id"]); x, sr = read_wav(p); r["audio_s"] = len(x) / sr
+            r = dict(id=it["id"]); x, sr = read_wav(p); r["audio_s"] = len(x) / sr; r["level_db"] = RAW_LEVEL[p]
             if jname and cache.get(jname, hs[p]) is not None:
                 r.update(error_rates(it[c["ref"]], cache.get(jname, hs[p])))
             long_enough = r["audio_s"] >= 0.5                     # 첫 프레임에서 끝난 빈 소리는 UTMOS·SIM 모델에 넣지 않는다(지표에서 빠지고 CER 은 100 % 로 잡힌다)
@@ -361,19 +375,23 @@ def main():
         for k in ("ttfa_ms", "rtf"):
             v = [r[k] for r in rows.values() if r.get(k) is not None]; s[k + "_p50"], s[k + "_p95"] = pct(v, 0.5), pct(v, 0.95)
         e = [r["eos"] for r in rows.values() if r.get("eos") is not None]; s["eos_fail"] = 100 * (1 - sum(e) / len(e)) if e else None
+        lv = [r["level_db"] for r in rows.values() if r.get("level_db") is not None]; s["level_p50"], s["level_p10"], s["level_p90"] = (pct(lv, 0.5), pct(lv, 0.1), pct(lv, 0.9)) if lv else (None, None, None)
+        pair = [(r["level_db"], plev[i]) for i, r in rows.items() if r.get("level_db") is not None and i in plev]
+        s["level_r"] = float(np.corrcoef([u for u, _ in pair], [v for _, v in pair])[0, 1]) if len(pair) >= 3 else None
         summary.append(s)
 
-    head = "| 조건 | n | CER % [95 % 구간] | WER % | CER>50 % | UTMOS | SIM | TTFA ms p50/p95 | RTF p50/p95 | 끝남 실패 % | 길이 비 |\n|---|---:|---|---:|---:|---:|---:|---|---|---:|---:|"
+    head = "| 조건 | n | CER % [95 % 구간] | WER % | CER>50 % | UTMOS | SIM | TTFA ms p50/p95 | RTF p50/p95 | 끝남 실패 % | 길이 비 | 레벨 dBFS p50 [p10, p90] | r(문맥) |\n|---|---:|---|---:|---:|---:|---:|---|---|---:|---:|---|---:|"
     lines = [head] + [
         f"| {s['name']} | {s['n']}{'(없음 ' + str(s['missing']) + ')' if s['missing'] else ''}{'(심판 실패 ' + str(s['judge_failed']) + ' — 다시 돌려라)' if s['judge_failed'] else ''} | "
         + (f"**{s['cer_mean']:.2f}** [{s['cer_ci'][0]:.1f}, {s['cer_ci'][1]:.1f}] | {s['wer_mean']:.2f} | {s['n_over50']}" if "cer_mean" in s else "— | — | —")
         + f" | {fmt(s['utmos'], '.2f')} | {fmt(s['sim'], '.3f')} | {fmt(s['ttfa_ms_p50'], '.0f')} / {fmt(s['ttfa_ms_p95'], '.0f')} | {fmt(s['rtf_p50'], '.3f')} / {fmt(s['rtf_p95'], '.3f')}"
-        + f" | {fmt(s['eos_fail'])} | {fmt(s['len_ratio'], '.2f')} |" for s in summary]
+        + f" | {fmt(s['eos_fail'])} | {fmt(s['len_ratio'], '.2f')} | {fmt(s['level_p50'], '+.1f')} [{fmt(s['level_p10'], '+.1f')}, {fmt(s['level_p90'], '+.1f')}] | {fmt(s['level_r'], '+.2f')} |" for s in summary]
     note = (f"\n- 집계: 발화별 오류율의 **산술평균**(seed-tts-eval `average_wer.py`). 전체 합산 CER: " + " · ".join(f"{s['name']} {s['cer_corpus']:.2f}" for s in summary if "cer_corpus" in s)
+            + f"\n- 레벨 = 정규화 **전** 파형의 말소리 RMS(`level.speech_rms_db`, dBFS) · r(문맥) = 조건 파일 레벨과 프롬프트(앞 턴) 레벨의 상관" + (f" · **채점 입력 정규화 {a.norm:g} dBFS**(`level.analyze`, 피크 상한 {a.norm_peak_cap:g}, 이득 상한 {a.norm_gain_max:g}; 모든 행 동일)" if a.norm is not None else "")
             + f"\n- 심판 `{jname}` · UTMOS `{uname}` · SIM `{sname}` (합성음 ↔ 프롬프트 음성)\n- 정규화: NFC → 대괄호 태그 제거 → 문장부호·기호 제거 → 소문자. CER 은 띄어쓰기를 지운 음절 단위, WER 은 어절 단위.\n")
     md = "\n".join(lines) + "\n" + note
     open(os.path.join(out, "result.md"), "w", encoding="utf-8").write(md)
-    json.dump(dict(summary=summary, per=per, judge=jname, utmos=uname, sim=sname), open(os.path.join(out, "result.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    json.dump(dict(summary=summary, per=per, judge=jname, utmos=uname, sim=sname, norm=a.norm), open(os.path.join(out, "result.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     write_html(os.path.join(out, "listen.html"), items, conds, per, a.sort_by or conds[-1]["name"], out)
     print("\n" + md + f"\n[저장] {out}/result.md · result.json · listen.html")
 
