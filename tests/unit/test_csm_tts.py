@@ -191,3 +191,11 @@ async def test_acquire_reports_disabled_and_unhealthy() -> None:
     got = await try_acquire_realtime_csm(settings, transport=_worker_transport(calls, ready=False))
     assert got == (None, "unhealthy")
     assert csm_mod._pool(settings).qsize() == 1, "건강하지 않은 워커도 풀에 되돌린다"
+
+
+def test_release_slot_outside_event_loop_does_not_raise() -> None:
+    client = CsmRealtimeTTSClient(_settings(), transport=_worker_transport([]))
+    client._worker_url = "http://csm-a.test:8020"
+    client.release_slot()
+    assert client._worker_url is None
+    client.release_slot()

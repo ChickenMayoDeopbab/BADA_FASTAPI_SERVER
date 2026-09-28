@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import contextlib
 import logging
 import uuid
 import weakref
@@ -183,10 +182,14 @@ class CsmRealtimeTTSClient:
         if url is None:
             return
         self._worker_url = None
-        with contextlib.suppress(RuntimeError):
-            task = asyncio.get_running_loop().create_task(self._close_session())
-            _background_tasks.add(task)
-            task.add_done_callback(_background_tasks.discard)
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            logger.warning("CSM release_slot 이 이벤트 루프 밖에서 불림 — 워커 %s 를 풀에 되돌리지 못함", url)
+            return
+        task = loop.create_task(self._close_session())
+        _background_tasks.add(task)
+        task.add_done_callback(_background_tasks.discard)
         _pool(self._settings).put_nowait(url)
 
 
