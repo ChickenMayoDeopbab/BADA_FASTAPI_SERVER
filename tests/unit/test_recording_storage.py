@@ -8,10 +8,14 @@ from app.services.recording_storage import RecordingStorageService
 class _S3Client:
     def __init__(self) -> None:
         self.calls: list[dict] = []
+        self.delete_calls: list[dict] = []
         self.presign_calls: list[tuple] = []
 
     def put_object(self, **kwargs) -> None:
         self.calls.append(kwargs)
+
+    def delete_object(self, **kwargs) -> None:
+        self.delete_calls.append(kwargs)
 
     def generate_presigned_url(self, operation, Params=None, ExpiresIn=None):  # noqa: N803
         self.presign_calls.append((operation, Params, ExpiresIn))
@@ -98,3 +102,23 @@ def test_presigned_url_returns_none_for_empty_key() -> None:
     storage = RecordingStorageService(_settings(), client=_S3Client())
 
     assert storage.presigned_url("") is None
+
+
+def test_delete_removes_s3_object() -> None:
+    s3 = _S3Client()
+    storage = RecordingStorageService(_settings(), client=s3)
+
+    assert storage.delete("community/morphed/test.wav") is True
+    assert s3.delete_calls == [
+        {"Bucket": "bucket", "Key": "community/morphed/test.wav"}
+    ]
+
+
+def test_delete_is_noop_without_bucket() -> None:
+    settings = _settings()
+    settings.s3_bucket = None
+    s3 = _S3Client()
+    storage = RecordingStorageService(settings, client=s3)
+
+    assert storage.delete("community/morphed/test.wav") is False
+    assert s3.delete_calls == []
