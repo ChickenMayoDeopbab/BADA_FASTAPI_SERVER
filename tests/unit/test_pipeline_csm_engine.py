@@ -118,7 +118,10 @@ async def test_init_prefers_csm_then_qwen(monkeypatch) -> None:
     monkeypatch.setattr(pipeline_mod, "try_acquire_realtime_tts", acquire_qwen)
     await p._init_qwen_tts()
     assert p._qwen_tts is csm and p._current_tts_engine() == "csm"
-    assert records[-1] == ("realtime_tts_engine", {"session_id": "sess-qwen", "engine": "csm", "skip_reason": None})
+    assert records[-1] == (
+        "realtime_tts_engine",
+        {"session_id": "sess-qwen", "engine": "csm", "skip_reason": None, "csm_skip_reason": None},
+    )
 
     async def csm_busy(settings):
         return None, "busy"
@@ -126,6 +129,18 @@ async def test_init_prefers_csm_then_qwen(monkeypatch) -> None:
     monkeypatch.setattr(pipeline_mod, "try_acquire_realtime_csm", csm_busy)
     await p._init_qwen_tts()
     assert p._qwen_tts is qwen and p._current_tts_engine() == "qwen"
+    assert records[-1][1]["skip_reason"] is None and records[-1][1]["csm_skip_reason"] == "busy"
+
+    async def qwen_disabled(settings):
+        return None, "disabled"
+
+    monkeypatch.setattr(pipeline_mod, "try_acquire_realtime_tts", qwen_disabled)
+    await p._init_qwen_tts()
+    assert p._qwen_tts is None and p._current_tts_engine() == "eleven"
+    assert records[-1][1] == {
+        "session_id": "sess-qwen", "engine": "eleven", "skip_reason": "disabled", "csm_skip_reason": "busy",
+    }, "둘 다 못 붙으면 CSM 사유가 Qwen 사유에 덮이지 않아야 한다"
+    monkeypatch.setattr(pipeline_mod, "try_acquire_realtime_tts", acquire_qwen)
 
     p._settings = SimpleNamespace(csm_tts_realtime_enabled=False)
     monkeypatch.setattr(pipeline_mod, "try_acquire_realtime_csm", acquire_csm)

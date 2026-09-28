@@ -804,10 +804,11 @@ class VoicePipeline:
             await self._send_json(transcript_frame(TranscriptRole.AI, ai_text))
 
     async def _init_qwen_tts(self) -> None:
-        """실시간 엔진 고르기: CSM → Qwen → ElevenLabs"""
-        client, skip_reason = None, "disabled"
+        """실시간 엔진 고르기: CSM -> Qwen -> ElevenLabs"""
+        client, csm_skip_reason = None, "disabled"
         if getattr(self._settings, "csm_tts_realtime_enabled", False):
-            client, skip_reason = await try_acquire_realtime_csm(self._settings)
+            client, csm_skip_reason = await try_acquire_realtime_csm(self._settings)
+        skip_reason = None
         if client is None:
             client, skip_reason = await try_acquire_realtime_tts(self._settings)
         self._qwen_tts = client
@@ -816,6 +817,7 @@ class VoicePipeline:
             session_id=self._session_id,
             engine=self._current_tts_engine(),
             skip_reason=skip_reason,
+            csm_skip_reason=csm_skip_reason,
         )
 
     async def _begin_tts(self, session, emotion: AiEmotion, user_text: str) -> None:
