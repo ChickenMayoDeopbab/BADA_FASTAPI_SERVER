@@ -104,6 +104,13 @@ def test_end_to_end_fake_codec(tmp_path=None):
     # 잠금: 다른 프로세스가 잡고 있으면 거부(종료 코드 2)
     lk = open(os.path.join(out, ".lock"), "a+"); fcntl.flock(lk, fcntl.LOCK_EX | fcntl.LOCK_NB)
     r3 = run(base); assert r3.returncode == 2 and "다른 프로세스" in r3.stderr, (r3.returncode, r3.stderr); lk.close()
+    # 레벨 정규화: --level-target -26 이면 행에 level_db·gain_db 가 있고 합이 목표(상한 안 걸리면), 없으면 gain 0
+    r6 = run(base + ["--out", str(tmp_path / "tok26"), "--level-target", "-26"]); assert r6.returncode == 0, r6.stderr
+    rows26 = [json.loads(l) for l in open(os.path.join(str(tmp_path / "tok26"), "manifest", names[0]), encoding="utf-8")]
+    for r in rows26:
+        assert {"level_db", "gain_db", "peak_db", "floor_db", "speech_s", "capped", "weak"} <= set(r) and (r["capped"] or abs(r["level_db"] + r["gain_db"] + 26) < 0.02), r
+    assert all(r["gain_db"] == 0.0 and "level_db" in r for r in rows), "기본(목표 없음)은 기록만"
+    assert json.load(open(os.path.join(str(tmp_path / "tok26"), "meta.json")))["level"]["target"] == -26 and "레벨: 목표 -26.0" in r6.stdout
     # check_tokens.py 가 그대로 통한다
     r4 = subprocess.run([sys.executable, os.path.join(HERE, "check_tokens.py"), out], capture_output=True, text=True); assert r4.returncode == 0, r4.stdout
     # stat_ktel.py 도 돈다
