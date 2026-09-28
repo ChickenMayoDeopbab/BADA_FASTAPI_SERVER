@@ -38,6 +38,8 @@
 
 - **2026-09-28 죽은 코드 정리(PR 리뷰 4회차)**: `Session.rebase()` 의 `i, s = self._ids_spans(...) if False else (None, None)` 한 줄(항상 거짓 분기, 디버깅 잔재) 삭제. `_ids_spans` 는 `append_turn` 에서 계속 쓴다. 동작 변화 없음(py_compile + `test_worker.py` 재실행). 번들 sha256 `01c1523d976f…`.
 
+- **2026-09-28 rebase 기록(머지 뒤)**: `Session.rebases` 카운터를 두고 `speak` 로그에 `rebase %d`(그 speak 동안의 재프리필 횟수)를 남긴다. W2 의 첫 청크 p95 245 ms 군집(18개)이 재프리필 때문인지 서버 로그로 확정하기 위한 것. 이득 전 원 출력 레벨은 이미 같은 로그의 `level` 이다. 동작 변화 없음. 번들 sha256 `1988351fa7af…` — **서버에 올릴 최종 번들**.
+
 ## 다음
 
 W4 실제 통화 시험(`scripts/ws_listen.py ws`, 워커 켠 상태) · `speak` 에 rebase·원 레벨 기록 · 16 kHz 마이크 문맥(E-E) · 페르소나 = 사용자 본인 목소리 · WebSocket 전송(2차) · 끼어들기.

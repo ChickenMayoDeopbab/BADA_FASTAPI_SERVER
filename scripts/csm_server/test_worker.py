@@ -33,7 +33,7 @@ def test_commit_and_rebase(tok, model, sc):
     assert s.pos <= 260 and s.turns[0]["codes"].shape[0] == 40 and len(s.turns) < 7, (s.pos, len(s.turns))
     kept = [t["tag"] for t in s.turns]
     # 재프리필 결과 = 남은 턴만 새 세션에 한 번에 넣은 것
-    r = W.Session(model, sc, tok, budget=260); r.turns = [dict(t) for t in s.turns]; r.rebase(); fr = r.greedy_first_frame()
+    r = W.Session(model, sc, tok, budget=260); r.turns = [dict(t) for t in s.turns]; r.rebase(); assert r.rebases == 1; fr = r.greedy_first_frame()
     s2 = W.Session(model, sc, tok, budget=260); s2.turns = [dict(t) for t in s.turns]; s2.rebase(); fs = s2.greedy_first_frame()
     assert r.pos == s.pos and torch.equal(fr, fs), (r.pos, s.pos)
     s.rebase()                                                                           # 공유 상태를 s 의 캐시로 되돌린다

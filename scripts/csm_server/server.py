@@ -143,7 +143,7 @@ def speak(r: TextReq):
     cancel = threading.Event(); S["cancel"] = cancel
 
     def gen():
-        t0 = time.perf_counter(); g = None; it = None
+        t0 = time.perf_counter(); g = None; it = None; rb0 = s.rebases
         try:
             s.append_text(0, r.text); g = W.Generator(S["model"], S["sc"], s, S["codec"], max_frames=int(SEG_MAX_S / W.FRAME_S), gain_db=S["gen_gain"])
             it = g.run(cancel)                                      # 같은 생성기를 잡아 둔다 — 끊김 뒤에도 이 생성기를 이어서 비워야 낸 프레임이 확정된다
@@ -155,8 +155,8 @@ def speak(r: TextReq):
         finally:
             info = g.info if g is not None else {}
             if info.get("raw_level_db") is not None: S["gen_gain"] = float(np.clip(S["gen_gain"] + (float(os.environ.get("CSM_TARGET_DB", "-26")) - info["raw_level_db"] - S["gen_gain"]) * 0.5, -6, 12))   # 다음 세그먼트 이득 절반씩 보정
-            log.info("speak %s: %s → %s frames eos=%s cancelled=%s ttfa %s ms rtf %s level %s gain→%.1f pos %d (%.2f s)", r.session_id, r.text[:20], info.get("frames"), info.get("eos"), info.get("cancelled"),
-                     None if info.get("ttfa_ms") is None else round(info["ttfa_ms"]), None if info.get("rtf") is None else round(info["rtf"], 3), None if info.get("raw_level_db") is None else round(info["raw_level_db"], 1), S["gen_gain"], s.pos, time.perf_counter() - t0)
+            log.info("speak %s: %s → %s frames eos=%s cancelled=%s ttfa %s ms rtf %s level %s gain→%.1f pos %d rebase %d (%.2f s)", r.session_id, r.text[:20], info.get("frames"), info.get("eos"), info.get("cancelled"),
+                     None if info.get("ttfa_ms") is None else round(info["ttfa_ms"]), None if info.get("rtf") is None else round(info["rtf"], 3), None if info.get("raw_level_db") is None else round(info["raw_level_db"], 1), S["gen_gain"], s.pos, s.rebases - rb0, time.perf_counter() - t0)
             S["cancel"] = None; S["lock"].release()
     return StreamingResponse(gen(), media_type="audio/L16", headers={"X-Sample-Rate": "16000"})
 
