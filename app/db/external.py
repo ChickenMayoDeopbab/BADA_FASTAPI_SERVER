@@ -16,6 +16,8 @@ users_table = Table(
     Column("role", String(20)),
     Column("status", String(20), nullable=False, server_default=text("'ACTIVE'")),
     Column("suspended_until", DateTime(timezone=True)),
+    Column("sensitive_information_agreed_at", DateTime(timezone=True)),
+    Column("sensitive_information_withdrawn_at", DateTime(timezone=True)),
 )
 
 # FileORM 과 같은 테이블. user_id 는 Spring 업로드가 채우는 칸이라 여기서만 읽는다.
