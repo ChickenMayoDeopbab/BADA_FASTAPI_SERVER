@@ -102,14 +102,17 @@ class Session:
 class Codec:
     """Mimi 인코드(레벨 정규화 → 16 k→24 k → encode) · 프리픽스 재디코드(세그먼트 처음부터 디코드해 뒤 new 프레임만)."""
 
-    def __init__(self, model, target_db=-26.0):
+    def __init__(self, model, target_db=-26.0, band="wide"):
         self.mimi, self.dev, self.target = model.codec_model, model.codec_model.device, target_db
         self.k16 = G.resample_16k_to_24k                          # torch Kaiser-sinc(tok_kspon 과 같은 필터)
+        self.h16 = fir_bandpass(SR16) if band == "phone" else None   # phone: 입력(페르소나·사용자 턴)을 300~3,400 Hz 로 — 학습 문맥(8 kHz 상담 음성)과 같은 대역
 
     @torch.no_grad()
     def encode_pcm16k(self, pcm, normalize=True):
         """pcm: int16 ndarray(16 kHz mono) → (codes[T,32] long, level dict)"""
-        x = pcm.astype(np.float32) / 32768.0; lv = analyze(x, SR16, self.target)
+        x = pcm.astype(np.float32) / 32768.0
+        if self.h16 is not None: x = np.convolve(x, self.h16, mode="same").astype(np.float32)
+        lv = analyze(x, SR16, self.target)
         if normalize: x = apply_gain(x, lv["gain_db"])
         x24 = self.k16(torch.from_numpy(np.ascontiguousarray(x))).to(self.dev, self.mimi.dtype)
         return self.mimi.encode(x24[None, None]).audio_codes[0].T.long().cpu(), lv
@@ -128,6 +131,26 @@ class Codec:
         n = new * 1920                                            # 1,920 샘플 = 1 프레임
         return y[-n:] if n <= len(y) else y
 
+def fir_bandpass(sr, lo=300.0, hi=3400.0, half=None):
+    """전화 대역 선형 위상 FIR(Kaiser β 8.6, 리샘플러와 같은 설계). 24 kHz 에서 513탭 → 전이 ≈ 270 Hz."""
+    half = half or int(round(256 * sr / 24000)); n = np.arange(-half, half + 1)
+    lp = lambda fc: 2 * fc / sr * np.sinc(2 * fc / sr * n)
+    return ((lp(hi) - lp(lo)) * np.kaiser(2 * half + 1, 8.6)).astype(np.float32)
+
+
+class BandPass:
+    """대역 제한 FIR 를 프리픽스 전체에 torch conv1d 로 건다. 꼬리 half 샘플은 다음 입력이 오면 바뀌므로 holdback."""
+
+    def __init__(self, sr, device, lo=300.0, hi=3400.0):
+        h = fir_bandpass(sr, lo, hi); self.half = len(h) // 2; self.holdback = self.half
+        self.h, self.dev = torch.from_numpy(h).to(device), device
+
+    @torch.no_grad()
+    def __call__(self, x):
+        t = torch.as_tensor(np.ascontiguousarray(x), dtype=torch.float32, device=self.dev)
+        return torch.nn.functional.conv1d(t[None, None], self.h[None, None], padding=self.half)[0, 0].cpu().numpy()
+
+
 class Resampler24to16:
     """24 k→16 k(2/3) Kaiser-sinc, g1_score.resample 과 같은 설계(48 kHz 격자 385탭). 프리픽스 전체를 torch conv1d 로 돌리고 필터 꼬리(holdback)만 보류한다."""
 
@@ -145,19 +168,35 @@ class Resampler24to16:
         return y[: -(-x.numel() * self.up // self.down)].cpu().numpy()
 
 
+def agc_step(gain, y, sr, target, slew, lo=-6.0, hi=12.0):
+    """AGC 한 걸음. 지금까지의 파형(이득 전)에 말소리가 잡히면(level.analyze 의 weak 아님: 말소리 ≥ 0.3 s · SNR ≥ 10 dB) 목표 이득으로 ≤ slew dB 이동한다.
+    묵음·잡음뿐인 시작부에서는 그대로 둔다 — 안 그러면 상대 게이트가 잡음을 말소리로 읽어 +12 dB 까지 밀어 올린다(리뷰 지적). 목표 이득에는 피크 −2 dBFS 상한이 들어 있다."""
+    lv = analyze(y, sr, target)
+    if lv["weak"]: return gain, lv
+    want = float(np.clip(lv["gain_db"], lo, hi))
+    return gain + float(np.clip(want - gain, -slew, slew)), lv
+
+
 class Generator:
     """session.append_text 가 끝난 캐시 끝에서 프레임을 만든다. 청크(16 kHz int16 bytes)를 yield 하고, 끝에 이득 준 파형을 재인코딩해 session.commit_audio."""
 
-    def __init__(self, model, sc, session, codec, max_frames=250, chunk_frames=2, gain_db=3.0, target_db=-26.0):
+    def __init__(self, model, sc, session, codec, max_frames=250, chunk_frames=2, gain_db=3.0, target_db=-26.0, band="wide", slew_db=2.0):
         self.model, self.sc, self.session, self.codec = model, sc, session, codec
         self.max_frames, self.chunk, self.gain_db, self.target = max_frames, chunk_frames, gain_db, target_db
         self.rs = Resampler24to16(model.device); self.info = {}
+        self.band, self.slew = band, slew_db                       # phone: 출력도 300~3,400 Hz(문맥과 같은 대역) · slew: AGC 가 청크마다 옮길 수 있는 이득 상한(dB)
+        self.bp = BandPass(SR24, model.device) if band == "phone" else None; self.bp_hold = self.bp.holdback if self.bp is not None else 0
 
     @torch.no_grad()
     def run(self, cancel=None):
         dev, sc, s = self.model.device, self.sc, self.session; t0 = now(dev); T0 = s.pos
         limit = min(self.max_frames, self.model.config.max_position_embeddings - 2 - T0, 2048 - 2 - T0)
-        frames, eos, ttfa, sent16, done = [], False, None, 0, False; y24 = np.zeros(0, np.float32); raw_level = None
+        frames, eos, ttfa, sent16, done = [], False, None, 0, False
+        gain, y_g, y_bp, raw_level, n_chunks = float(self.gain_db), np.zeros(0, np.float32), np.zeros(0, np.float32), None, 0
+
+        def shaped(fr):                                           # 프레임들 → (대역 제한된) 이득 전 파형 24 kHz. 프리픽스 재디코드라 앞부분은 늘 같다.
+            y = self.codec.decode_tail(torch.stack(fr), len(fr)); return self.bp(y) if self.bp is not None else y
+
         try:
             for f in range(limit):
                 if cancel is not None and cancel.is_set(): break
@@ -167,14 +206,18 @@ class Generator:
                 if bool((fr[:, 1:] == 0).all()): eos = True; break
                 frames.append(fr[0].cpu())
                 if len(frames) % self.chunk == 0:
-                    y24 = apply_gain(self.codec.decode_tail(torch.stack(frames), len(frames)), self.gain_db)   # 세그먼트 전체(프리픽스) 디코드
-                    y16 = self.rs(y24); settled = len(y16) - self.rs.holdback
+                    y_bp = shaped(frames); n_chunks += 1
+                    if n_chunks >= 2 and len(y_bp) >= int(0.4 * SR24):                   # AGC: 둘째 청크부터, 말소리가 잡힌 뒤에만 청크당 ≤ slew dB(첫 청크는 앞 세그먼트 이득)
+                        gain, _ = agc_step(gain, y_bp, SR24, self.target, self.slew)
+                    settled24 = len(y_bp) - self.bp_hold                                  # 대역 필터 꼬리는 다음 청크에서 바뀌므로 아직 확정 아님
+                    if settled24 > len(y_g): y_g = np.concatenate([y_g, y_bp[len(y_g):settled24] * 10 ** (gain / 20)])   # 이미 낸 구간은 그대로, 새 구간만 현재 이득(클리핑은 출력 때만)
+                    y16 = self.rs(y_g); settled = len(y16) - self.rs.holdback
                     if settled > sent16:
                         if ttfa is None: ttfa = (now(dev) - t0) * 1e3
                         yield (np.clip(y16[sent16:settled], -1, 1) * 32767).astype("<i2").tobytes(); sent16 = settled
-            # 정상 끝(EOS·상한·cancel): 남은 꼬리까지 내보낸다
+            # 정상 끝(EOS·상한·cancel): 꼬리까지 확정해 내보낸다
             if frames:
-                y24 = apply_gain(self.codec.decode_tail(torch.stack(frames), len(frames)), self.gain_db); y16 = self.rs(y24)
+                y_bp = shaped(frames); y_g = np.concatenate([y_g, y_bp[len(y_g):] * 10 ** (gain / 20)]); y16 = self.rs(y_g)
                 if len(y16) > sent16:
                     if ttfa is None: ttfa = (now(dev) - t0) * 1e3
                     yield (np.clip(y16[sent16:], -1, 1) * 32767).astype("<i2").tobytes(); sent16 = len(y16)
@@ -182,15 +225,16 @@ class Generator:
         finally:
             # 어떻게 끝났든(EOS·상한·cancel·소비자가 끊어 GeneratorExit·예외) 낸 프레임을 이득 준 파형으로 재인코딩해 캐시에 확정한다(여기서는 yield 없음).
             if frames:
-                if not done: y24 = apply_gain(self.codec.decode_tail(torch.stack(frames), len(frames)), self.gain_db)   # 끊긴 경우: 마지막 청크 뒤 프레임까지 다시 디코드
-                raw_level = speech_rms_db(y24, SR24) - self.gain_db; lv = analyze(y24, SR24, self.target)     # 재인코딩은 정확히 −26 으로
-                codes_re = self.codec.encode_pcm24k(apply_gain(y24, lv["gain_db"]))
+                if not done: y_bp = shaped(frames); y_g = np.concatenate([y_g, y_bp[len(y_g):] * 10 ** (gain / 20)])   # 끊긴 경우: 마지막 청크 뒤 프레임까지
+                raw_level = speech_rms_db(y_bp, SR24)                                        # 이득 전 원 출력 레벨(대역 제한 뒤)
+                lv = analyze(y_g, SR24, self.target)                                         # 재인코딩은 정확히 −26 으로(문맥 레벨 고정)
+                codes_re = self.codec.encode_pcm24k(apply_gain(y_g, lv["gain_db"]))
                 s.commit_audio(codes_re[: len(frames)] if codes_re.shape[0] >= len(frames) else codes_re)
             else:
                 s.commit_audio(torch.zeros(0, NCB, dtype=torch.long))
             total = (now(dev) - t0) * 1e3
             self.info = dict(frames=len(frames), eos=eos, cancelled=(not done) or bool(cancel is not None and cancel.is_set()), ttfa_ms=ttfa, total_ms=total,
-                             rtf=(total / 1e3) / max(len(frames) * FRAME_S, FRAME_S), raw_level_db=raw_level, gain_db=self.gain_db, samples16=sent16)
+                             rtf=(total / 1e3) / max(len(frames) * FRAME_S, FRAME_S), raw_level_db=raw_level, gain_db=gain, samples16=sent16, band=self.band)
 
 
 def load_model(weights, repo="sesame/csm-1b", device="cpu", dtype=None, greedy=False, compile_=False, backend="inductor"):
