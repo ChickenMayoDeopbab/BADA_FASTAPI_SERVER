@@ -7,6 +7,7 @@ from app.db.models import ScenarioORM, is_deleted
 from app.deps.db import get_db
 from app.schemas.scenario import ScenarioContextResponse, ScriptTurnContext
 from app.services.feedback_service import delete_feedback as svc_delete_feedback
+from app.services.training_data_cleanup import delete_training_data as svc_delete_training_data
 
 router = APIRouter(dependencies=[Depends(require_internal_secret)])
 
@@ -72,6 +73,22 @@ async def delete_feedback(
     db: AsyncSession = Depends(get_db),
 ) -> None:
     await svc_delete_feedback(db, session_id)
+
+
+@router.delete(
+    "/training-data/{session_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="세션 훈련 데이터 삭제",
+    description=(
+        "Spring이 훈련 기록을 삭제하기 전에 해당 세션의 피드백, "
+        "음성 떨림 지표, 커뮤니티 첨부 및 음성 변조본을 삭제한다."
+    ),
+)
+async def delete_training_data(
+    session_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    await svc_delete_training_data(db, session_id)
 
 
 def _custom_context(row: ScenarioORM) -> ScenarioContextResponse:

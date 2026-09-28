@@ -35,6 +35,7 @@ training_records_table = Table(
     "training_records",
     external_metadata,
     Column("record_id", BigInteger, primary_key=True),
+    Column("session_id", String(255)),
     Column("user_id", BigInteger),
     Column("scenario_name", String(255)),
     Column("session_type", String(32)),

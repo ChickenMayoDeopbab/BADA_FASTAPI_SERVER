@@ -66,6 +66,12 @@ class RecordingStorageService:
             return False
         return True
 
+    def delete(self, key: str) -> bool:
+        if not self._bucket or not key or self._client is None:
+            return False
+        self._client.delete_object(Bucket=self._bucket, Key=key)
+        return True
+
     def presigned_url(self, key: str, expires_in: int = 600) -> str | None:
         if not self._bucket or not key or self._client is None:
             return None
