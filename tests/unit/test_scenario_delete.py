@@ -48,6 +48,9 @@ class _FakeDB:
     async def commit(self) -> None:
         self.commits += 1
 
+    async def delete(self, row: object) -> None:
+        self.rows.pop(row.scenario_id, None)
+
     async def execute(self, stmt: object) -> _FakeResult:
         # get_scenarios의 연습 횟수 집계 쿼리 — 이 테스트에서는 기록이 없다.
         if FeedbackORM.__tablename__ in str(stmt):
@@ -62,6 +65,7 @@ def _custom_row(scenario_id: int, user_id: int | None, **kw) -> SimpleNamespace:
         content="설명",
         category=kw.get("category", ScenarioCategory.OTHER.value),
         scenario_image=None,
+        example_audio_url=None,
         tts_voice_id=None,
         ai_prompt="prompt",
         user_id=user_id,
@@ -102,14 +106,13 @@ def _ids(response) -> list[int]:
 
 
 
-async def test_owner_soft_deletes_own_custom() -> None:
+async def test_owner_hard_deletes_own_custom() -> None:
     row = _custom_row(101, user_id=1)
     db = _FakeDB([row])
 
     assert await delete_custom_scenario(db, 101, user_id=1) is True
-    assert row.deleted_at is not None
     assert db.commits == 1
-    assert 101 in db.rows
+    assert 101 not in db.rows
     assert db.locked_gets == 1
 
 
@@ -153,7 +156,7 @@ async def test_owner_can_delete_own_warmup() -> None:
     db = _FakeDB([row])
 
     assert await delete_custom_scenario(db, 101, user_id=1) is True
-    assert row.deleted_at is not None
+    assert 101 not in db.rows
 
 
 
@@ -219,7 +222,7 @@ async def _delete(app: FastAPI, path: str) -> httpx.Response:
         return await client.delete(path)
 
 
-async def test_delete_endpoint_returns_204_and_soft_deletes() -> None:
+async def test_delete_endpoint_returns_204_and_hard_deletes() -> None:
     row = _custom_row(101, user_id=1)
     app = _make_app([row], user_id=1)
 
@@ -227,7 +230,7 @@ async def test_delete_endpoint_returns_204_and_soft_deletes() -> None:
 
     assert resp.status_code == 204
     assert resp.content == b""
-    assert row.deleted_at is not None
+    assert 101 not in app.state.fake_db.rows
 
 
 async def test_delete_endpoint_404_for_others_preset_missing_deleted() -> None:

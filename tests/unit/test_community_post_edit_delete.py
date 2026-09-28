@@ -69,7 +69,7 @@ async def test_partial_update_keeps_untouched_field() -> None:
     assert resp.json()["content"] == "원래 내용"
 
 
-async def test_author_soft_deletes_own_post() -> None:
+async def test_author_hard_deletes_own_post() -> None:
     async with community_app(user_id=7) as env:
         post_id = await create_post(env, "지울 글")
 
@@ -78,13 +78,12 @@ async def test_author_soft_deletes_own_post() -> None:
         listed = await env.client.get("/api/v1/community/posts")
         detail = await env.client.get(f"/api/v1/community/posts/{post_id}")
         async with env.sessions() as session:
-            row = await session.get(PostORM, post_id)
-            still_there = row is not None and row.deleted_at is not None
+            deleted_row = await session.get(PostORM, post_id)
 
     assert resp.status_code == 204
     assert listed.json()["posts"] == []
     assert detail.status_code == 404
-    assert still_there, "soft delete 라 행은 남고 deleted_at 만 찍혀야 한다"
+    assert deleted_row is None
 
 
 async def test_other_user_cannot_delete_someones_post() -> None:
