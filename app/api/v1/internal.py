@@ -8,6 +8,7 @@ from app.deps.db import get_db
 from app.schemas.scenario import ScenarioContextResponse, ScriptTurnContext
 from app.services.feedback_service import delete_feedback as svc_delete_feedback
 from app.services.training_data_cleanup import delete_training_data as svc_delete_training_data
+from app.services.user_data_cleanup import delete_user_data as svc_delete_user_data
 
 router = APIRouter(dependencies=[Depends(require_internal_secret)])
 
@@ -89,6 +90,22 @@ async def delete_training_data(
     db: AsyncSession = Depends(get_db),
 ) -> None:
     await svc_delete_training_data(db, session_id)
+
+
+@router.delete(
+    "/users/{user_id}/data",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="회원 탈퇴 데이터 삭제",
+    description=(
+        "Spring의 회원 행 삭제 전에 FastAPI 소유의 회원 데이터와 파일을 삭제한다. "
+        "신고·차단 기록과 사용량·세션 기록은 보유정책에 따라 유지한다."
+    ),
+)
+async def delete_user_data(
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    await svc_delete_user_data(db, user_id)
 
 
 def _custom_context(row: ScenarioORM) -> ScenarioContextResponse:
