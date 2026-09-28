@@ -30,6 +30,13 @@ async def delete_training_data(
     record = (await db.execute(record_stmt)).first()
 
     try:
+        if record is not None and record.recording_key:
+            recording_storage = storage or build_storage(get_settings())
+            await asyncio.to_thread(
+                recording_storage.delete,
+                morphed_key(record.recording_key),
+            )
+
         await db.execute(delete(FeedbackORM).where(FeedbackORM.session_id == session_id))
         await db.execute(
             delete(VoiceTremorMetricORM).where(
@@ -48,12 +55,3 @@ async def delete_training_data(
         await db.rollback()
         logger.exception("훈련 데이터 삭제 실패", extra={"session_id": session_id})
         raise
-
-    if record is None or not record.recording_key:
-        return
-
-    recording_storage = storage or build_storage(get_settings())
-    await asyncio.to_thread(
-        recording_storage.delete,
-        morphed_key(record.recording_key),
-    )
