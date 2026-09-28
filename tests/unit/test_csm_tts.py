@@ -170,7 +170,9 @@ async def test_acquire_takes_one_worker_per_call_and_release_closes_session() ->
     await session.begin()
     await session.aclose()
     a.release_slot()
-    await asyncio.sleep(0)
+    assert len(csm_mod._background_tasks) == 1, "close 태스크는 끝날 때까지 강한 참조로 잡아 둔다"
+    await asyncio.gather(*csm_mod._background_tasks)
+    assert not csm_mod._background_tasks, "끝난 태스크는 집합에서 빠진다"
     closes = [c for c in calls if c["path"] == "/v1/session/close"]
     assert [c["session_id"] for c in closes] == [a._session_id]
 

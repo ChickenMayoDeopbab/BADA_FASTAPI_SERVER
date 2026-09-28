@@ -23,6 +23,8 @@ _READ_TIMEOUT = 10.0
 _worker_pools: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Queue[str]] = (
     weakref.WeakKeyDictionary()
 )
+# 통화 종료 뒤 워커 세션을 닫는 백그라운드 태스크. 강한 참조가 없으면 완료 전에 GC 될 수 있다(asyncio 문서).
+_background_tasks: set[asyncio.Task[None]] = set()
 
 
 def worker_urls(settings: Settings) -> list[str]:
@@ -182,7 +184,9 @@ class CsmRealtimeTTSClient:
             return
         self._worker_url = None
         with contextlib.suppress(RuntimeError):
-            asyncio.get_running_loop().create_task(self._close_session())
+            task = asyncio.get_running_loop().create_task(self._close_session())
+            _background_tasks.add(task)
+            task.add_done_callback(_background_tasks.discard)
         _pool(self._settings).put_nowait(url)
 
 
