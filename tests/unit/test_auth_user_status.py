@@ -61,6 +61,19 @@ async def _set_status(env, status: str, suspended_until=None) -> None:
         await session.commit()
 
 
+async def _set_sensitive_consent(env, agreed_at=None, withdrawn_at=None) -> None:
+    async with env.sessions() as session:
+        await session.execute(
+            update(users_table)
+            .where(users_table.c.user_id == 7)
+            .values(
+                sensitive_information_agreed_at=agreed_at,
+                sensitive_information_withdrawn_at=withdrawn_at,
+            )
+        )
+        await session.commit()
+
+
 async def test_active_user_can_call_authenticated_api(monkeypatch) -> None:
     async with community_app() as env:
         resp = await _request_with_real_auth(env, monkeypatch)
@@ -106,6 +119,37 @@ async def test_deleted_user_is_rejected(monkeypatch) -> None:
     assert resp.json()["detail"] == "USER_NOT_FOUND"
 
 
+async def test_sensitive_information_consent_is_required() -> None:
+    async with community_app() as env, env.sessions() as session:
+        with pytest.raises(HTTPException) as exc_info:
+            await auth.ensure_sensitive_information_consent(session, 7)
+
+    assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
+    assert exc_info.value.detail == "SENSITIVE_INFORMATION_CONSENT_REQUIRED"
+
+
+async def test_active_sensitive_information_consent_is_allowed() -> None:
+    async with community_app() as env:
+        await _set_sensitive_consent(env, agreed_at=now_utc())
+        async with env.sessions() as session:
+            await auth.ensure_sensitive_information_consent(session, 7)
+
+
+async def test_withdrawn_sensitive_information_consent_is_rejected() -> None:
+    async with community_app() as env:
+        await _set_sensitive_consent(
+            env,
+            agreed_at=now_utc() - timedelta(minutes=1),
+            withdrawn_at=now_utc(),
+        )
+        async with env.sessions() as session:
+            with pytest.raises(HTTPException) as exc_info:
+                await auth.ensure_sensitive_information_consent(session, 7)
+
+    assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
+    assert exc_info.value.detail == "SENSITIVE_INFORMATION_CONSENT_REQUIRED"
+
+
 async def test_websocket_policy_rejection_closes_with_policy_violation(monkeypatch) -> None:
     ws = _FakeWebSocket()
     monkeypatch.setattr(auth, "authenticate_ws_token", _authenticate_ws_token)
@@ -120,6 +164,28 @@ async def test_websocket_policy_rejection_closes_with_policy_violation(monkeypat
         await auth.authenticate_ws_user(ws, "token")
 
     assert ws.closed == [(status.WS_1008_POLICY_VIOLATION, "USER_BANNED")]
+
+
+async def test_websocket_consent_rejection_closes_with_policy_violation(monkeypatch) -> None:
+    ws = _FakeWebSocket()
+    monkeypatch.setattr(auth, "authenticate_ws_token", _authenticate_ws_token)
+    monkeypatch.setattr(auth, "AsyncSessionLocal", _SessionContext)
+
+    async def allow(_db, _user_id) -> None:
+        return None
+
+    async def reject(_db, _user_id) -> None:
+        raise HTTPException(status_code=403, detail="SENSITIVE_INFORMATION_CONSENT_REQUIRED")
+
+    monkeypatch.setattr(auth, "ensure_user_can_access", allow)
+    monkeypatch.setattr(auth, "ensure_sensitive_information_consent", reject)
+
+    with pytest.raises(HTTPException):
+        await auth.authenticate_ws_user(ws, "token")
+
+    assert ws.closed == [
+        (status.WS_1008_POLICY_VIOLATION, "SENSITIVE_INFORMATION_CONSENT_REQUIRED")
+    ]
 
 
 async def test_websocket_database_failure_closes_with_internal_error(monkeypatch) -> None:
