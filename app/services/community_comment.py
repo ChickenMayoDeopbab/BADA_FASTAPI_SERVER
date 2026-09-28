@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.enums import CommunityNotificationType
@@ -206,17 +206,18 @@ async def delete_comment(db: AsyncSession, comment_id: int, *, user_id: int) -> 
     if row.user_id != user_id and not await is_admin_user(db, user_id):
         raise CommentForbiddenError
 
-    now = now_utc()
-    row.deleted_at = now
+    await hard_delete_comment_thread(db, row)
+    await db.commit()
 
+
+async def hard_delete_comment_thread(
+    db: AsyncSession,
+    row: PostCommentORM,
+) -> None:
     if row.parent_comment_id is None:
         await db.execute(
-            update(PostCommentORM)
-            .where(
-                PostCommentORM.parent_comment_id == comment_id,
-                PostCommentORM.deleted_at.is_(None),
+            delete(PostCommentORM).where(
+                PostCommentORM.parent_comment_id == row.comment_id
             )
-            .values(deleted_at=now)
         )
-
-    await db.commit()
+    await db.delete(row)
