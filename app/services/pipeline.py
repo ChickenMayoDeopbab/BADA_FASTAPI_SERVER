@@ -31,6 +31,7 @@ from app.schemas.frames import (
     transcript_frame,
 )
 from app.schemas.llm import AiEmotion, LLMEventType, TurnContext
+from app.services.csm_tts import try_acquire_realtime_csm
 from app.services.feedback_points import Band, is_safe, voice_band
 from app.services.feedback_service import save_feedback
 from app.services.llm import LLMClient
@@ -646,7 +647,7 @@ class VoicePipeline:
             "step_done": False,
             "end_call": False,
             "error": False,
-            "tts_engine": "qwen" if getattr(self, "_qwen_tts", None) else "eleven",
+            "tts_engine": self._current_tts_engine(),
         }
         usage: dict[str, int | None] = {
             "prompt": None, "cached": None, "output": None, "thought": None,
@@ -658,7 +659,7 @@ class VoicePipeline:
             if box["tts"] is not None:
                 return
             session = await connect_task
-            await session.begin(emotion)
+            await self._begin_tts(session, emotion, ctx.user_utterance)
             box["tts"] = session
             await self._send_json(emotion_frame(emotion))
             timings.emotion_at = now_ms()
@@ -803,15 +804,37 @@ class VoicePipeline:
             await self._send_json(transcript_frame(TranscriptRole.AI, ai_text))
 
     async def _init_qwen_tts(self) -> None:
-        """elevenlabs 갈지 qwen 쓸지"""
-        client, skip_reason = await try_acquire_realtime_tts(self._settings)
+        """실시간 엔진 고르기: CSM -> Qwen -> ElevenLabs"""
+        client, csm_skip_reason = None, "disabled"
+        if getattr(self._settings, "csm_tts_realtime_enabled", False):
+            client, csm_skip_reason = await try_acquire_realtime_csm(self._settings)
+        skip_reason = None
+        if client is None:
+            client, skip_reason = await try_acquire_realtime_tts(self._settings)
         self._qwen_tts = client
         log_metric(
             "realtime_tts_engine",
             session_id=self._session_id,
-            engine="qwen" if client is not None else "eleven",
+            engine=self._current_tts_engine(),
             skip_reason=skip_reason,
+            csm_skip_reason=csm_skip_reason,
         )
+
+    async def _begin_tts(self, session, emotion: AiEmotion, user_text: str) -> None:
+        """CSM 엔진이 문맥을 받으면 이번 사용자 발화를 같이 넘긴다."""
+        if not getattr(session, "accepts_user_turn", False):
+            await session.begin(emotion)
+            return
+        user_turn: tuple[bytes, str] | None = None
+        intervals = getattr(self, "_user_turn_intervals", None)
+        buf = getattr(self, "_tremor_buf", None)
+        if intervals and buf is not None and user_text:
+            start_s, end_s = intervals[-1]
+            b0 = max(0, int(start_s * 16000) * 2)
+            b1 = min(len(buf), int(end_s * 16000) * 2)
+            if b1 - b0 >= 2:
+                user_turn = (bytes(buf[b0:b1]), user_text)
+        await session.begin(emotion, user_turn=user_turn)
 
     def _switch_to_eleven(self, reason: str) -> None:
         """통화 중 Qwen 장애 시 elevenlabs로 전환"""
@@ -1332,7 +1355,10 @@ class VoicePipeline:
         return acc
 
     def _current_tts_engine(self) -> str:
-        return "qwen" if getattr(self, "_qwen_tts", None) else "eleven"
+        client = getattr(self, "_qwen_tts", None)
+        if client is None:
+            return "eleven"
+        return getattr(client, "engine_name", "qwen")
 
     def _account_turn(self, flags: dict, usage: dict, audio: TurnAudioStats | None) -> None:
         try:
