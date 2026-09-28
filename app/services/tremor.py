@@ -6,6 +6,9 @@ import librosa
 import numpy as np
 from scipy.signal import butter, medfilt, sosfiltfilt
 
+# librosa.yin 기본값. 바꾸면 F0 값이 달라져 떨림 임계값을 다시 맞춰야 한다.
+_YIN_FRAME_LENGTH = 2048
+
 
 @dataclass
 class TremorConfig:
@@ -16,6 +19,9 @@ class TremorConfig:
     fmin: float = 70.0
     fmax: float = 400.0
     contour_fs: float = 100.0
+    # yin 을 녹음 전체에 한 번에 돌리면 1초당 약 16MB 를 쓴다(60초 ≈ 1GB).
+    # 이 길이씩 나눠 돌려 메모리를 묶어 둔다. 프레임끼리 독립이라 값은 같다.
+    f0_chunk_sec: float = 5.0
     energy_active_frac: float = 0.10
     energy_ref_percentile: float = 95.0
     octave_ratio: float = 1.5
@@ -80,8 +86,7 @@ class TremorAnalyzer:
     def _extract_f0_cents(self, y: np.ndarray):
         config = self.config
         hop = max(1, int(round(config.sample_rate / config.contour_fs)))
-        f0 = librosa.yin(y, fmin=config.fmin, fmax=config.fmax,
-                         sr=config.sample_rate, hop_length=hop)
+        f0 = self._yin(y, hop)
         rms = librosa.feature.rms(y=y, frame_length=4 * hop, hop_length=hop)[0]
         m = min(len(f0), len(rms))
         f0, rms = f0[:m], rms[:m]
@@ -98,6 +103,30 @@ class TremorAnalyzer:
         ref = float(np.median(f0[active]))
         f0_cents = 1200.0 * np.log2(np.clip(f0, 1e-6, None) / ref)
         return f0_cents.astype(np.float64), active
+
+    def _yin(self, y: np.ndarray, hop: int) -> np.ndarray:
+        """librosa.yin(center=True) 과 같은 값을 프레임 묶음 단위로 계산한다."""
+        config = self.config
+        params = {
+            "fmin": config.fmin,
+            "fmax": config.fmax,
+            "sr": config.sample_rate,
+            "frame_length": _YIN_FRAME_LENGTH,
+            "hop_length": hop,
+        }
+        chunk = max(1, int(round(config.f0_chunk_sec * config.contour_fs)))
+        n_frames = 1 + len(y) // hop  # center=True 일 때 프레임 수
+        if n_frames <= chunk:
+            return librosa.yin(y, **params)
+
+        # center=True 가 하는 0 채우기를 한 번만 해 두고, 묶음마다 필요한 샘플만 잘라 넘긴다.
+        padded = np.pad(y, _YIN_FRAME_LENGTH // 2)
+        parts = []
+        for start in range(0, n_frames, chunk):
+            stop = min(start + chunk, n_frames)
+            seg = padded[start * hop:(stop - 1) * hop + _YIN_FRAME_LENGTH]
+            parts.append(librosa.yin(seg, center=False, **params))
+        return np.concatenate(parts)
 
     def _octave_fix(self, f0: np.ndarray) -> np.ndarray:
         r = self.config.octave_ratio
