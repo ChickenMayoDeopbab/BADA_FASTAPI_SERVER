@@ -212,8 +212,11 @@ async def _run_ws_turn(args: argparse.Namespace, rec: Recorder, ws, audio: bytes
                 return False
             try:
                 msg = await asyncio.wait_for(ws.recv(), timeout=remaining)
-            except (TimeoutError, websockets.ConnectionClosed):
-                print("  연결 종료/타임아웃")
+            except TimeoutError:
+                print("  타임아웃")
+                return False
+            except websockets.ConnectionClosed as exc:
+                print(f"  서버가 연결을 닫음 (code {exc.code}, reason {exc.reason!r}) — 앱 로그에서 이유 확인")
                 return False
             if isinstance(msg, bytes):
                 if not got_pcm:
