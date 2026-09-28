@@ -56,6 +56,7 @@ def main():
     test_session_incremental_equals_oneshot(tok, model, sc)
     test_commit_and_rebase(tok, model, sc)
     test_bandpass(tok, model, sc)
+    test_agc_gate(tok, model, sc)
     test_codec(tok, model, sc)
     test_generator(tok, model, sc)
     print("전부 통과 ✓")
@@ -79,6 +80,26 @@ def test_bandpass(tok, model, sc):
     d = max(np.abs(bp(x[:n])[: n - bp.holdback] - full[: n - bp.holdback]).max() for n in range(bp.holdback + 1, len(x), 1920 * 2))
     assert d < 1e-5, f"프리픽스 대역 필터 vs 전체 최대 차 {d:.2e}"
     print(f"  ✓ BandPass(24 k, {2 * bp.half + 1}탭): 150 Hz {g[150]:.0f} · 1 k {g[1000]:+.2f} · 3 k {g[3000]:+.2f} · 4 k {g[4000]:.0f} · 6 k {g[6000]:.0f} dB · 프리픽스 스트리밍 = 전체(차 {d:.1e}, holdback {bp.holdback})")
+
+
+def test_agc_gate(tok, model, sc):
+    """모델 없이: 묵음·잡음뿐이면 이득 불변, 말소리(배음 버즈)가 있으면 목표로 ≤ slew 씩 수렴, 앞 묵음 뒤 말소리도 같다."""
+    sr = 24000; rng = np.random.default_rng(0); slew = 2.0
+    noise = (1e-3 * rng.standard_normal(int(0.6 * sr))).astype(np.float32)                                      # ≈ −60 dBFS 잡음만
+    g, lv = W.agc_step(3.0, noise, sr, -26.0, slew); assert g == 3.0 and lv["weak"], (g, lv)
+    t = np.arange(int(1.0 * sr)) / sr; buzz = sum(np.sin(2 * np.pi * 180 * k * t) / k for k in range(1, 13)); buzz = buzz / np.abs(buzz).max() * (0.5 + 0.5 * np.sin(2 * np.pi * 3 * t))
+    def run(x, g0, steps=10):
+        g = g0; hist = []
+        for _ in range(steps): g, lv = W.agc_step(g, x.astype(np.float32), sr, -26.0, slew); hist.append(g)
+        return g, lv, hist
+    quiet = buzz * 10 ** (-40 / 20) / 10 ** (W.speech_rms_db(buzz.astype(np.float32), sr) / 20)                # 말소리 레벨 −40 dBFS
+    g, lv, hist = run(quiet, 0.0); want = min(12.0, lv["gain_db"]); assert not lv["weak"] and abs(g - want) < 0.5 and max(abs(np.diff([0.0] + hist))) <= slew + 1e-6, (g, want, hist)
+    loud = buzz * 10 ** (-16 / 20) / 10 ** (W.speech_rms_db(buzz.astype(np.float32), sr) / 20)                 # −16 dBFS → 이득은 −6 바닥까지
+    g2, lv2, _ = run(loud, 0.0); assert abs(g2 - max(-6.0, lv2["gain_db"])) < 0.5, (g2, lv2["gain_db"])
+    lead = np.concatenate([noise[: int(0.5 * sr)], quiet[: int(0.5 * sr)]]).astype(np.float32)                   # 앞 0.5 s 묵음 + 말소리
+    g3, lv3 = W.agc_step(0.0, lead[: int(0.5 * sr)], sr, -26.0, slew); g4, lv4 = W.agc_step(g3, lead, sr, -26.0, slew)
+    assert g3 == 0.0 and g4 > 0.0, (g3, g4)
+    print(f"  ✓ AGC 게이트: 잡음만 → 이득 불변(weak) · −40 dBFS 버즈 → 이득 0 → {g:+.1f}(목표 {want:+.1f}, 걸음 ≤ {slew}) · −16 dBFS → {g2:+.1f} · 앞 묵음 0.5 s 는 안 올리고 말소리 뒤 {g4:+.1f}")
 
 
 @torch.no_grad()

@@ -168,6 +168,15 @@ class Resampler24to16:
         return y[: -(-x.numel() * self.up // self.down)].cpu().numpy()
 
 
+def agc_step(gain, y, sr, target, slew, lo=-6.0, hi=12.0):
+    """AGC 한 걸음. 지금까지의 파형(이득 전)에 말소리가 잡히면(level.analyze 의 weak 아님: 말소리 ≥ 0.3 s · SNR ≥ 10 dB) 목표 이득으로 ≤ slew dB 이동한다.
+    묵음·잡음뿐인 시작부에서는 그대로 둔다 — 안 그러면 상대 게이트가 잡음을 말소리로 읽어 +12 dB 까지 밀어 올린다(리뷰 지적). 목표 이득에는 피크 −2 dBFS 상한이 들어 있다."""
+    lv = analyze(y, sr, target)
+    if lv["weak"]: return gain, lv
+    want = float(np.clip(lv["gain_db"], lo, hi))
+    return gain + float(np.clip(want - gain, -slew, slew)), lv
+
+
 class Generator:
     """session.append_text 가 끝난 캐시 끝에서 프레임을 만든다. 청크(16 kHz int16 bytes)를 yield 하고, 끝에 이득 준 파형을 재인코딩해 session.commit_audio."""
 
@@ -198,10 +207,8 @@ class Generator:
                 frames.append(fr[0].cpu())
                 if len(frames) % self.chunk == 0:
                     y_bp = shaped(frames); n_chunks += 1
-                    if n_chunks >= 2 and len(y_bp) >= int(0.4 * SR24):                   # AGC: 둘째 청크부터 지금까지의 레벨로 이득을 청크당 ≤ slew dB 씩 옮긴다(첫 청크는 앞 세그먼트 이득)
-                        peak = 20 * np.log10(max(float(np.abs(y_bp).max()), 1e-6))
-                        want = float(np.clip(min(self.target - speech_rms_db(y_bp, SR24), -2.0 - peak), -6.0, 12.0))   # 피크 −2 dBFS 상한(level.analyze 와 같은 규칙) — 클리핑 방지
-                        gain += float(np.clip(want - gain, -self.slew, self.slew))
+                    if n_chunks >= 2 and len(y_bp) >= int(0.4 * SR24):                   # AGC: 둘째 청크부터, 말소리가 잡힌 뒤에만 청크당 ≤ slew dB(첫 청크는 앞 세그먼트 이득)
+                        gain, _ = agc_step(gain, y_bp, SR24, self.target, self.slew)
                     settled24 = len(y_bp) - self.bp_hold                                  # 대역 필터 꼬리는 다음 청크에서 바뀌므로 아직 확정 아님
                     if settled24 > len(y_g): y_g = np.concatenate([y_g, y_bp[len(y_g):settled24] * 10 ** (gain / 20)])   # 이미 낸 구간은 그대로, 새 구간만 현재 이득(클리핑은 출력 때만)
                     y16 = self.rs(y_g); settled = len(y16) - self.rs.holdback
