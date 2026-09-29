@@ -28,6 +28,10 @@ g0 3종과 `tok_kspon.py` 는 학교 3090·집 PC 4060 에서 실제로 돈 파�
 | `test_csm_data_b.py` | 위 단위 시험(가짜 토크나이저·샤드): 추출 서로소·창 예산·레이블 표 개수·혼합 순서·끝까지 | 6/6 |
 | `verify_inputs_b.py` | B 로더 = HF 다중 턴 경로(`apply_chat_template` + 설계 §5 −101 처방 + `_merge`) 확인, CPU fp32 | **동일**: input_ids 137위치(턴 구분 토큰 없음) · 임베딩 차이 0.0 · 레이블 동일 · loss 5.72336 = 5.72336 |
 | `train_b.py` | **B단계 학습 루프** — train_a 루프 + B 로더 + 혼합 + `--init`(가중치만) + 검증 문맥 이득 Δ + `epoch_k` 링크 | CPU 스모크(가짜): 2업데이트·Δ 출력·저장·이어받기. **GPU 미실행** |
+| `tok_emo.py` | **B단계 재료 2(2026-09-29)** — 감정 태깅 자유대화(AIHub 71631/71632) 라벨·wav zip → 세션·턴 Mimi 토큰(`csm_data_b` 호환 행). 파일마다 화자별 채널을 에너지로 고르고(`channel_map`, 분리 dB 기록, < 1 dB 면 `mixed`), 타임스탬프로 턴 병합(간격 ≤ 1 s·≤ 20 s), 겹침 비율·`#@이름#` 마스킹 플래그, 16 k→24 k Kaiser-sinc, −26 dBFS 정규화 | 실내_5 755파일 175.2 h 를 집 PC 4060 에서 110분(실시간 ≈ 100배) · 겹침 플래그 42 % · 뒤바뀜 51 · 분리 안 됨 41 |
+| `test_tok_emo.py` | 위 단위 시험(쉼표 시간·마스킹·턴 병합·겹침 / 채널 선택 뒤바뀜·mixed / 가짜 zip 끝까지·오디오 밖 건너뜀) | 3/3 |
+| `keep_best.py` | 학습 옆에 띄워 `log.jsonl` 의 검증 loss 최저 `step_*` 를 `best/` 로 하드링크 보존(`--keep` 정리에서 살아남음, 여유 30 GB 미만이면 안 함) | b_emo1 에서 step_002000(검증 4.94) 보존 확인 |
+| `g1b_human_emo.py` | g1e 평가 세트의 사람 원본 — `set.jsonl` 의 `start_s/end_s/chan` 으로 스테레오 zip 에서 목표 턴을 잘라 `human/<id>.wav` | 집 PC 실행 대기 |
 
 ## 실행 환경
 - **학교 GPU 서버**: GPU 0(3090, 비어 있었음 — 1·2 는 운영 Qwen 워커) · venv `~/csm-venv` = Python 3.12 / torch 2.9.1+cu126 / transformers 5.17.0 · 파일 `~/CSM/` · 모델은 `sesame/csm-1b` 의 HF 형식 파일만(7.1 GB), 학교망에선 `HF_HUB_DISABLE_XET=1` 로 받았다 · `HF_HOME=~/.cache/hf`
