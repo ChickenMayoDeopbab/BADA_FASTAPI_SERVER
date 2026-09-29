@@ -12,7 +12,7 @@
 import argparse, glob, json, os, random, re, wave
 import numpy as np, torch
 
-BAD = ("laugh", "overlap", "unknown", "repeat", "unclear", "dual", "breath")
+BAD = ("laugh", "overlap", "unknown", "repeat", "unclear", "dual", "breath", "masked", "mixed")   # masked·mixed: tok_emo(71631) 플래그
 SR, GEN_FRAMES, MAX_POS = 24000, 250, 2048
 
 
@@ -37,15 +37,16 @@ def load_dev(root, pattern):
                 if cur: sessions.append((key, cur))
                 key, cur = r["session"], []
             cur.append(dict(shard=name, idx=r["idx"], role=r["role"], spk_id=r["spk_id"], spell=r["spell"].strip(), pron=r["pron"].strip(), frames=int(r["frames"]),
-                            flags=r["flags"], has_text=bool(r["has_text"]), utts=r["utts"], dur_s=r["dur_s"], tag=0 if r["role"] == "상담원" else 1))
+                            flags=r["flags"], has_text=bool(r["has_text"]), utts=r.get("utts", []), dur_s=r["dur_s"], tag=0 if r["role"] == "상담원" else 1,
+                            start_s=r.get("start_s"), end_s=r.get("end_s"), chan=r.get("chan")))               # tok_emo 행: 원본 stereo wav 에서 사람 원본을 자를 때 쓴다(utts 없음)
         if cur: sessions.append((key, cur))
     return sessions
 
 
-def candidates(session, turns, tok, lo=38, hi=125, ctx_min=750, ref_min=25):
+def candidates(session, turns, tok, lo=38, hi=125, ctx_min=750, ref_min=25, roles=("상담원",)):
     out = []
     for i, t in enumerate(turns):
-        if not (t["role"] == "상담원" and t["has_text"] and lo <= t["frames"] <= hi and ok_text(t["spell"]) and not any(t["flags"].get(k, 0) for k in BAD)): continue
+        if not ((roles is None or t["role"] in roles) and t["has_text"] and lo <= t["frames"] <= hi and ok_text(t["spell"]) and not any(t["flags"].get(k, 0) for k in BAD)): continue
         if sum(u["frames"] for u in turns[:i]) < ctx_min: continue
         budget = MAX_POS - GEN_FRAMES - len(text_ids(tok, t["spell"], t["tag"])); ctx, frames, pos = [], 0, 0
         for u in reversed(turns[:i]):
@@ -69,10 +70,11 @@ def main():
     ap.add_argument("--pattern", default="valid_D60"); ap.add_argument("--n", type=int, default=100); ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--per-session", type=int, default=1); ap.add_argument("--repo", default="sesame/csm-1b"); ap.add_argument("--mimi", default="kyutai/mimi")
     ap.add_argument("--no-audio", action="store_true", help="시험용: 코덱 wav 를 안 만든다"); ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
-    a = ap.parse_args()
+    ap.add_argument("--roles", default="상담원", help="목표 턴 역할(쉼표 구분) 또는 any — tok_emo(71631) 는 또래 대화라 any")
+    a = ap.parse_args(); roles = None if a.roles == "any" else tuple(a.roles.split(","))
     from transformers import AutoProcessor
     tok = AutoProcessor.from_pretrained(a.repo).tokenizer
-    sessions = load_dev(os.path.expanduser(a.data), a.pattern); cand = [c for s, ts in sessions for c in candidates(s, ts, tok)]
+    sessions = load_dev(os.path.expanduser(a.data), a.pattern); cand = [c for s, ts in sessions for c in candidates(s, ts, tok, roles=roles)]
     n_sess = len({c["session"] for c in cand}); print(f"검증 세션 {len(sessions)} · 후보 {len(cand)}개(세션 {n_sess}개)")
     rng = random.Random(a.seed); rng.shuffle(cand); picked, per = [], {}
     for c in cand:
@@ -98,7 +100,7 @@ def main():
         for c in picked:
             t = c["target"]; sid = f"{c['session'].split('/')[-1]}_t{c['i']:03d}"
             it = dict(id=sid, session=c["session"], turn=c["i"], tag=t["tag"], infer_text=t["spell"], prompt_text=c["ref"]["spell"],
-                      target=dict(**slim(t), pron=t["pron"], utts=t["utts"], dur_s=t["dur_s"], spk_id=t["spk_id"]), ref=slim(c["ref"]),
+                      target=dict(**slim(t), pron=t["pron"], utts=t["utts"], dur_s=t["dur_s"], spk_id=t["spk_id"], start_s=t.get("start_s"), end_s=t.get("end_s"), chan=t.get("chan"), role=t["role"]), ref=slim(c["ref"]),
                       ctx120=[slim(u) for u in c["ctx120"]], ctx60=[slim(u) for u in c["ctx60"]],
                       ctx120_s=round(sum(u["frames"] for u in c["ctx120"]) / 12.5, 1), ctx60_s=round(sum(u["frames"] for u in c["ctx60"]) / 12.5, 1))
             f.write(json.dumps(it, ensure_ascii=False) + "\n"); m.write(f"{sid}|{c['ref']['spell']}|prompt/{sid}.wav|{t['spell']}|human/{sid}.wav\n")
