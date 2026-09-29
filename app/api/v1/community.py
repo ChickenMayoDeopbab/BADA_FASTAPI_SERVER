@@ -10,6 +10,7 @@ from app.deps.db import get_db
 from app.deps.redis import get_redis
 from app.deps.spring import get_spring_client
 from app.schemas.community import (
+    BlockedUserListResponse,
     CommentCreateRequest,
     CommentListResponse,
     CommentResponse,
@@ -26,6 +27,7 @@ from app.schemas.community import (
 )
 from app.services.community_block import BlockedUserNotFoundError, SelfBlockError
 from app.services.community_block import block_user as svc_block_user
+from app.services.community_block import list_blocked_users as svc_list_blocked_users
 from app.services.community_block import unblock_user as svc_unblock_user
 from app.services.community_comment import (
     CommentForbiddenError,
@@ -142,6 +144,18 @@ async def unblock_user(
     current_user_id: int = Depends(get_current_user_id),
 ) -> None:
     await _change_block_state(db, blocker_user_id=current_user_id, blocked_user_id=user_id, blocked=False)
+
+
+@router.get(
+    "/me/blocked-users",
+    response_model=BlockedUserListResponse,
+    summary="내가 차단한 사용자 전체 조회",
+)
+async def list_blocked_users(
+    db: AsyncSession = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id),
+) -> BlockedUserListResponse:
+    return await svc_list_blocked_users(db, blocker_user_id=current_user_id)
 
 
 @router.post(

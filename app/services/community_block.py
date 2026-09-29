@@ -7,6 +7,7 @@ from sqlalchemy.sql.selectable import Exists
 from app.core.timeutil import now_utc
 from app.db.external import users_table
 from app.db.models import CommunityUserBlockORM
+from app.schemas.community import BlockedUserListResponse, BlockedUserResponse
 
 
 class BlockedUserNotFoundError(Exception):
@@ -31,6 +32,32 @@ def blocked_user_exists(blocker_user_id: int, blocked_user_id: int | ColumnEleme
 
 async def is_user_blocked(db: AsyncSession, *, blocker_user_id: int, blocked_user_id: int) -> bool:
     return bool((await db.execute(select(blocked_user_exists(blocker_user_id, blocked_user_id)))).scalar_one())
+
+
+async def list_blocked_users(db: AsyncSession, *, blocker_user_id: int) -> BlockedUserListResponse:
+    stmt = (
+        select(
+            CommunityUserBlockORM.blocked_user_id,
+            CommunityUserBlockORM.created_at,
+            users_table.c.name,
+            users_table.c.profile_image,
+        )
+        .join(users_table, users_table.c.user_id == CommunityUserBlockORM.blocked_user_id, isouter=True)
+        .where(CommunityUserBlockORM.blocker_user_id == blocker_user_id)
+        .order_by(CommunityUserBlockORM.created_at.desc(), CommunityUserBlockORM.block_id.desc())
+    )
+    rows = (await db.execute(stmt)).all()
+    return BlockedUserListResponse(
+        blocked_users=[
+            BlockedUserResponse(
+                user_id=row.blocked_user_id,
+                name=row.name,
+                profile_image_url=row.profile_image,
+                blocked_at=row.created_at,
+            )
+            for row in rows
+        ]
+    )
 
 
 async def _ensure_target_user(db: AsyncSession, blocked_user_id: int) -> None:

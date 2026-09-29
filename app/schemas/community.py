@@ -46,6 +46,17 @@ class AuthorInfo(BaseModel):
     profile_image_url: str | None = None
 
 
+class BlockedUserResponse(BaseModel):
+    user_id: int
+    name: str | None = None
+    profile_image_url: str | None = None
+    blocked_at: KstDatetime
+
+
+class BlockedUserListResponse(BaseModel):
+    blocked_users: list[BlockedUserResponse]
+
+
 class ReactionCounts(BaseModel):
     cheer: int = 0
     relate: int = 0

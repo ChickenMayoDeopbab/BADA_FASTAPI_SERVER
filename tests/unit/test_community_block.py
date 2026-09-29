@@ -1,5 +1,8 @@
-from sqlalchemy import func, select
+from datetime import UTC, datetime
 
+from sqlalchemy import delete, func, select, update
+
+from app.db.external import users_table
 from app.db.models import CommunityUserBlockORM
 from tests.unit.community_env import community_app
 
@@ -67,6 +70,74 @@ async def test_missing_user_block_and_unblock_return_404() -> None:
 
     assert block_resp.status_code == 404
     assert unblock_resp.status_code == 404
+
+
+async def test_blocked_user_list_is_empty_before_blocking() -> None:
+    async with community_app(user_id=7) as env:
+        resp = await env.client.get("/api/v1/community/me/blocked-users")
+
+    assert resp.status_code == 200
+    assert resp.json() == {"blocked_users": []}
+
+
+async def test_blocked_user_list_is_scoped_to_current_user_and_sorted_newest_first() -> None:
+    async with community_app(user_id=7) as env:
+        await env.client.put("/api/v1/community/users/8/block")
+        await env.client.put("/api/v1/community/users/9/block")
+        env.login(8)
+        await env.client.put("/api/v1/community/users/7/block")
+
+        async with env.sessions() as session:
+            await session.execute(
+                update(CommunityUserBlockORM)
+                .where(CommunityUserBlockORM.blocker_user_id == 7, CommunityUserBlockORM.blocked_user_id == 8)
+                .values(created_at=datetime(2026, 1, 1, tzinfo=UTC))
+            )
+            await session.execute(
+                update(CommunityUserBlockORM)
+                .where(CommunityUserBlockORM.blocker_user_id == 7, CommunityUserBlockORM.blocked_user_id == 9)
+                .values(created_at=datetime(2026, 1, 2, tzinfo=UTC))
+            )
+            await session.commit()
+
+        env.login(7)
+        resp = await env.client.get("/api/v1/community/me/blocked-users")
+
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "blocked_users": [
+            {
+                "user_id": 9,
+                "name": "운영자",
+                "profile_image_url": None,
+                "blocked_at": "2026-01-02T09:00:00+09:00",
+            },
+            {
+                "user_id": 8,
+                "name": "사용자2",
+                "profile_image_url": None,
+                "blocked_at": "2026-01-01T09:00:00+09:00",
+            },
+        ]
+    }
+
+
+async def test_blocked_user_list_reflects_unblock_and_keeps_missing_profile() -> None:
+    async with community_app(user_id=7) as env:
+        await env.client.put("/api/v1/community/users/8/block")
+        await env.client.put("/api/v1/community/users/9/block")
+        await env.client.delete("/api/v1/community/users/8/block")
+        async with env.sessions() as session:
+            await session.execute(delete(users_table).where(users_table.c.user_id == 9))
+            await session.commit()
+
+        resp = await env.client.get("/api/v1/community/me/blocked-users")
+
+    assert resp.status_code == 200
+    assert len(resp.json()["blocked_users"]) == 1
+    assert resp.json()["blocked_users"][0]["user_id"] == 9
+    assert resp.json()["blocked_users"][0]["name"] is None
+    assert resp.json()["blocked_users"][0]["profile_image_url"] is None
 
 
 async def test_insert_collision_converges_to_existing_block(monkeypatch) -> None:
