@@ -14,7 +14,7 @@
 사용:
   python tok_emo.py --label <TL_01.실내.zip> <TL_02.실외.zip> --wav <TS_01.실내_5.zip> --out ~/tok/emo71631 --level-target -26
 """
-import argparse, collections, fcntl, io, json, math, os, re, sys, time, wave, zipfile
+import atexit, argparse, collections, fcntl, io, json, math, os, re, sys, time, wave, zipfile
 import numpy as np, torch
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -148,6 +148,7 @@ def main():
     except OSError:
         lock.seek(0); print(f"다른 프로세스가 {a.out} 를 쓰고 있다(pid {lock.read().strip() or '?'}).", file=sys.stderr); sys.exit(2)
     lock.seek(0); lock.truncate(); lock.write(str(os.getpid())); lock.flush()
+    atexit.register(lambda: (lock.seek(0), lock.truncate(), lock.flush()))       # 끝나면 비운다: 실패 메시지의 pid 가 옛 실행이 남긴 값일 수 없게(리뷰 2026-09-29)
     labels, dup = label_index(a.label); print(f"라벨 {len(labels):,}개 색인" + (f" · 중복 {dup}" if dup else ""))
     encode = make_codec(a, dev); kernel = resample_kernel(dev)
     json.dump(dict(source="AIHub 71631/71632 감정이 태깅된 자유대화", row="turn", mimi=a.mimi, codec=a.codec, codebooks=32, frame_hz=12.5, sr_src=SR, sr_mimi=24000, dtype="int16",
