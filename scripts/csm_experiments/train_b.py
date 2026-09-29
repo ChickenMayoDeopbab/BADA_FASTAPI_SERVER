@@ -56,6 +56,7 @@ def main():
     ap.add_argument("--text-field", default="mix", choices=["spell", "pron", "mix"]); ap.add_argument("--drop-flags", default="unknown", help="A 배치용(B 는 목표 턴의 unknown 만 뺀다)")
     ap.add_argument("--ctx-frames", type=int, default=1500); ap.add_argument("--max-positions", type=int, default=2048); ap.add_argument("--every", type=int, default=4)
     ap.add_argument("--tag-by", default="role", choices=["role", "random"])
+    ap.add_argument("--overlap-max", type=float, default=None, help="tok_emo 행의 overlap_ratio 가 이보다 크면 목표 턴에서 뺀다(없으면 토큰화 때 flags.overlap = 0.3 기준)")
     ap.add_argument("--ratio", type=float, default=1.0, help="목표 턴에서 depth decoder 를 학습할 프레임 비율")
     ap.add_argument("--batch-positions", type=int, default=2048); ap.add_argument("--grad-accum", type=int, default=8)
     ap.add_argument("--lr", type=float, default=1.5e-5); ap.add_argument("--lr-floor", type=float, default=0.1)
@@ -92,8 +93,8 @@ def main():
         ck = torch.load(os.path.join(a.resume, "trainer.pt"), map_location="cpu", weights_only=False)
         optim.load_state_dict(ck["optim"]); state = ck["state"]
 
-    train = B.TurnShards(a.data, tok, cfg, a.text_field, "train", a.ctx_frames, a.max_positions, a.every, tag_by=a.tag_by)
-    dev = B.TurnShards(a.data, tok, cfg, "spell", "dev", a.ctx_frames, a.max_positions, a.every, tag_by=a.tag_by)
+    train = B.TurnShards(a.data, tok, cfg, a.text_field, "train", a.ctx_frames, a.max_positions, a.every, tag_by=a.tag_by, overlap_max=a.overlap_max)
+    dev = B.TurnShards(a.data, tok, cfg, "spell", "dev", a.ctx_frames, a.max_positions, a.every, tag_by=a.tag_by, overlap_max=a.overlap_max)
     drop = [f for f in a.drop_flags.split(",") if f]
     mix = D.TokenShards(a.mix_data, tok, cfg, a.text_field, drop, split="train") if a.mix_data else None
     assert train.names, f"{a.data}/manifest 에 학습 샤드가 없다"
