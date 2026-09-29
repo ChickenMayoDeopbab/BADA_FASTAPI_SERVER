@@ -85,11 +85,16 @@ def mixed(b_iter, a_iter, every):
 class TurnShards:
     """manifest/*.jsonl + codes/*.npz(행 = 턴) 를 세션 단위로 읽어 문맥 창 예제 배치를 만든다. dev = 이름에 'valid' 가 든 샤드."""
 
-    def __init__(self, root, tok, cfg, text_field="mix", split="train", ctx_frames=1500, max_positions=2048, every=4, min_frames=6, max_frames=400, tag_by="role"):
+    def __init__(self, root, tok, cfg, text_field="mix", split="train", ctx_frames=1500, max_positions=2048, every=4, min_frames=6, max_frames=400, tag_by="role", overlap_max=None):
         names = sorted(os.path.splitext(os.path.basename(p))[0] for p in glob.glob(os.path.join(root, "manifest", "*.jsonl")))
         self.names = [n for n in names if ("valid" in n) == (split == "dev")]
+        self.overlap_max = overlap_max                                   # tok_emo 행의 overlap_ratio 문턱(None 이면 토큰화 때의 flags.overlap 을 그대로 씀). 실내 샤드 실측: 0.3 → 목표 오디오 54 %, 0.5 → 69 %, 0.7 → 78 %
         self.root, self.tok, self.cfg, self.text_field, self.tag_by = root, tok, cfg, text_field, tag_by
         self.ctx_frames, self.max_positions, self.every, self.min_frames, self.max_frames = ctx_frames, max_positions, every, min_frames, max_frames
+
+    def _overlapped(self, r):
+        if self.overlap_max is not None and "overlap_ratio" in r: return r["overlap_ratio"] > self.overlap_max
+        return r["flags"].get("overlap", 0)
 
     def load(self, name, rng, with_codes=True):
         """→ [(세션 키, [턴 dict …])]. 턴 dict: ids codes(Tensor[T,32] | None) frames tag role has_text target_ok"""
@@ -104,7 +109,8 @@ class TurnShards:
             tag = (0 if r["role"] == "상담원" else 1) ^ flip; has_text = bool(r["has_text"]) and bool(text)
             c = torch.from_numpy(z["codes"][:, z["offsets"][r["idx"]]:z["offsets"][r["idx"] + 1]].T.astype(np.int64)) if with_codes else None
             cur.append(dict(ids=turn_ids(self.tok, tag, text), codes=c, frames=int(r["frames"]), tag=tag, role=r["role"], has_text=has_text,
-                            target_ok=has_text and not r["flags"].get("unknown", 0) and self.min_frames <= r["frames"] <= self.max_frames))
+                            target_ok=has_text and not (r["flags"].get("unknown", 0) or self._overlapped(r) or r["flags"].get("masked", 0) or r["flags"].get("mixed", 0))   # overlap·masked·mixed: tok_emo(71631) 플래그 — 문맥엔 쓰고 목표 턴에선 뺀다
+                                      and self.min_frames <= r["frames"] <= self.max_frames))
         if cur: sessions.append((key, cur))
         return sessions
 
