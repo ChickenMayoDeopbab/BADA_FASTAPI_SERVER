@@ -17,28 +17,61 @@ TS_DIR="$HOME/.tailscale"
 TS_SOCK="$TS_DIR/tailscaled.sock"
 TS="$HOME/bin/tailscale"
 TSD="$HOME/bin/tailscaled"
+TS_WAIT="${TS_WAIT:-30}"  # 방금 띄운 tailscaled 가 tailnet 에 다시 붙기를 기다리는 최대 초
 
 ts() { "$TS" --socket="$TS_SOCK" "$@"; }
+ts_ready() { ts status >/dev/null 2>&1 && ts ip -4 >/dev/null 2>&1; }
+
+# 우리 tailscaled 가 떠 있는지. 30계정 공유 컨테이너라 남의 userspace tailscaled 가 있을 수 있다 —
+# 내 UID 이고 --socket 인자가 우리 소켓인 것만 우리 데몬이다. 소켓 경로는 pgrep 정규식에 넣지 않고
+# 글자 그대로 비교한다 (경로의 . + ( 같은 글자가 패턴으로 해석되지 않게)
+ts_running() {
+  local pid
+  for pid in $(pgrep -u "$(id -u)" -f "tailscaled --tun=userspace-networking"); do
+    case " $(ps -ww -o args= -p "$pid" 2>/dev/null) " in
+      *" --socket=$TS_SOCK "*) return 0 ;;
+    esac
+  done
+  return 1
+}
+
+# 기존 로그를 시각을 붙여 옮긴다 — `>` 로 열면 직전 장애의 증거가 사라진다 (계획 0058)
+keep_log() {
+  [ -s "$1" ] || return 0
+  local dst
+  dst="$1.$(date +%Y%m%d-%H%M%S)"
+  [ -e "$dst" ] && dst="$dst.$$"
+  mv "$1" "$dst"
+}
 
 echo "== 1/3 tailscaled =="
-if pgrep -f "tailscaled --tun=userspace-networking" >/dev/null; then
+started=""
+if ts_running; then
   echo "  이미 실행 중"
 else
   [ -x "$TSD" ] || { echo "  $TSD 가 없다. 정적 바이너리를 ~/bin 에 설치할 것" >&2; exit 1; }
   mkdir -p "$TS_DIR"
+  keep_log "$TS_DIR/daemon.log"
   # TUN 이 없는 컨테이너라 userspace 모드다. root 불필요.
   # 대가: 이 노드는 자기 tailnet IP 로 자기한테 접속할 수 없다 (자기 참조는 localhost 사용)
   nohup "$TSD" --tun=userspace-networking --socket="$TS_SOCK" --statedir="$TS_DIR" \
     > "$TS_DIR/daemon.log" 2>&1 &
   echo "  기동 (PID $!) → $TS_DIR/daemon.log"
-  for _ in $(seq 1 30); do
-    [ -S "$TS_SOCK" ] && break
-    sleep 1
-  done
+  started=1
 fi
 
 echo "== 2/3 tailnet 로그인 확인 =="
-if ts status >/dev/null 2>&1 && ts ip -4 >/dev/null 2>&1; then
+# 소켓 파일은 재시작 전 것이 /home 에 남아 있을 수 있어 준비 신호가 못 된다. 방금 띄웠으면
+# 로그인 확인 자체가 통과할 때까지 기다린다 — 바로 보면 붙기 전이라 "로그인 안 됨" 으로 오판한다
+if [ -n "$started" ]; then
+  echo "  tailnet 연결 대기 (최대 ${TS_WAIT}초)"
+  waited=0
+  until ts_ready || [ "$waited" -ge "$TS_WAIT" ]; do
+    sleep 1
+    waited=$((waited + 1))
+  done
+fi
+if ts_ready; then
   TS_IP="$(ts ip -4 | head -1)"
   echo "  로그인됨 — tailnet IP $TS_IP"
 else
