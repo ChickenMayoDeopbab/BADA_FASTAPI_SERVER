@@ -139,7 +139,7 @@ count()   { grep -c "$1" "$2" || true; }
 
 # 워커 기동 직후는 fork→exec 사이라 명령줄이 아직 바뀌는 중일 수 있다 — 붙을 때까지 잠깐 기다린다
 wait_args() {  # wait_args <pid> <부분 문자열>
-  for _ in $(seq 1 40); do
+  for _ in $(seq 1 200); do
     case "$(args_of "$1")" in *"$2"*) return 0 ;; esac
     sleep 0.05
   done
@@ -148,7 +148,7 @@ wait_args() {  # wait_args <pid> <부분 문자열>
 
 # 워커는 백그라운드로 뜨므로 스크립트가 끝난 직후엔 기록이 아직 없을 수 있다
 wait_grep() {  # wait_grep <패턴> <파일>
-  for _ in $(seq 1 40); do
+  for _ in $(seq 1 200); do
     grep -q "$1" "$2" 2>/dev/null && return 0
     sleep 0.05
   done
@@ -190,7 +190,7 @@ C=$(new_case t1b)
 SOCK="$C/home/.tailscale/tailscaled.sock"
 STUB_LOG="$C/stub.log" "$C/home/bin/tailscaled" --tun=userspace-networking --socket="$SOCK" \
   --statedir="$C/home/.tailscale" >/dev/null 2>&1 &
-for _ in $(seq 1 40); do [ -e "$SOCK.ready" ] && break; sleep 0.05; done
+for _ in $(seq 1 200); do [ -e "$SOCK.ready" ] && break; sleep 0.05; done
 run boot "$C" PATH="$STUB/fakeid:$STUB/bin:$PATH" STUB_UID="$OTHER_UID" -- 1 1 8010 \
   || fail "1b: 실패함 ($(cat "$C/out.log"))"
 grep -q "이미 실행 중" "$C/out.log" && fail "1b: 다른 UID 의 데몬을 우리 것으로 봄"
@@ -203,13 +203,26 @@ C=$(new_case t1c)
 SOCK="$C/home/.tailscale/tailscaled.sock"
 STUB_LOG="$C/stub.log" "$C/home/bin/tailscaled" --tun=userspace-networking --socket="$SOCK" \
   --statedir="$C/home/.tailscale" >/dev/null 2>&1 &
-for _ in $(seq 1 40); do [ -e "$SOCK.ready" ] && break; sleep 0.05; done
+for _ in $(seq 1 200); do [ -e "$SOCK.ready" ] && break; sleep 0.05; done
 run boot "$C" -- 1 1 8010 || fail "1c: 실패함 ($(cat "$C/out.log"))"
 grep -q "이미 실행 중" "$C/out.log" || fail "1c: 우리 데몬을 못 알아봄"
 [ "$(count "tailscaled start" "$C/stub.log")" = 1 ] || fail "1c: 데몬을 또 띄움"
 grep -q "로그인됨" "$C/out.log" || fail "1c: 로그인 확인 실패"
 ok "우리 tailscaled 가 떠 있으면: 다시 띄우지 않고 진행"
 end_case "$C"
+
+# 1d. 홈 경로에 정규식 글자(+)가 있어도 우리 데몬을 알아본다 — 소켓 경로를 pgrep 패턴에 넣으면
+#     "d+x" 가 "dx"·"ddx" 로 해석돼 글자 그대로의 경로와 안 맞는다
+C=$(new_case "t1d+x")
+SOCK="$C/home/.tailscale/tailscaled.sock"
+STUB_LOG="$C/stub.log" "$C/home/bin/tailscaled" --tun=userspace-networking --socket="$SOCK" \
+  --statedir="$C/home/.tailscale" >/dev/null 2>&1 &
+for _ in $(seq 1 200); do [ -e "$SOCK.ready" ] && break; sleep 0.05; done
+run boot "$C" -- 1 1 8010 || fail "1d: 실패함 ($(cat "$C/out.log"))"
+grep -q "이미 실행 중" "$C/out.log" || fail "1d: 홈 경로의 + 때문에 우리 데몬을 못 알아봄"
+[ "$(count "tailscaled start" "$C/stub.log")" = 1 ] || fail "1d: 데몬을 또 띄움"
+ok "홈 경로에 정규식 글자(+): 우리 tailscaled 를 글자 그대로 알아봄"
+pkill -u "$ME" -f "$WORK/t1d" 2>/dev/null || true  # end_case 의 패턴도 정규식이라 + 앞까지만 준다
 
 # --- 함정 2: 옛 소켓 파일 때문에 대기가 바로 끝나 "로그인 안 됨" 거짓 실패 -----------
 # 2a. 옛 소켓이 남아 있고 데몬은 2초 뒤에야 tailnet 에 붙는다 + 함정 4: daemon.log 보존
@@ -285,7 +298,7 @@ grep -q "이미 떠 있음 gpu1-w1-p8010" "$C/out.log" || fail "3c: 살아 있�
 [ "$(cat "$P/gpu1-w1-p8010.pid")" = "$W" ] || fail "3c: PID 파일이 바뀜"
 ls "$L" | grep -q "gpu1-w1-p8010.log." && fail "3c: 건너뛴 워커의 로그를 옮김"
 run launch "$C" -- stop || fail "3c: stop 실패"
-for _ in $(seq 1 40); do alive "$W" || break; sleep 0.05; done
+for _ in $(seq 1 200); do alive "$W" || break; sleep 0.05; done
 alive "$W" && fail "3c: stop 뒤에도 워커가 살아 있음"
 sleep 0.2
 pgrep -u "$ME" -f "$C/home/bada-qwen3-tts/fork/.venv/bin/python" >/dev/null \

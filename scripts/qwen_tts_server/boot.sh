@@ -22,6 +22,19 @@ TS_WAIT="${TS_WAIT:-30}"  # 방금 띄운 tailscaled 가 tailnet 에 다시 붙�
 ts() { "$TS" --socket="$TS_SOCK" "$@"; }
 ts_ready() { ts status >/dev/null 2>&1 && ts ip -4 >/dev/null 2>&1; }
 
+# 우리 tailscaled 가 떠 있는지. 30계정 공유 컨테이너라 남의 userspace tailscaled 가 있을 수 있다 —
+# 내 UID 이고 --socket 인자가 우리 소켓인 것만 우리 데몬이다. 소켓 경로는 pgrep 정규식에 넣지 않고
+# 글자 그대로 비교한다 (경로의 . + ( 같은 글자가 패턴으로 해석되지 않게)
+ts_running() {
+  local pid
+  for pid in $(pgrep -u "$(id -u)" -f "tailscaled --tun=userspace-networking"); do
+    case " $(ps -ww -o args= -p "$pid" 2>/dev/null) " in
+      *" --socket=$TS_SOCK "*) return 0 ;;
+    esac
+  done
+  return 1
+}
+
 # 기존 로그를 시각을 붙여 옮긴다 — `>` 로 열면 직전 장애의 증거가 사라진다 (계획 0058)
 keep_log() {
   [ -s "$1" ] || return 0
@@ -33,8 +46,7 @@ keep_log() {
 
 echo "== 1/3 tailscaled =="
 started=""
-# 30계정 공유 컨테이너라 남의 userspace tailscaled 가 있을 수 있다 — 내 UID 이고 우리 소켓을 쓰는 것만 우리 데몬이다
-if pgrep -u "$(id -u)" -f "tailscaled --tun=userspace-networking --socket=$TS_SOCK" >/dev/null; then
+if ts_running; then
   echo "  이미 실행 중"
 else
   [ -x "$TSD" ] || { echo "  $TSD 가 없다. 정적 바이너리를 ~/bin 에 설치할 것" >&2; exit 1; }
