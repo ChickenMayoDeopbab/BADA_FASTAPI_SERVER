@@ -23,6 +23,32 @@ RUN_DIR="${QWEN_RUN_DIR:-$HOME/bada-qwen3-tts/run}"
 PID_DIR="$RUN_DIR/pid"
 LOG_DIR="$RUN_DIR/log"
 
+# PID 파일의 프로세스가 아직 그 워커인지 (계획 0058). 컨테이너가 재시작되면 PID 파일만 /home 에 남고
+# 같은 번호가 다른 프로세스에 재사용될 수 있다 — 번호만 보면 기동을 건너뛰거나 엉뚱한 걸 kill 한다.
+# 내 UID 이고 명령줄이 이 포트의 uvicorn server:app 일 때만 살아 있는 것으로 본다.
+# 이름(ps -o user)이 아니라 UID 로 비교한다 — 긴 사용자 이름은 칸 폭 때문에 다르게 찍힐 수 있다.
+# -ww 는 명령줄이 폭에 잘려 끝의 포트가 사라지지 않게 한다.
+worker_alive() {  # worker_alive <pid 파일> <포트>
+  local pid uid args
+  pid="$(cat "$1" 2>/dev/null)" || return 1
+  case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+  read -r uid args < <(ps -ww -o uid=,args= -p "$pid" 2>/dev/null) || return 1
+  [ "$uid" = "$(id -u)" ] || return 1
+  case " $args " in
+    *" uvicorn server:app "*" --port $2 "*) return 0 ;;
+  esac
+  return 1
+}
+
+# 기존 로그를 시각을 붙여 옮긴다 — `>` 로 열면 직전 장애의 증거가 사라진다 (계획 0058)
+keep_log() {
+  [ -s "$1" ] || return 0
+  local dst
+  dst="$1.$(date +%Y%m%d-%H%M%S)"
+  [ -e "$dst" ] && dst="$dst.$$"
+  mv "$1" "$dst"
+}
+
 stop_all() {
   if [ ! -d "$PID_DIR" ]; then
     echo "띄운 워커 없음 ($PID_DIR)"
@@ -30,11 +56,12 @@ stop_all() {
   fi
   for f in "$PID_DIR"/*.pid; do
     [ -e "$f" ] || continue
+    name="$(basename "$f" .pid)"
     pid="$(cat "$f")"
-    if kill -0 "$pid" 2>/dev/null; then
-      kill "$pid" && echo "종료 $(basename "$f" .pid) (PID $pid)"
+    if worker_alive "$f" "${name##*-p}"; then
+      kill "$pid" && echo "종료 $name (PID $pid)"
     else
-      echo "이미 죽음 $(basename "$f" .pid) (PID $pid)"
+      echo "떠 있지 않음 $name (PID $pid 는 없거나 다른 프로세스)"
     fi
     rm -f "$f"
   done
@@ -69,14 +96,18 @@ urls=""
 for gpu in ${GPUS//,/ }; do
   for i in $(seq 1 "$PER_GPU"); do
     name="gpu${gpu}-w${i}-p${port}"
-    if [ -f "$PID_DIR/$name.pid" ] && kill -0 "$(cat "$PID_DIR/$name.pid")" 2>/dev/null; then
+    if worker_alive "$PID_DIR/$name.pid" "$port"; then
       echo "이미 떠 있음 $name — 건너뜀"
     else
+      keep_log "$LOG_DIR/$name.log"
+      # exec 로 서브셸이 곧 워커가 되게 한다. `cd && nohup … &` 는 AND 목록을 도는 서브셸의 PID 가
+      # $! 로 잡혀(bash 3.2 실측) PID 파일이 워커가 아닌 서브셸을 가리킨다 (계획 0058)
       ( cd "$SERVER_DIR" && \
-        CUDA_VISIBLE_DEVICES="$gpu" TTS_DEVICE="cuda:0" VOICES_FILE="$VOICES_FILE" \
-        nohup "$PYTHON" -m uvicorn server:app --host 127.0.0.1 --port "$port" \
-          > "$LOG_DIR/$name.log" 2>&1 & echo $! > "$PID_DIR/$name.pid" )
-      echo "기동 $name (PID $(cat "$PID_DIR/$name.pid")) → $LOG_DIR/$name.log"
+        export CUDA_VISIBLE_DEVICES="$gpu" TTS_DEVICE="cuda:0" VOICES_FILE="$VOICES_FILE" && \
+        exec nohup "$PYTHON" -m uvicorn server:app --host 127.0.0.1 --port "$port" ) \
+        > "$LOG_DIR/$name.log" 2>&1 &
+      echo $! > "$PID_DIR/$name.pid"
+      echo "기동 $name (PID $!) → $LOG_DIR/$name.log"
     fi
     urls="${urls:+$urls,}http://127.0.0.1:$port"
     port=$((port + 1))
