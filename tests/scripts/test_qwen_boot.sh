@@ -115,6 +115,17 @@ new_case() {
 
 end_case() { pkill -u "$ME" -f "$1/" 2>/dev/null || true; }
 
+# in_case <case-dir> [VAR=값 ...] <명령...> — 케이스 HOME·스텁 환경에서 명령을 돌린다 (개발자 환경 값은 지운다)
+in_case() {
+  local c=$1
+  shift
+  env -u VOICES_FILE -u QWEN_PYTHON -u QWEN_SERVER_DIR -u QWEN_RUN_DIR -u CC -u CXX -u TS_WAIT \
+    HOME="$c/home" PATH="$STUB/bin:$PATH" STUB_LOG="$c/stub.log" TS_WAIT=8 \
+    VOICES_FILE="$c/home/bada-qwen3-tts/voices.json" \
+    QWEN_PYTHON="$c/home/bada-qwen3-tts/fork/.venv/bin/python" \
+    QWEN_SERVER_DIR="$c/home/bada-qwen3-tts/fork" CC=cc CXX=c++ "$@"
+}
+
 # run <boot|launch> <case-dir> [VAR=값 ...] -- [스크립트 인자...]
 run() {
   local which=$1 c=$2 script
@@ -123,18 +134,19 @@ run() {
   local envs=()
   while [ $# -gt 0 ] && [ "$1" != "--" ]; do envs+=("$1"); shift; done
   [ "${1:-}" = "--" ] && shift
-  env -u VOICES_FILE -u QWEN_PYTHON -u QWEN_SERVER_DIR -u QWEN_RUN_DIR -u CC -u CXX -u TS_WAIT \
-    HOME="$c/home" PATH="$STUB/bin:$PATH" STUB_LOG="$c/stub.log" TS_WAIT=8 \
-    VOICES_FILE="$c/home/bada-qwen3-tts/voices.json" \
-    QWEN_PYTHON="$c/home/bada-qwen3-tts/fork/.venv/bin/python" \
-    QWEN_SERVER_DIR="$c/home/bada-qwen3-tts/fork" CC=cc CXX=c++ \
-    ${envs[@]+"${envs[@]}"} bash "$script" "$@" >>"$c/out.log" 2>&1
+  in_case "$c" ${envs[@]+"${envs[@]}"} bash "$script" "$@" >>"$c/out.log" 2>&1
 }
 
 pid_dir() { echo "$1/home/bada-qwen3-tts/run/pid"; }
 log_dir() { echo "$1/home/bada-qwen3-tts/run/log"; }
 args_of() { ps -ww -o args= -p "$1" 2>/dev/null || true; }
-alive()   { kill -0 "$1" 2>/dev/null; }
+# kill -0 은 끝났지만 거둬지지 않은 좀비도 살아 있다고 답한다. 학교 컨테이너는 PID 1 이 jupyterhub(파이썬)라
+# 고아 프로세스를 거두지 않아, stop 으로 내린 워커가 좀비(상태 Z)로 남는다 — 상태로 판단한다
+alive() {
+  local s
+  s=$(ps -o stat= -p "$1" 2>/dev/null) || return 1
+  case "${s// /}" in ''|Z*) return 1 ;; esac
+}
 count()   { grep -c "$1" "$2" || true; }
 
 # 워커 기동 직후는 fork→exec 사이라 명령줄이 아직 바뀌는 중일 수 있다 — 붙을 때까지 잠깐 기다린다
@@ -340,6 +352,28 @@ run launch "$C" -- 1,2 2 8010 || fail "3f: 실패함 ($(cat "$C/out.log"))"
 [ "$(count "기동 gpu" "$C/out.log")" = 4 ] || fail "3f: 4개 다 기동하지 않음 ($(cat "$C/out.log"))"
 run launch "$C" -- stop || fail "3f: stop 실패"
 ok "죽은 PID·쓰레기·빈 PID 파일: 오류 없이 4개 기동"
+end_case "$C"
+
+# 3g. 끝났지만 거둬지지 않은 워커(좀비)는 워커가 아니다. 학교 컨테이너는 PID 1(jupyterhub)이 고아를 거두지 않아
+#     내리거나 죽은 워커가 좀비로 남는다 — 번호만 보면(kill -0) 살아 있다고 보고 다시 띄우지 않는다
+C=$(new_case t3g)
+P=$(pid_dir "$C")
+# 런처를 source 한 셸이 끝에 exec sleep 으로 바뀌어, 워커의 부모가 거두지 않는 프로세스가 된다 (= 서버의 PID 1)
+in_case "$C" bash -c 'echo $$ >"$2"; . "$1" 1 1 8010 >/dev/null 2>&1; exec sleep 120' _ "$LAUNCH" "$C/holder.pid" &
+for _ in $(seq 1 200); do [ -s "$P/gpu1-w1-p8010.pid" ] && break; sleep 0.05; done
+Z=$(cat "$P/gpu1-w1-p8010.pid" 2>/dev/null) || fail "3g: 준비 실패 — 워커가 안 뜸"
+wait_args "$Z" "--port 8010" || fail "3g: 준비 실패 ($(args_of "$Z"))"
+run launch "$C" -- stop || fail "3g: stop 실패"
+for _ in $(seq 1 200); do case "$(ps -o stat= -p "$Z" 2>/dev/null)" in *Z*) break ;; esac; sleep 0.05; done
+kill -0 "$Z" 2>/dev/null || fail "3g: 준비 실패 — 좀비가 안 생김 (이 시험의 전제)"
+alive "$Z" && fail "3g: alive() 가 좀비를 살아 있다고 봄"
+echo "$Z" >"$P/gpu1-w1-p8010.pid"  # stop 이 지운 PID 파일을 되살린다 — 재시작 직후 옛 파일이 남은 것처럼
+run launch "$C" -- 1 1 8010 || fail "3g: 실패함 ($(cat "$C/out.log"))"
+grep -q "이미 떠 있음" "$C/out.log" && fail "3g: 좀비를 살아 있는 워커로 보고 기동을 건너뜀"
+[ "$(cat "$P/gpu1-w1-p8010.pid")" != "$Z" ] || fail "3g: PID 파일이 좀비를 그대로 가리킴"
+ok "끝난 워커가 좀비로 남아도(PID 1 이 안 거둠): 워커 아님으로 보고 새로 기동"
+run launch "$C" -- stop || true
+kill "$(cat "$C/holder.pid")" 2>/dev/null || true
 end_case "$C"
 
 # --- 함정 4: 워커 로그 덮어쓰기 --------------------------------------------------
