@@ -16,8 +16,8 @@ from app.services.tremor import TremorResult
 
 logger = logging.getLogger(__name__)
 
-ANALYZER_VERSION = "SPEECH_ANALYZER_V2"
-ANALYSIS_POLICY_VERSION = "ANALYSIS_POLICY_V2"
+ANALYZER_VERSION = "SPEECH_ANALYZER_V3"
+ANALYSIS_POLICY_VERSION = "ANALYSIS_POLICY_V3"
 
 _SAMPLE_RATE = 16000
 _SAMPLE_BYTES = 2
@@ -178,31 +178,18 @@ def _has_long_pause(
         voiced_spans,
     )
 
-    cursor = turn_start
-
-    for voice_start, voice_end in turn_voice:
-        if voice_start - cursor >= _LONG_PAUSE_SECONDS:
-            return True
-
-        cursor = max(cursor, voice_end)
-
-    return turn_end - cursor >= _LONG_PAUSE_SECONDS
+    # 첫 발화 전 대기와 마지막 발화 뒤 STT FINAL 대기는 발화 내부 침묵이 아니다.
+    return any(
+        next_start - previous_end >= _LONG_PAUSE_SECONDS
+        for (_, previous_end), (next_start, _) in zip(turn_voice, turn_voice[1:], strict=False)
+    )
 
 
 def _has_lexical_disfluency(text: str) -> bool:
     turn_tokens = _tokens(text)
 
-    if any(token in _FILLER_WORDS for token in turn_tokens):
-        return True
-
-    return any(
-        previous == current
-        for previous, current in zip(
-            turn_tokens,
-            turn_tokens[1:],
-            strict=False,
-        )
-    )
+    # 텍스트의 반복만으로 정상 강조와 말더듬을 구분할 수 없어 자동 감점하지 않는다.
+    return any(token in _FILLER_WORDS for token in turn_tokens)
 
 
 def _clean_utterance_score(
@@ -269,6 +256,10 @@ class TrainingPerformanceAnalyzer:
 
         valid_turns: list[Span] = []
         valid_texts: list[str] = []
+        unanswered_turns = 0
+        unrecognized_turns = 0
+        leading_silence = 0.0
+        trailing_silence = 0.0
 
         for interval, text in zip(
             user_turn_intervals,
@@ -284,15 +275,21 @@ class TrainingPerformanceAnalyzer:
             spoken_duration = _duration_seconds(
                 _intersect_spans([turn], voice_activity_spans)
             )
+            turn_voice = _intersect_spans([turn], voice_activity_spans)
+            if turn_voice:
+                leading_silence += max(0.0, turn_voice[0][0] - turn[0])
+                trailing_silence += max(0.0, turn[1] - turn_voice[-1][1])
+            elif turn[1] - turn[0] >= _LONG_PAUSE_SECONDS:
+                unanswered_turns += 1
 
             if spoken_duration < _MIN_VALID_TURN_SPEECH_SECONDS:
                 continue
 
-            if not _tokens(text):
-                continue
-
             valid_turns.append(turn)
-            valid_texts.append(text.strip())
+            if _tokens(text):
+                valid_texts.append(text.strip())
+            else:
+                unrecognized_turns += 1
 
         valid_voice_spans = _intersect_spans(
             valid_turns,
@@ -384,6 +381,10 @@ class TrainingPerformanceAnalyzer:
                 ANALYZER_VERSION,
             "analysis_policy_version":
                 ANALYSIS_POLICY_VERSION,
+            "unanswered_user_turn_count": unanswered_turns,
+            "unrecognized_user_turn_count": unrecognized_turns,
+            "leading_silence_duration_ms": _to_milliseconds(leading_silence),
+            "trailing_silence_duration_ms": _to_milliseconds(trailing_silence),
         }
 
         def failed(reason_code: str) -> TrainingAnalysisPayload:
@@ -394,6 +395,7 @@ class TrainingPerformanceAnalyzer:
                 analysis_quality_status=
                     AnalysisQualityStatus.FAIL,
                 analysis_exclusion_reason=reason_code,
+                metric_quality={name: AnalysisQualityStatus.FAIL for name in ("stability", "conversation", "fluency")},
                 **base_fields,
             )
 
@@ -424,12 +426,6 @@ class TrainingPerformanceAnalyzer:
         ):
             return failed("INSUFFICIENT_USER_SPEECH")
 
-        if (
-            sustained_speech_seconds
-            < _MIN_SUSTAINED_SPEECH_SECONDS
-        ):
-            return failed("INSUFFICIENT_SUSTAINED_SPEECH")
-
         total_utterance_count = len(valid_turns)
 
         tremor_utterance_count = sum(
@@ -453,14 +449,18 @@ class TrainingPerformanceAnalyzer:
         )
 
         conversation_score = _clean_utterance_score(
-            total_utterance_count,
-            silence_utterance_count,
+            total_utterance_count + unanswered_turns,
+            silence_utterance_count + unanswered_turns,
         )
 
         fluency_score = _clean_utterance_score(
-            total_utterance_count,
+            len(valid_texts),
             stutter_utterance_count,
         )
+        if sustained_speech_seconds < _MIN_SUSTAINED_SPEECH_SECONDS:
+            stability_score = None
+        if len(valid_texts) < _MIN_VALID_USER_TURNS:
+            fluency_score = None
 
         logger.info(
             "문장 비율 기반 훈련 성과 분석 완료",
@@ -486,12 +486,20 @@ class TrainingPerformanceAnalyzer:
             },
         )
 
+        metric_quality = {
+            name: AnalysisQualityStatus.PASS if score is not None else AnalysisQualityStatus.FAIL
+            for name, score in (
+                ("stability", stability_score), ("conversation", conversation_score), ("fluency", fluency_score)
+            )
+        }
+        partial = any(quality is AnalysisQualityStatus.FAIL for quality in metric_quality.values())
         return TrainingAnalysisPayload(
             stability_score=stability_score,
             conversation_score=conversation_score,
             fluency_score=fluency_score,
             analysis_quality_status=
-                AnalysisQualityStatus.PASS,
-            analysis_exclusion_reason=None,
+                AnalysisQualityStatus.PARTIAL if partial else AnalysisQualityStatus.PASS,
+            analysis_exclusion_reason="PARTIAL_METRICS" if partial else None,
+            metric_quality=metric_quality,
             **base_fields,
         )
