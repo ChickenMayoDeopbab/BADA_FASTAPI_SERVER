@@ -130,8 +130,8 @@ def test_calculates_scores_from_clean_utterance_ratios() -> None:
     # 4개 발화 중 떨림 발화 1개
     assert result.stability_score == 75.0
 
-    # 4개 발화 중 1.5초 이상 침묵 발화 1개
-    assert result.conversation_score == 75.0
+    # 발화 시작 전 대기는 내부 침묵 감점에 포함하지 않는다.
+    assert result.conversation_score == 100.0
 
     # 4개 발화 중 필러가 있는 발화 1개
     assert result.fluency_score == 75.0
@@ -145,10 +145,10 @@ def test_calculates_scores_from_clean_utterance_ratios() -> None:
     )
 
     assert result.valid_user_turn_count == 4
-    assert result.analyzer_version == "SPEECH_ANALYZER_V2"
+    assert result.analyzer_version == "SPEECH_ANALYZER_V3"
     assert (
         result.analysis_policy_version
-        == "ANALYSIS_POLICY_V2"
+        == "ANALYSIS_POLICY_V3"
     )
 
 
@@ -246,7 +246,7 @@ def test_rejects_user_aborted_training() -> None:
     )
 
 
-def test_rejects_missing_sustained_speech() -> None:
+def test_preserves_other_metrics_when_sustained_speech_is_missing() -> None:
     analyzer = TrainingPerformanceAnalyzer()
 
     tremor_result = TremorResult(
@@ -278,18 +278,14 @@ def test_rejects_missing_sustained_speech() -> None:
         server_wait_duration_ms=1000,
     )
 
-    assert (
-        result.analysis_quality_status
-        is AnalysisQualityStatus.FAIL
-    )
-
-    assert (
-        result.analysis_exclusion_reason
-        == "INSUFFICIENT_SUSTAINED_SPEECH"
-    )
+    assert result.analysis_quality_status is AnalysisQualityStatus.PARTIAL
+    assert result.stability_score is None
+    assert result.conversation_score == 100.0
+    assert result.fluency_score == 100.0
+    assert result.metric_quality["stability"] is AnalysisQualityStatus.FAIL
 
 
-def test_counts_repetition_inside_a_turn_as_stutter() -> None:
+def test_does_not_infer_stuttering_from_text_repetition_alone() -> None:
     analyzer = TrainingPerformanceAnalyzer()
 
     result = analyzer.analyze(
@@ -314,7 +310,7 @@ def test_counts_repetition_inside_a_turn_as_stutter() -> None:
         result.analysis_quality_status
         is AnalysisQualityStatus.PASS
     )
-    assert result.fluency_score == 50.0
+    assert result.fluency_score == 100.0
 
 
 def test_does_not_require_a_script_for_v2_scores() -> None:
@@ -351,7 +347,7 @@ def test_does_not_require_a_script_for_v2_scores() -> None:
     ("first_voice_start", "expected_score"),
     [
         (1.49, 100.0),
-        (1.5, 50.0),
+        (1.5, 100.0),
     ],
 )
 def test_long_pause_boundary(
@@ -455,3 +451,56 @@ def test_analyzer_error_is_null_safe() -> None:
         is AnalysisQualityStatus.FAIL
     )
     assert result.analysis_exclusion_reason == "ANALYZER_ERROR"
+
+
+def _analyze(**overrides) -> TrainingAnalysisPayload:
+    arguments = {
+        "session_type": SessionType.SCENARIO,
+        "reason": EndReason.SCENARIO_DONE,
+        "user_turn_intervals": [(0.0, 4.0), (5.0, 9.0)],
+        "user_turn_texts": ["예약할게요", "네 감사합니다"],
+        "tremor_result": _clean_tremor_result(),
+        "completed_script_steps": 2,
+        "script_step_count": 2,
+        "ai_pcm_bytes": 0,
+        "server_wait_duration_ms": 0,
+    }
+    arguments.update(overrides)
+    return TrainingPerformanceAnalyzer().analyze(**arguments)
+
+
+@pytest.mark.parametrize("text", ["그 날짜에 예약할게요", "저 사람과 통화할 수 있나요", "그러니까 내일이 맞나요"])
+def test_normal_korean_words_do_not_reduce_fluency(text: str) -> None:
+    assert _analyze(user_turn_texts=[text, "네 감사합니다"]).fluency_score == 100.0
+
+
+def test_trailing_stt_wait_does_not_reduce_conversation_score() -> None:
+    result = _analyze(user_turn_intervals=[(0.0, 4.0), (5.0, 20.0)])
+    assert result.conversation_score == 100.0
+    assert result.trailing_silence_duration_ms == 12000
+
+
+def test_observed_unanswered_turn_is_not_discarded() -> None:
+    result = _analyze(
+        user_turn_intervals=[(0.0, 4.0), (5.0, 9.0), (10.0, 20.0)],
+        user_turn_texts=["예약할게요", "네 감사합니다", ""],
+    )
+    assert result.unanswered_user_turn_count == 1
+    assert result.conversation_score == 66.67
+
+
+def test_speech_without_stt_text_is_not_classified_as_unanswered() -> None:
+    result = _analyze(user_turn_texts=["예약할게요", ""])
+    assert result.unanswered_user_turn_count == 0
+    assert result.unrecognized_user_turn_count == 1
+    assert result.analysis_quality_status is AnalysisQualityStatus.PARTIAL
+    assert result.conversation_score == 100.0
+    assert result.fluency_score is None
+
+
+@pytest.mark.parametrize(("gap", "score"), [(1.49, 100.0), (1.5, 50.0)])
+def test_internal_pause_boundary(gap: float, score: float) -> None:
+    tremor = _clean_tremor_result()
+    tremor.voiced_spans = [(0.5, 1.0), (1.0 + gap, 3.5), (5.5, 8.5)]
+    result = _analyze(tremor_result=tremor)
+    assert result.conversation_score == score

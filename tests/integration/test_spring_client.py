@@ -79,8 +79,10 @@ async def test_notify_session_closed_sends_correct_request() -> None:
             script_step_count=4,
             analysis_quality_status=AnalysisQualityStatus.PASS,
             analysis_exclusion_reason=None,
-            analyzer_version="SPEECH_ANALYZER_V1",
-            analysis_policy_version="ANALYSIS_POLICY_V1",
+            analyzer_version="SPEECH_ANALYZER_V3",
+            analysis_policy_version="ANALYSIS_POLICY_V3",
+            metric_quality={"stability": AnalysisQualityStatus.PASS, "conversation": AnalysisQualityStatus.PASS,
+                            "fluency": AnalysisQualityStatus.PASS},
         )
         await client.notify_session_closed(
             "sess-123",
@@ -128,8 +130,13 @@ async def test_notify_session_closed_sends_correct_request() -> None:
                 "script_step_count": 4,
                 "analysis_quality_status": "PASS",
                 "analysis_exclusion_reason": None,
-                "analyzer_version": "SPEECH_ANALYZER_V1",
-                "analysis_policy_version": "ANALYSIS_POLICY_V1",
+                "analyzer_version": "SPEECH_ANALYZER_V3",
+                "analysis_policy_version": "ANALYSIS_POLICY_V3",
+                "metric_quality": {"stability": "PASS", "conversation": "PASS", "fluency": "PASS"},
+                "unanswered_user_turn_count": 0,
+                "unrecognized_user_turn_count": 0,
+                "leading_silence_duration_ms": 0,
+                "trailing_silence_duration_ms": 0,
             },
         }
 
