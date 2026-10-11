@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import httpx
 import jwt
 import pytest
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
@@ -60,7 +61,7 @@ async def inquiry_env():
     app.dependency_overrides[get_inquiry_service] = lambda: service
     try:
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
-            yield SimpleNamespace(client=client, app=app, requests=requests)
+            yield SimpleNamespace(client=client, app=app, requests=requests, sessions=sessions)
     finally:
         await engine.dispose()
 
@@ -87,6 +88,24 @@ async def test_inquiry_sends_authenticated_user_id_and_database_email(inquiry_en
     fields = {field["name"]: field["value"] for field in embed["fields"]}
     assert fields["사용자 ID"] == str(user_id)
     assert fields["이메일"] == f"user{user_id}@example.com"
+
+
+@pytest.mark.parametrize("email", [None, ""])
+async def test_missing_email_does_not_prevent_inquiry_delivery(inquiry_env, email) -> None:
+    async with inquiry_env.sessions() as session:
+        await session.execute(update(users_table).where(users_table.c.user_id == 7).values(email=email))
+        await session.commit()
+
+    response = await inquiry_env.client.post(
+        "/api/v1/inquiries", headers=_auth_headers(), json={"title": "제목", "content": "내용"}
+    )
+
+    assert response.status_code == 200
+    assert len(inquiry_env.requests) == 1
+    embed = json.loads(inquiry_env.requests[0].content)["embeds"][0]
+    fields = {field["name"]: field["value"] for field in embed["fields"]}
+    assert fields["사용자 ID"] == "7"
+    assert fields["이메일"] == "미등록"
 
 
 @pytest.mark.parametrize(
