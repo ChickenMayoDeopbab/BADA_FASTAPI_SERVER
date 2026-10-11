@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     # 커뮤니티 신고 운영 알림
     community_report_alert_webhook_url: str | None = None
 
+    # 문의·피드백 전송
+    inquiry_webhook_url: str | None = None
+
     # LLM(분석)
     anthropic_api_key: str
     llm_analysis_model: str = "claude-sonnet-4-20250514"
