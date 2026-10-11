@@ -41,16 +41,12 @@ _VALID_END_REASONS = {
 }
 
 _TOKEN_PATTERN = re.compile(r"[0-9A-Za-z가-힣]+")
+# '그', '저'처럼 정상 어절로 쓰이는 표현은 문맥 없이 감점하지 않는다.
 _FILLER_WORDS = {
     "음",
     "어",
-    "저",
-    "그",
-    "아",
     "음음",
     "어어",
-    "뭐지",
-    "그러니까",
 }
 
 Span: TypeAlias = tuple[float, float]  # noqa: UP040 - Python 3.11 compatibility
