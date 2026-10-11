@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
+from app.core.timeutil import KST
 from app.db.external import training_records_table
 from tests.unit.community_env import community_app, create_post
 
@@ -79,8 +80,7 @@ async def test_comment_created_at_points_at_the_real_instant() -> None:
     assert before - _SLACK <= created <= after + _SLACK
 
 
-async def test_attached_training_record_started_at_carries_kst_offset() -> None:
-    started = datetime.now(UTC).replace(tzinfo=None)
+async def _attached_started_at(started: datetime) -> str:
     async with community_app(user_id=7) as env:
         async with env.sessions() as db:
             await db.execute(
@@ -111,6 +111,15 @@ async def test_attached_training_record_started_at_carries_kst_offset() -> None:
 
     raw = detail.json()["attachments"][0]["training_record"]["started_at"]
     assert raw.endswith(_KST), f"started_at 만 오프셋이 없다: {raw}"
-    assert _parsed(raw) == started.replace(tzinfo=UTC), (
-        f"started_at 이 밀렸다: {raw} (기대 {started.replace(tzinfo=UTC).astimezone()})"
-    )
+    return raw
+
+
+async def test_attached_training_record_started_at_reads_spring_kst_wall_clock() -> None:
+    started = datetime.now(KST).replace(tzinfo=None)
+    raw = await _attached_started_at(started)
+    assert _parsed(raw) == started.replace(tzinfo=KST), f"started_at 이 밀렸다: {raw} (기대 {started} KST)"
+
+
+async def test_attached_training_record_before_switch_reads_utc_wall_clock() -> None:
+    raw = await _attached_started_at(datetime(2026, 8, 25, 15, 30))
+    assert raw == "2026-08-26T00:30:00+09:00", raw

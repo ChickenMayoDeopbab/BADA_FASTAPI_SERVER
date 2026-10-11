@@ -22,6 +22,16 @@ def as_kst(value: datetime) -> datetime:
     return ensure_utc(value).astimezone(KST)
 
 
+_SPRING_KST_SINCE = datetime(2026, 9, 3, 17, 0)
+
+
+def from_spring_local(value: datetime) -> datetime:
+    """Spring KST UTC 구분"""
+    if value.tzinfo is not None:
+        return value
+    return value.replace(tzinfo=UTC if value < _SPRING_KST_SINCE else KST)
+
+
 KstDatetime = Annotated[
     datetime,
     PlainSerializer(lambda v: as_kst(v).isoformat(), return_type=str, when_used="json"),
