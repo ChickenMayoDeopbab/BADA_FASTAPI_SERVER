@@ -36,7 +36,7 @@ class InquiryService:
                     "description": request.content,
                     "fields": [
                         {"name": "사용자 ID", "value": str(user_id), "inline": True},
-                        {"name": "이메일", "value": email, "inline": True},
+                        {"name": "이메일", "value": email or "미등록", "inline": True},
                     ],
                 }
             ],
