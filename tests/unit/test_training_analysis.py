@@ -469,9 +469,25 @@ def _analyze(**overrides) -> TrainingAnalysisPayload:
     return TrainingPerformanceAnalyzer().analyze(**arguments)
 
 
-@pytest.mark.parametrize("text", ["그 날짜에 예약할게요", "저 사람과 통화할 수 있나요", "그러니까 내일이 맞나요"])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "그 날짜에 예약할게요",
+        "저 사람과 통화할 수 있나요",
+        "그러니까 내일이 맞나요",
+        "아, 내일로 예약할게요",
+        "상품 이름이 뭐지?",
+        "어제 예약했어요",
+        "음식 주문할게요",
+    ],
+)
 def test_normal_korean_words_do_not_reduce_fluency(text: str) -> None:
     assert _analyze(user_turn_texts=[text, "네 감사합니다"]).fluency_score == 100.0
+
+
+@pytest.mark.parametrize("filler", ["음", "어", "음음", "어어"])
+def test_explicit_filler_tokens_still_reduce_fluency(filler: str) -> None:
+    assert _analyze(user_turn_texts=[f"{filler} 날짜를 확인할게요", "네 감사합니다"]).fluency_score == 50.0
 
 
 def test_trailing_stt_wait_does_not_reduce_conversation_score() -> None:
