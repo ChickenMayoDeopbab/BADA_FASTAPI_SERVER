@@ -149,6 +149,21 @@ async def test_unauthenticated_inquiry_does_not_send_webhook(inquiry_env) -> Non
     assert inquiry_env.requests == []
 
 
+async def test_deleted_user_inquiry_is_rejected_before_webhook_delivery(inquiry_env) -> None:
+    headers = _auth_headers()
+    async with inquiry_env.sessions() as session:
+        await session.execute(users_table.delete().where(users_table.c.user_id == 7))
+        await session.commit()
+
+    response = await inquiry_env.client.post(
+        "/api/v1/inquiries", headers=headers, json={"title": "제목", "content": "내용"}
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "USER_NOT_FOUND"
+    assert inquiry_env.requests == []
+
+
 @pytest.mark.parametrize("webhook_url", [None, "", "   "])
 async def test_unconfigured_webhook_returns_failure(inquiry_env, webhook_url) -> None:
     inquiry_env.app.dependency_overrides[get_inquiry_service] = lambda: InquiryService(webhook_url)
