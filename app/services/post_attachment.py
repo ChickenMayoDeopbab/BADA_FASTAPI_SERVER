@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.enums import AttachmentKind, FileType
-from app.core.timeutil import now_utc
+from app.core.timeutil import from_spring_local, now_utc
 from app.db.external import files_table, training_records_table
 from app.db.models import PostAttachmentORM, ScenarioORM
 from app.schemas.community import (
@@ -195,7 +195,7 @@ async def _training_record_block(
     return AttachedTrainingRecord(
         scenario_name=row.scenario_name,
         session_type=row.session_type,
-        started_at=row.started_at,
+        started_at=from_spring_local(row.started_at) if row.started_at is not None else None,
         duration_seconds=row.duration_seconds,
         anxiety_score=row.anxiety_score,
         audio_url=url,
