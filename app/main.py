@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1 import internal, websocket
 from app.api.v1.community import router as community_router
 from app.api.v1.community_admin import router as community_admin_router
+from app.api.v1.inquiries import router as inquiry_router
 from app.api.v1.scenario import router as scenario_router
 from app.core.config import get_settings
 from app.core.logging import setup_logging
@@ -90,6 +91,7 @@ def create_app() -> FastAPI:
     app.include_router(scenario_router)
     app.include_router(community_router)
     app.include_router(community_admin_router)
+    app.include_router(inquiry_router)
     return app
 
 app = create_app()

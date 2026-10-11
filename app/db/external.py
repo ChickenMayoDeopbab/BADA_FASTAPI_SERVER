@@ -12,6 +12,7 @@ users_table = Table(
     external_metadata,
     Column("user_id", BigInteger, primary_key=True),
     Column("name", String(50)),
+    Column("email", String(255)),
     Column("profile_image", String(255)),
     Column("role", String(20)),
     Column("status", String(20), nullable=False, server_default=text("'ACTIVE'")),
