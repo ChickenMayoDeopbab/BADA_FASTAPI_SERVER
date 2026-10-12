@@ -153,6 +153,79 @@ def test_parse_numbered_pairs_recovers_without_delimiter() -> None:
     assert pairs[0] == ("용건을 말했어요", "바로 알아들었어요.")
 
 
+def test_parse_numbered_pairs_ignores_preamble_line() -> None:
+    """머리말이 끼어도 구간이 한 칸씩 밀리지 않는다."""
+    raw = (
+        "네, 구간별 피드백입니다.\n"
+        "1. 용건을 먼저 말했어요 | 전화한 이유를 바로 말했어요.\n"
+        "2. 주소에서 흔들렸어요 | 다음엔 천천히 말해봐요."
+    )
+    assert LLMClient._parse_numbered_pairs(raw, 2) == [
+        ("용건을 먼저 말했어요", "전화한 이유를 바로 말했어요."),
+        ("주소에서 흔들렸어요", "다음엔 천천히 말해봐요."),
+    ]
+
+
+def test_parse_numbered_pairs_leaves_skipped_number_blank() -> None:
+    """번호를 건너뛰면 그 자리만 비고, 뒤 구간은 제 번호를 지킨다."""
+    raw = "1. 첫째 제목 | 첫째 내용이에요.\n3. 셋째 제목 | 셋째 내용이에요."
+    assert LLMClient._parse_numbered_pairs(raw, 3) == [
+        ("첫째 제목", "첫째 내용이에요."),
+        ("", ""),
+        ("셋째 제목", "셋째 내용이에요."),
+    ]
+
+
+def test_parse_numbered_pairs_follows_numbers_over_line_order() -> None:
+    """줄 순서가 뒤바뀌어도 번호가 가리키는 구간에 붙는다."""
+    raw = "2. 둘째 제목 | 둘째 내용이에요.\n1. 첫째 제목 | 첫째 내용이에요."
+    assert LLMClient._parse_numbered_pairs(raw, 2) == [
+        ("첫째 제목", "첫째 내용이에요."),
+        ("둘째 제목", "둘째 내용이에요."),
+    ]
+
+
+def test_parse_numbered_pairs_joins_content_wrapped_after_title() -> None:
+    """제목 뒤에서 줄을 바꿔도 한 항목으로 읽는다. 줄머리 소수는 번호가 아니다."""
+    raw = (
+        "1. 용건을 먼저 말했어요 |\n"
+        "전화한 이유를 바로 말했어요.\n"
+        "2. 잠깐 멈췄어요 |\n"
+        "2.5초쯤 쉬고 다시 말했어요."
+    )
+    assert LLMClient._parse_numbered_pairs(raw, 2) == [
+        ("용건을 먼저 말했어요", "전화한 이유를 바로 말했어요."),
+        ("잠깐 멈췄어요", "2.5초쯤 쉬고 다시 말했어요."),
+    ]
+
+
+def test_parse_numbered_pairs_drops_closing_remark() -> None:
+    """맺음말은 앞 구간 내용에 붙지도, 비어 있는 다음 구간을 채우지도 않는다."""
+    raw = "1. 용건을 먼저 말했어요 | 전화한 이유를 바로 말했어요.\n도움이 되었길 바라요!"
+    assert LLMClient._parse_numbered_pairs(raw, 2) == [
+        ("용건을 먼저 말했어요", "전화한 이유를 바로 말했어요."),
+        ("", ""),
+    ]
+
+
+def test_parse_numbered_pairs_keeps_line_order_when_numbers_repeat() -> None:
+    """번호가 겹치면 번호를 믿을 수 없으니 나온 순서대로 채운다."""
+    raw = "1. 가 제목 | 가 내용이에요.\n1. 나 제목 | 나 내용이에요."
+    assert LLMClient._parse_numbered_pairs(raw, 2) == [
+        ("가 제목", "가 내용이에요."),
+        ("나 제목", "나 내용이에요."),
+    ]
+
+
+def test_parse_numbered_pairs_keeps_line_order_without_numbers() -> None:
+    """번호를 아예 안 붙였으면 나온 순서대로 채운다."""
+    raw = "가 제목 | 가 내용이에요.\n나 제목 | 나 내용이에요."
+    assert LLMClient._parse_numbered_pairs(raw, 2) == [
+        ("가 제목", "가 내용이에요."),
+        ("나 제목", "나 내용이에요."),
+    ]
+
+
 # --- 안전장치 ------------------------------------------------------------
 
 
