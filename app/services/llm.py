@@ -25,6 +25,8 @@ _CONTROL_TAGS: dict[str, LLMEventType] = {
 
 # 모델이 입력의 구간 표시('[칭찬할 구간]')를 제목에 그대로 옮겨 적는 경우
 _SEGMENT_LABEL_PREFIX = re.compile(r"^\s*\[[^\]]{0,16}\]\s*")
+# 구간 피드백 줄머리 번호. '2.5초' 같은 소수는 번호로 보지 않는다.
+_NUMBERED_LINE = re.compile(r"^(\d+)\s*[.)](?!\d)\s*(.*)$")
 
 _SUGGEST_TAG = "[SUGGEST]"
 _ALL_TAGS = (*_CONTROL_TAGS, _SUGGEST_TAG)
@@ -443,28 +445,55 @@ class LLMClient:
 
     @staticmethod
     def _parse_numbered_pairs(raw: str, n: int) -> list[tuple[str, str]]:
-        """'1. 제목 | 내용' 줄들을 순서대로. 부족하면 빈 쌍으로 채운다."""
-        pairs: list[tuple[str, str]] = []
+        """'1. 제목 | 내용' 줄들을 번호 자리에 맞춰. 빠진 번호는 빈 쌍으로 둔다.
+
+        머리말이 끼거나 번호를 건너뛰어도 뒤 구간이 한 칸씩 밀리지 않는다.
+        번호가 아예 없거나 겹치면 믿을 수 없으니 나온 순서대로 채운다.
+        """
+        numbered: list[tuple[int, str]] = []
+        unnumbered: list[str] = []
         for line in raw.splitlines():
-            text = line.strip()
+            text = re.sub(r"^[-*•]+\s*", "", line.strip()).strip()
             if not text:
                 continue
-            text = re.sub(r"^[-*•]\s*", "", text)
-            text = re.sub(r"^\d+\s*[.)]\s*", "", text).strip()
-            if not text:
-                continue
-            if "|" in text:
-                title, _, content = text.partition("|")
-                title, content = title.strip().strip('"“”'), content.strip().strip('"“”')
-                if not title or not content:
-                    title, content = split_title(text.replace("|", " ").strip())
-            else:
-                title, content = split_title(text.strip('"“”'))
-            title = _SEGMENT_LABEL_PREFIX.sub("", title)
-            pairs.append((polish(title), polish(content)))
-        pairs = pairs[:n]
+            match = _NUMBERED_LINE.match(text)
+            if match:
+                numbered.append((int(match.group(1)), match.group(2).strip()))
+            elif not numbered:
+                unnumbered.append(text)
+            elif not numbered[-1][1] or numbered[-1][1].endswith("|"):
+                # 제목까지만 쓰고 줄을 바꾼 항목은 다음 줄이 그 내용이다.
+                # 다 쓴 항목 뒤의 번호 없는 줄(맺음말)은 버린다.
+                index, head = numbered[-1]
+                numbered[-1] = (index, f"{head} {text}".strip())
+
+        indices = [index for index, _ in numbered]
+        if not numbered:
+            items = unnumbered
+        elif len(set(indices)) < len(indices):
+            items = [text for _, text in numbered]
+        else:
+            by_index = dict(numbered)
+            items = [by_index.get(i, "") for i in range(1, n + 1)]
+
+        pairs = [LLMClient._split_pair(text) for text in items[:n]]
         pairs.extend([("", "")] * (n - len(pairs)))
         return pairs
+
+    @staticmethod
+    def _split_pair(text: str) -> tuple[str, str]:
+        """'제목 | 내용' 한 항목을 (제목, 내용) 으로. 구분자가 없으면 문장으로 가른다."""
+        if not text:
+            return "", ""
+        if "|" in text:
+            title, _, content = text.partition("|")
+            title, content = title.strip().strip('"“”'), content.strip().strip('"“”')
+            if not title or not content:
+                title, content = split_title(text.replace("|", " ").strip())
+        else:
+            title, content = split_title(text.strip('"“”'))
+        title = _SEGMENT_LABEL_PREFIX.sub("", title)
+        return polish(title), polish(content)
 
     @staticmethod
     def _parse_numbered(raw: str, n: int) -> list[str]:
