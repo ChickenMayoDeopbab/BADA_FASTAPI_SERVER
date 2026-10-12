@@ -40,7 +40,7 @@
 <br>
 
 # 아키텍처
-<img width="1091" height="511" alt="image" src="https://github.com/user-attachments/assets/2cb8ecf1-4087-463d-9169-46d361654839" />
+<img width="496" height="329" alt="시스템 구조도 2" src="https://github.com/user-attachments/assets/4a9ab70c-c0b9-4e1c-9b6a-d36f505138c3" />
 
 <br>
 
@@ -62,18 +62,20 @@ React Native(Expo)와 TypeScript를 기반으로 모바일 애플리케이션을
 | Backend | Spring Boot, FastAPI |
 | Language | Java, Python |
 | Database | PostgreSQL, Redis |
-| AI | Gemini, Claude |
-| Speech | Google Cloud Speech-to-Text, ElevenLabs |
+| AI | Gemini, Claude, OpenAI |
+| Speech | Google Cloud Speech-to-Text, ElevenLabs, Qwen3-TTS |
 | Infra | Docker, GitHub Actions, AWS EC2, AWS S3 |
 
-Spring Boot는 회원 관리, 시나리오, 훈련 기록 등 핵심 비즈니스 로직을 담당하며, FastAPI는 AI 음성 처리 파이프라인을 담당합니다.
-사용자의 음성은 Google Cloud Speech-to-Text를 통해 텍스트로 변환되고, Gemini와 Claude가 상황에 맞는 응답을 생성한 뒤 ElevenLabs TTS를 통해 자연스러운 음성으로 출력됩니다.
+Spring Boot는 회원 관리, 인증, 자가진단, 훈련 기록 등 핵심 비즈니스 로직을 담당하며, FastAPI는 AI 음성 처리 파이프라인을 담당합니다.
 
+사용자의 음성을 STT로 변환하고 Gemini가 전화 상황에 맞는 대화 응답을 생성합니다. 생성된 응답은 Qwen3-TTS 또는 ElevenLabs를 통해 음성으로 출력됩니다.
+
+Claude는 커스텀 시나리오, 예시 대화, 이미지 생성용 장면 묘사를 생성하며, OpenAI는 Spring 서버에서 자가진단 결과 요약에 사용됩니다.
 <br>
 
 # 실행방법
-### OneStore
-[앱 다운로드 링크](https://onesto.re/0001007890) <br>
+### Google Play Store
+[앱 다운로드 링크](https://play.google.com/store/apps/details?id=com.chickenmayodeopbab.bada.play) <br>
 설치 후 실행
 
 <br>
@@ -81,22 +83,52 @@ Spring Boot는 회원 관리, 시나리오, 훈련 기록 등 핵심 비즈니�
 # AI 사용 내역
 | 구분 | 활용 내용 |
 | --- | --- |
-| 실시간 대화 | 사용자 발화에 맞는 전화 응답 생성 |
-| 시나리오 생성 | 사용자 맞춤형 전화 상황 생성 |
+| 실시간 대화 | 사용자 발화와 전화 상황에 맞는 응답 생성 |
+| 시나리오 생성 | 사용자 맞춤형 전화 상황과 단계별 대화 목표 생성 |
+| 예시 대화 생성 | 커스텀 시나리오의 모범 전화 대화를 생성하고 음성으로 제공 |
+| 시나리오 삽화 생성 | 시나리오를 장면 묘사로 변환한 뒤 삽화 이미지 생성 |
 | 음성 인식 | 사용자의 음성을 텍스트로 변환(STT) |
-| 음성 합성 | AI 응답을 자연스러운 음성으로 출력(TTS) |
-| 통화 피드백 | 목소리 떨림, 침묵 분석 결과를 출력 |
+| 음성 합성 | AI 응답과 예시 대화를 음성으로 출력(TTS) |
+| 참조 음성 기반 합성 | Qwen3-TTS로 참조 음성의 특성을 반영한 음성을 생성하고 스트리밍 |
+| 통화 피드백 | 목소리 떨림·침묵 등 음성 분석 결과와 대화 내용을 활용해 구간별 피드백 생성 |
+| 커뮤니티 콘텐츠 검사 | 게시글의 유해 콘텐츠 여부 판별 |
+| 자가진단 결과 요약 | Spring 서버에서 자가진단 응답을 종합해 전화 통화 성향 요약 |
+
+<br>
+
+### 개발 과정의 AI 활용
+| 도구 | 활용 내용 |
+| --- | --- |
+| Claude | 기능 구현, 오류 수정, 테스트 코드 작성 보조 |
+| Claude Code | FastAPI 저장소의 GitHub Pull Request 자동 코드 리뷰 |
 
 <br>
 
 # 사용한 AI 모델
 | 구분 | 모델 | 용도 |
 | --- | --- | --- |
-| LLM (실시간 대화) | Gemini 3.5 Flash Lite | 전화 대화 응답 스트리밍, 워밍업, 구간 피드백 생성 |
-| LLM (분석/생성) | Claude Sonnet 4 | 커스텀 시나리오 생성 |
+| LLM (실시간 대화·피드백) | Gemini 3.5 Flash Lite | 전화 대화 응답 스트리밍, 워밍업, 구간 피드백 생성 |
+| LLM (콘텐츠 검사) | Gemini 3.5 Flash Lite | 커뮤니티 게시글의 유해 콘텐츠 판별 |
+| LLM (시나리오·콘텐츠 생성) | Claude Sonnet 4 | 커스텀 시나리오, 예시 대화, 이미지 생성용 장면 묘사 생성 |
+| LLM (자가진단 요약) | GPT-4o-mini | Spring 서버의 콜포비아 자가진단 결과 요약 |
 | 이미지 | Gemini 2.5 Flash Image | 시나리오 삽화 생성 |
-| STT | Google Cloud Speech-to-Text(chirp_3) | 음성 인식 |
-| TTS | ElevenLabs Flash v2.5, Qwen3 TTS | 음성 합성 |
+| STT | Google Cloud Speech-to-Text (chirp_3) | 사용자 음성 인식 |
+| STT (선택형) | gemini-3.5-transcribe-live | Gemini Live 기반 음성 인식 |
+| TTS | ElevenLabs Flash v2.5 | 대화 및 예시 대화 음성 합성 |
+| TTS | Qwen3-TTS-12Hz-1.7B-Base | 참조 음성 기반 합성, 실시간 스트리밍, 예시 대화 음성 생성 |
+
+<br>
+
+### 실험·평가에 사용한 AI 모델
+| 구분 | 모델 | 용도 |
+| --- | --- | --- |
+| 대화형 TTS | sesame/csm-1b | 한국어 대화형 음성 합성 학습·추론 실험 |
+| 음성 코덱 | kyutai/mimi | CSM 실험의 음성 인코딩·디코딩 |
+| 음성 품질 평가 | UTMOS (utmos22_strong) | 합성 음성의 품질 평가 |
+| 화자 유사도 평가 | WavLM-large SV / UniSpeech | 참조 음성과 합성 음성의 화자 유사도 평가 |
+| 화자 유사도 평가 (대체 경로) | microsoft/wavlm-base-plus-sv | 선택 가능한 화자 유사도 평가 |
+
+CSM은 실험 후 운영 적용을 보류했습니다. 위 실험·평가 모델은 서비스용 모델과 구분해 기록합니다.
 
 <br>
 
@@ -108,16 +140,71 @@ See the LICENSE file for details.
 
 # 오픈소스 패키지
 **FastAPI 서버**
-| 구분 | **패키지** |
+| 구분 | 패키지 |
 | --- | --- |
-| 웹 | fastapi, uvicorn[standard], pydantic, pydantic-settings |
+| 웹 | fastapi, uvicorn[standard], starlette, pydantic, pydantic-settings |
 | 인프라 | redis[hiredis] |
 | DB | sqlalchemy[asyncio], asyncpg |
 | 통신 | httpx, websockets, boto3 |
 | AI SDK | google-cloud-speech, google-genai, anthropic, elevenlabs |
-| 내부 알고리즘 설계 | librosa, scipy, numpy |
+| 음성 분석·처리 | librosa, scipy, numpy |
+| 녹음 암호화 | cryptography |
 | 인증·로깅 | PyJWT, python-json-logger |
-| 개발 | pytest, pytest-asyncio, ruff |
+| 개발·테스트 | pytest, pytest-asyncio, aiosqlite, ruff, sounddevice, soundfile |
+
+<br>
+
+**GPU TTS 서버**
+| 구분 | 오픈소스 |
+| --- | --- |
+| 음성 합성 | Qwen3-TTS (qwen_tts) |
+| 스트리밍·추론 최적화 | dffdeeq/Qwen3-TTS-streaming |
+| 모델 실행 | PyTorch (torch), transformers |
+| 오디오 처리 | torchaudio |
+| Attention 최적화 | flash-attn |
+
+Qwen3-TTS는 `Qwen/Qwen3-TTS-12Hz-1.7B-Base` 모델을 사용합니다.
+스트리밍 구현에는 `dffdeeq/Qwen3-TTS-streaming` 포크를 활용했습니다.
+
+<br>
+
+**음성 분석 외부 프로그램·코드**
+| 구분 | 오픈소스 | 활용 내용 |
+| --- | --- | --- |
+| 음성 분석 프로그램 | Praat | 음성 분석 스크립트 실행 |
+| 음성 떨림 분석 | tremor.praat 3.05 | 음성 떨림 지표 및 AVTI 분석 |
+
+`tremor.praat 3.05`는 GNU GPL v3를 따릅니다.
+관련 코드와 라이선스 원문은 `vendor/tremor3.05`에 포함되어 있습니다.
+
+<br>
+
+**실험·평가 코드**
+| 구분 | 오픈소스 |
+| --- | --- |
+| 대화형 음성 합성 | CSM (sesame/csm-1b) |
+| 음성 코덱 | Mimi (kyutai/mimi) |
+| 학습 최적화 | bitsandbytes |
+| 음성 품질 평가 | SpeechMOS / UTMOS |
+| 화자 유사도 평가 | UniSpeech / WavLM |
+| 동시 요청 실험 | requests |
+
+<br>
+
+**Spring 서버**
+| 구분 | 패키지 |
+| --- | --- |
+| 웹·검증 | Spring Boot, Spring Web, Spring Validation |
+| 인증·보안 | Spring Security, Spring OAuth2 Client, JJWT |
+| DB | Spring Data JPA, Spring Data Redis, PostgreSQL JDBC |
+| 쿼리 | QueryDSL |
+| 코드 생성 | Lombok, QueryDSL APT, Jakarta Annotation API, Jakarta Persistence API |
+| API 문서 | springdoc-openapi |
+| 메일·템플릿 | Spring Mail, Thymeleaf |
+| AI SDK | OpenAI Java SDK |
+| AWS 연동 | AWS SDK for Java v2 (S3, KMS) |
+| 푸시 알림 | Firebase Admin SDK |
+| 테스트 | Spring Boot Test, Spring Security Test, JUnit Platform |
 
 <br>
 
@@ -137,7 +224,7 @@ See the LICENSE file for details.
 # 저장소 구조
 **Fast API** - 현재 저장소<br>
 바다의 AI 서버로 실시간 음성 인식(STT), LLM 기반 대화 생성, 음성 합성(TTS)과 같은 AI 전화 훈련 파이프라인을 담당합니다.<br>
-https://github.com/ChickenMayoDeopbab/BADA_FASTAPI
+https://github.com/ChickenMayoDeopbab/BADA_FASTAPI_SERVER
 
 **App**<br>
 React Native(Expo) 기반 모바일 애플리케이션입니다.<br>
