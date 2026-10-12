@@ -5,7 +5,6 @@ from logging.config import dictConfig
 
 from app.core.config import get_settings
 
-
 _SECRET_PATTERNS = (
     (re.compile(r"([?&]token=)[^&\s\"'\\]+", re.IGNORECASE), r"\1[REDACTED]"),
     (re.compile(r"(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*"), "[REDACTED]"),
