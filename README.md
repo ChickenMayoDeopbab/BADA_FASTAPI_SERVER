@@ -132,7 +132,7 @@ CSM은 실험 후 운영 적용을 보류했습니다. 위 실험·평가 모델
 
 <br>
 
-# Lisence
+# License
 This project is licensed under the MIT License.<br>
 See the LICENSE file for details.
 
