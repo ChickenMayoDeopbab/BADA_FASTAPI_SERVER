@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from enum import StrEnum
 
-__all__ = ["Band", "voice_band", "is_safe", "polish", "split_title"]
+__all__ = ["Band", "voice_band", "long_pauses", "is_safe", "polish", "split_title"]
 
 
 class Band(StrEnum):
@@ -25,6 +26,26 @@ def voice_band(avti: float | None) -> Band | None:
     if avti >= VOICE_WORK_MIN:
         return Band.NEEDS_WORK
     return Band.MIDDLE
+
+
+# 말 중간에 소리가 이만큼 넘게 끊기면 '멈춤'으로 본다.
+# 점수 계산(training_analysis)의 긴 멈춤 기준과 같은 값이라, 글과 점수가 같은 곳을 가리킨다.
+LONG_PAUSE_SEC = 1.5
+
+
+def long_pauses(
+    turn: tuple[float, float], voiced_spans: Sequence[tuple[float, float]]
+) -> list[float]:
+    """턴 안에서 소리와 소리 사이가 길게 빈 곳들의 길이(초).
+
+    말을 꺼내기 전과 마친 뒤의 빈 시간은 세지 않는다 — 말 중간의 멈춤만 본다.
+    """
+    start, end = turn
+    inside = sorted(
+        (max(s, start), min(e, end)) for s, e in voiced_spans if e > start and s < end
+    )
+    gaps = (later[0] - earlier[1] for earlier, later in zip(inside, inside[1:], strict=False))
+    return [round(gap, 2) for gap in gaps if gap >= LONG_PAUSE_SEC]
 
 
 # --- 문구 검증 -----------------------------------------------------------

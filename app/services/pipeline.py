@@ -32,7 +32,7 @@ from app.schemas.frames import (
 )
 from app.schemas.llm import AiEmotion, LLMEventType, TurnContext
 from app.services.csm_tts import try_acquire_realtime_csm
-from app.services.feedback_points import Band, is_safe, voice_band
+from app.services.feedback_points import Band, is_safe, long_pauses, voice_band
 from app.services.feedback_service import save_feedback
 from app.services.llm import LLMClient
 from app.services.pcm_coalescer import DEFAULT_TARGET_MS, coalesce_pcm, target_bytes_for
@@ -104,11 +104,13 @@ _MIN_GOOD_SEC = 1.0
 _SEG_GOOD = "GOOD"
 _SEG_IMPROVE = "IMPROVE"
 # 구간을 고르는 데만 쓰는 키. 밖으로 나가기 전에 털어낸다.
-_INTERNAL_SEGMENT_KEYS = ("turn", "avti", "reason")
+_INTERNAL_SEGMENT_KEYS = ("turn", "avti", "reason", "pauses")
 
 
-def _segment_fallback(kind: str) -> tuple[str, str]:
+def _segment_fallback(kind: str, reason: str | None = None) -> tuple[str, str]:
     """LLM 이 못 쓰거나 걸러졌을 때 구간에 남길 최소 문구."""
+    if kind == _SEG_IMPROVE and reason == "pause":
+        return ("말이 잠깐 끊겼어요", "말하는 중간에 길게 멈춘 부분이에요. 다음엔 할 말을 짧게 나눠서 이어 말해봐요.")
     if kind == _SEG_IMPROVE:
         return ("이 구간을 다시 들어봐요", "말이 흔들린 부분이에요. 다음엔 여기서 한 호흡 쉬고 말해봐요.")
     return ("잘 이야기했어요", "이 구간은 흔들림 없이 이어서 말했어요.")
@@ -257,6 +259,8 @@ class VoicePipeline:
 
         self._user_turn_intervals: list[tuple[float, float]] = []
         self._user_turn_texts: list[str] = []
+        # 그 턴 직전에 상대(AI)가 한 말. 구간 피드백을 쓸 때 맥락으로 준다. 위 두 목록과 같은 순서로 쌓인다.
+        self._user_turn_prompts: list[str] = []
         self._turn_open_at: float | None = 0.0
 
         max_duration = session.get("maxDurationSeconds")
@@ -1276,7 +1280,9 @@ class VoicePipeline:
         # 턴별 AVTI 를 먼저 잰다. 어느 구간을 칭찬하고 어느 구간을 짚을지가
         # 이 값으로 갈리기 때문에 end 프레임보다 앞에 있어야 한다(약 0.2초).
         avti_by_turn = await self._measure_avti(recording_pcm, sustained_spans)
-        good_segments = self._pick_segments(good_candidates, avti_by_turn)
+        good_segments = self._pick_segments(
+            good_candidates, avti_by_turn, self._long_pauses_by_turn(tremor_result)
+        )
 
         analysis = None
         try:
@@ -1462,22 +1468,15 @@ class VoicePipeline:
         if not isinstance(scenario, dict):
             scenario = {}
 
-        items = [
-            {
-                "type": seg["type"],
-                "utterance": self._utterance_for(seg["start"], seg["end"]),
-                "avti": seg.get("avti"),
-                "reason": seg.get("reason"),
-            }
-            for seg in segments
-        ]
+        items = self._feedback_items(segments)
 
         try:
             written = await self._llm.segment_feedback(
                 items,
                 on_usage=self._record_feedback_usage,
                 scenario_title=str(scenario.get("title", "")),
-                call_target=str(scenario.get("callTarget", "")),
+                # 세션에는 통화 상대가 aiRole 로 들어온다. callTarget 은 세션에 없는 칸이다.
+                call_target=str(scenario.get("aiRole") or scenario.get("callTarget") or ""),
                 call_purpose=str(scenario.get("callPurpose", "")),
             )
         except asyncio.CancelledError:
@@ -1492,12 +1491,53 @@ class VoicePipeline:
                 break
             title, content = pair if pair else ("", "")
             if not is_safe(title, content):
-                title, content = _segment_fallback(seg["type"])
+                title, content = _segment_fallback(seg["type"], seg.get("reason"))
             seg["title"] = title
             seg["content"] = content
             seg["good_point"] = content  # 기존 Spring 매핑 유지
             for internal in _INTERNAL_SEGMENT_KEYS:
                 seg.pop(internal, None)
+
+    def _feedback_items(self, segments: list[dict]) -> list[dict]:
+        """구간마다 AI 에 넘길 재료. 발화에 더해 그 직전에 상대가 한 말을 붙인다."""
+        prompts = getattr(self, "_user_turn_prompts", [])
+
+        items = []
+        for seg in segments:
+            turn = seg.get("turn")
+            index = turn - 1 if turn else self._turn_index_for(seg["start"], seg["end"])
+            prev_ai = prompts[index] if index is not None and index < len(prompts) else ""
+            pauses = seg.get("pauses") or []
+            items.append({
+                "type": seg["type"],
+                "utterance": self._utterance_for(seg["start"], seg["end"]),
+                "avti": seg.get("avti"),
+                "reason": seg.get("reason"),
+                "prev_ai": _clip(prev_ai.strip()),
+                "pause_count": len(pauses),
+                "pause_longest_sec": max(pauses, default=0.0),
+            })
+        return items
+
+    def _long_pauses_by_turn(self, tremor_result) -> dict[int, list[float]]:
+        """턴 번호 → 그 턴에서 말 중간에 길게 멈춘 곳들의 길이. 멈춤이 없는 턴은 키가 없다."""
+        spans = getattr(tremor_result, "voiced_spans", None)
+        if not spans:
+            return {}
+        by_turn = {
+            index: long_pauses(turn, spans)
+            for index, turn in enumerate(self._user_turn_intervals, start=1)
+        }
+        return {index: pauses for index, pauses in by_turn.items() if pauses}
+
+    def _turn_index_for(self, start: float, end: float) -> int | None:
+        """[start, end] 구간과 가장 많이 겹치는 사용자 턴의 순번(0부터). 겹치는 턴이 없으면 None."""
+        best_index, best_overlap = None, 0.0
+        for index, (s, e) in enumerate(self._user_turn_intervals):
+            overlap = min(end, e) - max(start, s)
+            if overlap > best_overlap:
+                best_index, best_overlap = index, overlap
+        return best_index
 
     async def _save_feedback(
         self,
@@ -1558,7 +1598,15 @@ class VoicePipeline:
         if self._turn_open_at is not None:
             self._user_turn_intervals.append((self._turn_open_at, self._buf_sec()))
             self._user_turn_texts.append(text)
+            # 끝난 뒤 대화 기록에서 번호로 찾으면 글 없는 턴 때문에 한 칸씩 밀린다. 지금 적어 둔다.
+            self._user_turn_prompts.append(self._last_ai_utterance())
             self._turn_open_at = None
+
+    def _last_ai_utterance(self) -> str:
+        """이 턴 바로 앞에 상대(AI)가 한 말. 통화 첫 턴이거나 상대가 말이 없었으면 빈 문자열."""
+        if self._history and self._history[-1].get("role") == "assistant":
+            return str(self._history[-1].get("text", ""))
+        return ""
 
     def _utterance_for(self, start: float, end: float) -> str:
         """[start, end] 구간과 가장 많이 겹치는 사용자 발화 텍스트를 찾는다."""
@@ -1612,18 +1660,31 @@ class VoicePipeline:
             turns.append((index, (start, end)))
         return turns
 
-    def _pick_segments(self, candidates, avti_by_turn: dict[int, float]) -> list[dict]:
-        """칭찬할 구간과 아쉬운 구간을 함께 고른다. 발화 없는 턴은 제외한다."""
+    def _pick_segments(
+        self,
+        candidates,
+        avti_by_turn: dict[int, float],
+        pauses_by_turn: dict[int, list[float]] | None = None,
+    ) -> list[dict]:
+        """칭찬할 구간과 아쉬운 구간을 함께 고른다. 발화 없는 턴은 제외한다.
+
+        아쉬운 구간이 되는 이유는 둘이다 — 목소리가 흔들렸거나(voice), 말 중간에 길게 멈췄거나(pause).
+        """
         turns = self._spoken_turns(avti_by_turn)
         intervals = [span for _, span in turns]
         clean = self._intersect(candidates, intervals)
+        pauses_by_turn = pauses_by_turn or {}
         picked: list[dict] = []
 
         for index, (start, end) in turns:
             avti = avti_by_turn.get(index)
             band = voice_band(avti)
+            pauses = pauses_by_turn.get(index, [])
             if band is Band.NEEDS_WORK:
                 kind, reason = _SEG_IMPROVE, "voice"
+            elif pauses:
+                # 목소리가 안정적이었어도 말이 길게 끊긴 턴은 칭찬하지 않고 짚는다.
+                kind, reason = _SEG_IMPROVE, "pause"
             elif band is Band.GOOD:
                 kind, reason = _SEG_GOOD, "voice"
             elif band is Band.MIDDLE:
@@ -1643,6 +1704,7 @@ class VoicePipeline:
                 "type": kind,
                 "reason": reason,
                 "avti": avti,
+                "pauses": pauses,
             })
 
         # 아쉬운 구간을 먼저 살리고, 남는 자리를 긴 칭찬 구간으로 채운다.

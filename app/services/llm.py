@@ -339,42 +339,49 @@ class LLMClient:
         """구간마다 (제목, 내용) 한 쌍. 입력 순서 그대로 같은 개수를 돌려준다.
 
         items[i] = {"type": GOOD|IMPROVE, "utterance": 그 구간 발화,
-                    "avti": 그 턴의 떨림 값 or None, "reason": voice|clean|fallback}
+                    "avti": 그 턴의 떨림 값 or None, "reason": voice|clean|fallback,
+                    "prev_ai": 그 구간 직전에 상대가 한 말,
+                    "pause_count": 말 중간에 길게 멈춘 횟수, "pause_longest_sec": 그중 가장 긴 것}
+        prev_ai 는 없으면 빈 문자열이고, 그 줄은 입력에서 빠진다.
 
-        GOOD 구간은 발화 내용을 칭찬하고, IMPROVE 구간은 목소리가 흔들렸다는 것을
-        말해야 한다. 그래서 여기서는 음성 얘기를 금지하지 않는다 —
-        구간을 고른 근거가 그것이기 때문이다.
+        GOOD 구간은 발화 내용을 칭찬하고, IMPROVE 구간은 그 구간을 고른 이유
+        (목소리가 흔들렸다 / 말 중간에 멈췄다)를 말해야 한다. 그래서 여기서는
+        음성 얘기를 금지하지 않는다. 그 뒤에 다음에 해볼 말을 제안으로 덧붙일 수 있다.
         """
         if not items:
             return []
 
         situation = " / ".join(
-            part for part in (scenario_title, call_target, call_purpose) if part
+            part
+            for part in (
+                scenario_title,
+                f"상대는 {call_target}" if call_target else "",
+                call_purpose,
+            )
+            if part
         ) or "일반 통화"
 
-        lines = []
-        for i, item in enumerate(items, start=1):
-            kind = "칭찬할 구간" if item["type"] == "GOOD" else "짚어줄 구간"
-            measured = (
-                f", 떨림 {item['avti']:.1f}/10" if item.get("avti") is not None else ""
-            )
-            said = (item.get("utterance") or "").strip() or "(발화 인식 안 됨)"
-            lines.append(f"{i}. [{kind}{measured}] \"{said}\"")
+        lines = self._segment_lines(items)
 
         system_prompt = (
             "너는 전화 통화를 무서워하는 사람을 돕는 코치야.\n"
             f"이번 통화 상황: {situation}\n"
             "통화에서 뽑아낸 구간들에 대해 한 구간씩 피드백을 써.\n"
             "\n"
+            "입력 읽는 법 — 번호 아래에 줄이 붙는다:\n"
+            "- '상대가 한 말': 그 구간 바로 앞에 통화 상대가 한 말. 없으면 통화를 시작하는 첫마디다.\n"
+            "- '짚을 점': 짚어줄 구간에만 붙는다. 그 구간을 짚는 이유다.\n"
+            "- '내가 한 말': 피드백을 받을 사람이 그 구간에서 한 말.\n"
+            "\n"
             "구간 종류:\n"
             "- [칭찬할 구간]: 그 발화에서 잘한 점을 짚어준다.\n"
-            "- [짚어줄 구간]: 이 구간에서 목소리가 흔들렸다. "
+            "- [짚어줄 구간]: '짚을 점' 에 적힌 일이 있었다 — 목소리가 흔들렸거나, 말 중간에 길게 멈췄다. "
             "그 얘기를 하고 다음에 어떻게 할지 알려준다.\n"
             "- '떨림 N/10' 이 붙어 있으면 그 구간의 측정값이다. "
             "낮으면 안정적, 높으면 흔들린 것. 판단에만 쓰고 숫자는 쓰지 마.\n"
             "\n"
             "형식:\n"
-            "- 번호마다 한 줄, '번호. 제목 | 내용' 으로 쓴다.\n"
+            "- 답은 번호마다 한 줄, '번호. 제목 | 내용' 으로 쓴다.\n"
             "- 제목은 20자 안쪽, 내용은 두 문장 안쪽. 둘이 같은 말이면 안 된다.\n"
             "- 입력한 번호 개수만큼만, 순서대로.\n"
             "\n"
@@ -386,8 +393,17 @@ class LLMClient:
             "           → 무엇에 대한 얘긴지 알 수 없다. 절대 쓰지 마.\n"
             "\n"
             "내용 규칙:\n"
-            "- 그 구간에서 실제로 한 말에 근거해서 써. 없는 장면을 지어내지 마.\n"
-            "- 발화를 그대로 따라 읽지 마. 무엇이 좋았는지/아쉬웠는지를 써.\n"
+            "- '내가 한 말' 에 근거해서 써. 거기에 없는 행동이나 장면을 지어내지 마.\n"
+            "- 칭찬할 구간은 상대가 한 말에 맞게 답했는지를 보고, "
+            "무엇을 말했는지(날짜, 이름, 용건처럼)를 짚어서 쓴다.\n"
+            "- 발화를 그대로 따라 읽지 마. 상대가 한 말을 통째로 옮겨 적지도 마. "
+            "무엇이 좋았는지/아쉬웠는지를 써.\n"
+            "- 짚어줄 구간은 '짚을 점' 에 적힌 것을 먼저 말한다. 적히지 않은 일은 짚지 마. "
+            "상대가 한 말에 비춰 더 잘 전해질 말이 있으면, 다음에 해볼 말을 짧은 예시로 덧붙여도 된다. "
+            "틀렸다고 지적하지 말고 '~처럼 말해봐요' 로 제안한다.\n"
+            "- 말 중간에 멈춘 구간은 멈춘 탓에 상대가 어떻게 느꼈을지를 쓰고, "
+            "'~까지 한 번에 이어 말해봐요' 처럼 이어 말하는 방법을 알려준다. "
+            "어느 말에서 멈췄는지는 알 수 없으니 '~를 말하다가' 처럼 멈춘 자리를 지어내지 마.\n"
             "- 짚어줄 구간은 '다음엔 ~해봐요' 로 끝낸다.\n"
             "- 목소리 얘기는 '상대방이 ~하게 느꼈을 것 같아요' 처럼 "
             "듣는 사람 입장으로. 몸 상태를 단정하지 마.\n"
@@ -395,7 +411,7 @@ class LLMClient:
             "조언이 아니라 낙인이다. 꼭 그 얘기를 해야 하면 "
             "'상대방에게 자신 없게 들렸을 수 있어요' 처럼 "
             "상대가 어떻게 들었을지로 돌리거나 '~것 같아요' 로 추측해서 쓴다.\n"
-            "- 숫자, 지표 이름, 점수를 쓰지 마.\n"
+            "- 숫자, 지표 이름, 점수를 쓰지 마. 멈춘 횟수와 길이만 '두 번', '2초쯤' 처럼 어림으로 써도 된다.\n"
             "- 어려운 말 없이 초등학생도 이해할 단어만. 겁주는 말투 금지.\n"
             "- 비유로 돌려 말하지 마. '상대방에게 닿지 않았어요' 같은 말 대신 "
             "'상대방이 잘 듣지 못했을 것 같아요' 처럼 실제로 어떻게 들렸는지 그대로 쓴다.\n"
@@ -424,6 +440,36 @@ class LLMClient:
                 "구간 피드백이 상한에서 잘렸다(model=%r) — thinking 설정을 확인할 것", self._model
             )
         return self._parse_numbered_pairs(resp.text or "", len(items))
+
+    @staticmethod
+    def _segment_lines(items: list[dict]) -> list[str]:
+        """구간마다 번호 줄 하나와, 그 아래 직전 상대 말·짚을 점·발화 줄. 없는 줄은 뺀다."""
+        lines: list[str] = []
+        for i, item in enumerate(items, start=1):
+            improve = item["type"] != "GOOD"
+            kind = "짚어줄 구간" if improve else "칭찬할 구간"
+            measured = (
+                f", 떨림 {item['avti']:.1f}/10" if item.get("avti") is not None else ""
+            )
+            said = (item.get("utterance") or "").strip() or "(발화 인식 안 됨)"
+            lines.append(f"{i}. [{kind}{measured}]")
+            if prev_ai := (item.get("prev_ai") or "").strip():
+                lines.append(f"   상대가 한 말: \"{prev_ai}\"")
+            if improve:
+                lines.append(f"   짚을 점: {LLMClient._improve_points(item)}")
+            lines.append(f"   내가 한 말: \"{said}\"")
+        return lines
+
+    @staticmethod
+    def _improve_points(item: dict) -> str:
+        """짚어줄 구간을 고른 이유를 한 줄로. 멈춘 길이는 소수 없이 어림으로 준다."""
+        points: list[str] = []
+        if item.get("reason") != "pause":
+            points.append("목소리가 흔들림")
+        if count := item.get("pause_count") or 0:
+            longest = max(1, round(item.get("pause_longest_sec") or 0))
+            points.append(f"말 중간에 {count}번 길게 멈춤 (가장 길게 약 {longest}초)")
+        return ", ".join(points)
 
     async def _call_segment_feedback(
         self,

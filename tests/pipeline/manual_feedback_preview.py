@@ -2,31 +2,36 @@
 
 마이크도 통화도 필요 없다. 턴별 AVTI 와 발화를 넣고 최종 출력까지 찍는다.
 
-  턴별 AVTI → 구간 선택(GOOD/IMPROVE) → AI 문구 → 검증 → good_segments
+  턴별 AVTI → 구간 선택(GOOD/IMPROVE) → AI 가 받는 글 → AI 문구 → 검증 → good_segments
 
 실행:
-  python -m tests.pipeline.manual_feedback_preview            # 실제 Gemini 호출
-  python -m tests.pipeline.manual_feedback_preview --offline  # 미리 준비한 응답으로
-  python -m tests.pipeline.manual_feedback_preview --case 2   # 한 케이스만
+  python -m tests.pipeline.manual_feedback_preview               # 실제 Gemini 호출
+  python -m tests.pipeline.manual_feedback_preview --offline     # 미리 준비한 응답으로
+  python -m tests.pipeline.manual_feedback_preview --case 2      # 한 케이스만
+  python -m tests.pipeline.manual_feedback_preview --no-context  # 통화 맥락 없이(전후 비교용)
 """
 import argparse
 import asyncio
 import json
 
 from app.services.feedback_points import is_safe
+from app.services.llm import LLMClient
 from app.services.pipeline import VoicePipeline, _segment_fallback
 
 W = 78
 
 
 class Case:
-    def __init__(self, name, scenario, turns, avti_by_turn, clean_spans, canned):
+    def __init__(self, name, scenario, turns, avti_by_turn, clean_spans, canned, context=None,
+                 pauses_by_turn=None):
         self.name = name
         self.scenario = scenario
         self.turns = turns          # [(start, end, 발화)]
         self.avti_by_turn = avti_by_turn
         self.clean_spans = clean_spans
         self.canned = canned
+        self.context = context      # 턴마다 그 직전에 상대가 한 말. 없으면 맥락 없이.
+        self.pauses_by_turn = pauses_by_turn or {}   # 턴 번호 → 말 중간에 길게 멈춘 곳들의 길이(초)
 
 
 CASES = [
@@ -46,6 +51,11 @@ CASES = [
             ("주소를 말할 때 흔들렸어요", "상대방이 되묻고 싶었을 수 있어요. 다음엔 주소를 한 글자씩 천천히 말해봐요."),
             ("마무리 인사를 챙겼어요", "끝인사까지 하고 끊어서 통화가 깔끔하게 끝났어요."),
         ],
+        context=[
+            "",
+            "아, 죄송합니다. 바로 확인해 드릴게요. 주소가 어떻게 되세요?",
+            "확인해 보니 방금 출발했습니다. 10분 안에 도착할 거예요.",
+        ],
     ),
     Case(
         name="병원 예약 · 전 구간 안정적",
@@ -62,6 +72,11 @@ CASES = [
             ("용건을 먼저 밝혔어요", "무슨 일로 걸었는지 앞에 말해서 상대가 바로 알아들었어요."),
             ("원하는 날짜를 준비해 갔어요", "요일과 시간대까지 정해서 말해 예약이 빨리 잡혔어요."),
             ("차분하게 마무리했어요", "끝까지 흔들림 없이 이야기해서 편안하게 들렸을 거예요."),
+        ],
+        context=[
+            "",
+            "네, 예약 도와드리겠습니다. 성함과 원하시는 날짜 말씀해 주시겠어요?",
+            "네, 다음 주 화요일 오후 두 시로 예약해 드렸습니다.",
         ],
     ),
     Case(
@@ -130,6 +145,11 @@ CASES = [
             ("대답이 흐려졌어요", "상대방이 잘 듣지 못했을 것 같아요. 다음엔 원하는 것을 한 문장으로 말해봐요."),
             ("마무리 대답을 했어요", "알겠다고 답해서 상대방이 안심하고 통화를 끝냈어요."),
         ],
+        context=[
+            "",
+            "커트 예약이시죠? 오늘 오후 세 시 괜찮으세요?",
+            "그럼 내일 오전 열한 시는 어떠세요? 그때로 잡아 드릴게요.",
+        ],
     ),
     Case(
         name="택배 분실 · 속상한 상황",
@@ -162,6 +182,30 @@ CASES = [
         ],
     ),
     Case(
+        name="식당 예약 · 말 중간에 길게 멈춤",
+        scenario={"title": "식당 예약", "callTarget": "레스토랑 직원",
+                  "callPurpose": "저녁 식사 예약하기"},
+        turns=[
+            (0.5, 4.5, "안녕하세요, 예약하려고 전화드렸어요"),
+            (8.0, 16.0, "이번 주 토요일 저녁 여섯 시에 네 명이요"),
+            (20.0, 23.5, "네 감사합니다"),
+        ],
+        avti_by_turn={1: 2.4},
+        clean_spans=[(0.7, 4.3), (8.2, 15.8), (20.2, 23.3)],
+        canned=[
+            ("용건을 먼저 말했어요", "전화한 이유를 처음에 말해서 상대방이 바로 알아들었어요."),
+            ("말 중간에 멈췄어요", "말 중간에 2초쯤 멈춰서 상대방이 말이 끝난 줄 알았을 수 있어요. "
+                                  "다음엔 '토요일 저녁 여섯 시, 네 명이요'까지 한 번에 이어 말해봐요."),
+            ("마무리 인사를 했어요", "안내를 듣고 고맙다고 말해서 통화가 깔끔하게 끝났어요."),
+        ],
+        context=[
+            "",
+            "네, 예약 도와드리겠습니다. 원하시는 날짜와 시간, 인원이 어떻게 되세요?",
+            "네, 토요일 저녁 여섯 시 네 분으로 예약해 드렸습니다.",
+        ],
+        pauses_by_turn={2: [2.1, 1.6]},
+    ),
+    Case(
         name="시나리오 정보 없음 · 일반 통화",
         scenario={"title": "", "callTarget": "", "callPurpose": ""},
         turns=[
@@ -182,14 +226,21 @@ def rule(char: str = "─") -> str:
     return char * W
 
 
-def _pipeline_for(case: Case) -> VoicePipeline:
+def _pipeline_for(case: Case, *, with_context: bool) -> VoicePipeline:
     p = VoicePipeline.__new__(VoicePipeline)
+    p._session_id = "preview"   # 글 없는 턴을 뺄 때 남기는 로그에 쓰인다
     p._user_turn_intervals = [(s, e) for s, e, _ in case.turns]
     p._user_turn_texts = [t for _, _, t in case.turns]
+    scenario = {"title": case.scenario["title"]}
+    if with_context and case.context:
+        # 실제 세션처럼: 통화 상대는 aiRole 로 오고, 턴마다 직전 상대 말이 기록돼 있다.
+        scenario["aiRole"] = case.scenario["callTarget"]
+        p._user_turn_prompts = list(case.context)
+    p._session = {"scenario": scenario}
     return p
 
 
-async def run_case(case: Case, *, offline: bool) -> None:
+async def run_case(case: Case, *, offline: bool, with_context: bool = True) -> None:
     print()
     print(rule("━"))
     print(f"  {case.name}")
@@ -202,45 +253,47 @@ async def run_case(case: Case, *, offline: bool) -> None:
         mark = f"{avti:.1f}" if avti is not None else "측정 안 됨"
         print(f"  턴{i}  {start:5.1f}~{end:5.1f}초   AVTI {mark:<10} \"{said}\"")
 
-    p = _pipeline_for(case)
-    segments = p._pick_segments(case.clean_spans, case.avti_by_turn)
+    p = _pipeline_for(case, with_context=with_context)
+    segments = p._pick_segments(case.clean_spans, case.avti_by_turn, case.pauses_by_turn)
 
     print("\n[2] 고른 구간")
     print(rule())
     for seg in segments:
-        why = {"voice": "AVTI 로 판단", "clean": "떨림 없는 구간",
+        why = {"voice": "AVTI 로 판단", "pause": "말 중간에 길게 멈춤", "clean": "떨림 없는 구간",
                "fallback": "근거 없어 보충"}.get(seg.get("reason"), "-")
         print(f"  {seg['type']:<8} {seg['start']:5.1f}~{seg['end']:5.1f}초   ({why})")
 
-    print(f"\n[3] AI 문구  ({'미리 준비한 응답' if offline else '실제 Gemini 호출'})")
+    items = p._feedback_items(segments)
+    call_target = p._session["scenario"].get("aiRole", "")
+
+    print(f"\n[3] AI 가 받는 글  (통화 상대: {call_target or '전달 안 됨'})")
     print(rule())
-    items = [
-        {"type": seg["type"], "utterance": p._utterance_for(seg["start"], seg["end"]),
-         "avti": seg.get("avti"), "reason": seg.get("reason")}
-        for seg in segments
-    ]
+    for line in LLMClient._segment_lines(items):
+        print(f"  {line}")
+
+    print(f"\n[4] AI 문구  ({'미리 준비한 응답' if offline else '실제 Gemini 호출'})")
+    print(rule())
     if offline:
         pairs = (case.canned + [("", "")] * len(items))[: len(items)]
     else:
-        from app.services.llm import LLMClient
         pairs = await LLMClient().segment_feedback(
             items,
             scenario_title=case.scenario["title"],
-            call_target=case.scenario["callTarget"],
-            call_purpose=case.scenario["callPurpose"],
+            call_target=call_target,
         )
 
     for seg, (title, content) in zip(segments, pairs, strict=True):
         if not is_safe(title, content):
             print(f"  ✗ 검증 탈락 → 폴백 문구로 대체: {title} | {content}")
-            title, content = _segment_fallback(seg["type"])
+            title, content = _segment_fallback(seg["type"], seg.get("reason"))
         seg["title"], seg["content"] = title, content
         seg["good_point"] = content
         seg.pop("reason", None)
         seg.pop("turn", None)
         seg.pop("avti", None)
+        seg.pop("pauses", None)
 
-    print("\n[4] 사용자에게 나가는 구간 피드백")
+    print("\n[5] 사용자에게 나가는 구간 피드백")
     print(rule())
     for seg in segments:
         mark = "＋" if seg["type"] == "GOOD" else "－"
@@ -248,7 +301,7 @@ async def run_case(case: Case, *, offline: bool) -> None:
         print(f"     title  : {seg['title']}")
         print(f"     content: {seg['content']}")
 
-    print("\n[5] end 프레임 · Spring 콜백에 실리는 모양")
+    print("\n[6] end 프레임 · Spring 콜백에 실리는 모양")
     print(rule())
     for line in json.dumps(
         {"good_segments": segments}, ensure_ascii=False, indent=2
@@ -260,11 +313,12 @@ async def main() -> None:
     ap = argparse.ArgumentParser(description="구간 피드백 미리보기")
     ap.add_argument("--offline", action="store_true", help="Gemini 호출 없이")
     ap.add_argument("--case", type=int, help="특정 케이스만 (1부터)")
+    ap.add_argument("--no-context", action="store_true", help="통화 맥락 없이 (전후 비교용)")
     args = ap.parse_args()
 
     cases = CASES if args.case is None else [CASES[args.case - 1]]
     for case in cases:
-        await run_case(case, offline=args.offline)
+        await run_case(case, offline=args.offline, with_context=not args.no_context)
     print()
 
 
