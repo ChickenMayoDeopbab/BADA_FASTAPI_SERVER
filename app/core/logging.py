@@ -1,7 +1,32 @@
+import logging
+import re
 import sys
 from logging.config import dictConfig
 
 from app.core.config import get_settings
+
+
+_SECRET_PATTERNS = (
+    (re.compile(r"([?&]token=)[^&\s\"'\\]+", re.IGNORECASE), r"\1[REDACTED]"),
+    (re.compile(r"(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*"), "[REDACTED]"),
+)
+
+
+class RedactSecretsFilter(logging.Filter):
+    """완성된 메시지에서 쿼리 token 값과 JWT를 가린다."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            message = record.getMessage()
+        except Exception:
+            return True
+        redacted = message
+        for pattern, replacement in _SECRET_PATTERNS:
+            redacted = pattern.sub(replacement, redacted)
+        if redacted != message:
+            record.msg = redacted
+            record.args = ()
+        return True
 
 
 def setup_logging() -> None:
@@ -32,11 +57,15 @@ def setup_logging() -> None:
                 "datefmt": "%Y-%m-%dT%H:%M:%S",
             },
         },
+        "filters": {
+            "redact_secrets": {"()": RedactSecretsFilter},
+        },
         "handlers": {
             "console": {
                 "class": "logging.StreamHandler",
                 "stream": sys.stdout,
                 "formatter": formatter_key,
+                "filters": ["redact_secrets"],
             },
         },
         "loggers": {
