@@ -99,6 +99,13 @@ async def init_db() -> None:
         if engine.dialect.name == "postgresql":
             await conn.execute(
                 text(
+                    "ALTER TABLE feedback "
+                    "ADD COLUMN IF NOT EXISTS turn_metrics TEXT NULL"
+                )
+            )
+
+            await conn.execute(
+                text(
                     "ALTER TABLE scenario "
                     "ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ NULL"
                 )

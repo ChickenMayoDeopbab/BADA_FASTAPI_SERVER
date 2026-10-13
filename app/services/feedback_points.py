@@ -10,7 +10,8 @@ from enum import StrEnum
 import numpy as np
 
 __all__ = [
-    "Band", "voice_band", "long_pauses", "turn_levels", "quiet_drops", "answer_delay",
+    "Band", "voice_band", "long_pauses", "turn_levels", "quiet_drops", "answer_delay", "is_long_silence",
+    "count_syllables", "speaking_seconds", "speech_rate",
     "is_safe", "polish", "split_title",
 ]
 
@@ -116,6 +117,67 @@ def quiet_drops(levels: Mapping[int, float]) -> dict[int, float]:
 # ★ 실음성 캘리브레이션 대상 — 현재 잠정값. 재생 완료 신호와 마이크 소리 사이의 시간 차가 오차로 섞인다.
 LATE_ANSWER_SEC = 1.2
 
+# 말 중간의 멈춤이든 대답 전의 멈춤이든, 이만큼 넘게 조용했을 때만 글에서 '길게' 멈췄다고 쓴다.
+# 그 아래는 짚기는 하되 그냥 멈췄다고 쓴다 — 1~2초는 알아챌 만하지만 길다고 하기엔 짧다.
+# ★ 실음성 캘리브레이션 대상 — 현재 잠정값.
+LONG_SILENCE_SEC = 3.0
+
+
+def is_long_silence(seconds: float) -> bool:
+    """글에서 '길게' 멈췄다고 써도 되는 길이인지."""
+    return seconds >= LONG_SILENCE_SEC
+
+
+# 말소리 사이가 이만큼 넘게 비면 쉼으로 보고 말한 시간에서 뺀다. 그보다 짧은 틈은 말하는 중으로 친다
+# (ㅂ·ㄷ·ㄱ 같은 소리를 낼 때 입이 잠깐 막히는 순간, 낱말 사이의 짧은 틈). 말 속도 연구에서 흔히 쓰는 값이다.
+ARTICULATION_GAP_SEC = 0.25
+# 짧은 대답은 속도가 들쭉날쭉해서 음절과 말한 시간이 이만큼은 있어야 잰다.
+MIN_RATE_SYLLABLES = 8
+MIN_RATE_SPEAKING_SEC = 1.5
+
+
+def count_syllables(text: str) -> int:
+    """받아적은 글의 음절 수. 한글은 글자 하나가 한 음절이다.
+
+    받아쓰기가 숫자와 영문자로 적은 말('17일', 'A동')은 글자 하나를 한 음절로 어림한다 —
+    '17일'(십칠일)처럼 대개 맞거나 한 음절쯤 어긋난다. 문장부호와 빈칸은 세지 않는다.
+    """
+    return sum(
+        1 for ch in text if "가" <= ch <= "힣" or ch.isdigit() or (ch.isascii() and ch.isalpha())
+    )
+
+
+def speaking_seconds(
+    turn: tuple[float, float], voiced_spans: Sequence[tuple[float, float]]
+) -> float:
+    """턴 안에서 말하고 있던 시간(초). 쉼(ARTICULATION_GAP_SEC 이상)은 빼고, 그보다 짧은 틈은 잇는다."""
+    start, end = turn
+    inside = sorted(
+        (max(s, start), min(e, end)) for s, e in voiced_spans if e > start and s < end
+    )
+    total, previous_end = 0.0, None
+    for span_start, span_end in inside:
+        if previous_end is not None and span_start - previous_end < ARTICULATION_GAP_SEC:
+            total += span_start - previous_end
+        total += span_end - span_start
+        previous_end = span_end
+    return total
+
+
+def speech_rate(
+    text: str, turn: tuple[float, float], voiced_spans: Sequence[tuple[float, float]]
+) -> float | None:
+    """말 속도 — 말한 시간 1초에 몇 음절을 말했는지. 잴 만큼 말이 없으면 None.
+
+    쉼을 뺀 시간으로 나누므로 중간에 멈춘 턴이 느린 턴으로 나오지 않는다. 멈춤은 따로 짚는다.
+    받아쓰기가 말을 빠뜨리거나 잡음이 말소리로 잡히면 값이 실제보다 작게 나온다 — 빠른 쪽으로 틀리지는 않는다.
+    """
+    syllables = count_syllables(text)
+    seconds = speaking_seconds(turn, voiced_spans)
+    if syllables < MIN_RATE_SYLLABLES or seconds < MIN_RATE_SPEAKING_SEC:
+        return None
+    return round(syllables / seconds, 2)
+
 
 def answer_delay(
     turn: tuple[float, float],
@@ -158,6 +220,9 @@ _MIND_STATE = re.compile(
     r"|(?:긴장|불안|초조|위축|주눅|소심|겁먹)"
     r"(?!\s*하지\s*않|\s*되지\s*않|\s*없이|\s*하지\s*마|\s*안\s*하)"
 )
+# 상대가 '궁금했을 것' 이라는 말은 무엇을 느꼈는지가 흐릿해서 쓰지 않기로 했다. 지시문으로 막아도 가끔 새어 나온다.
+# '궁금한 점을 먼저 물어봤어요' 처럼 내가 궁금해한 얘기는 막지 않는다.
+_VAGUE_LISTENER = re.compile(r"궁금(?:했을|해할|해했을|해하실|하셨을)")
 _HEDGED = re.compile(r"들렸|들릴|들리|느꼈|느낄|느껴|것\s*같|수\s*있|거예요|거에요")
 
 _MAX_TITLE_LEN = 30
@@ -184,6 +249,8 @@ def is_safe(title: str, content: str) -> bool:
     if _asserts_mind_state(title) or _asserts_mind_state(content):
         return False
     joined = f"{title} {content}"
+    if _VAGUE_LISTENER.search(joined):
+        return False
     return not _HARD_BANNED.search(joined) and not _VOICE_PATHOLOGY.search(joined)
 
 

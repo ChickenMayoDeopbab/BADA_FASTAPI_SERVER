@@ -39,6 +39,7 @@ from app.services.feedback_points import (
     is_safe,
     long_pauses,
     quiet_drops,
+    speech_rate,
     turn_levels,
     voice_band,
 )
@@ -119,7 +120,7 @@ _INTERNAL_SEGMENT_KEYS = ("turn", "avti", "reason", "pauses", "quiet_db", "late_
 def _segment_fallback(kind: str, reason: str | None = None) -> tuple[str, str]:
     """LLM 이 못 쓰거나 걸러졌을 때 구간에 남길 최소 문구."""
     if kind == _SEG_IMPROVE and reason == "pause":
-        return ("말이 잠깐 끊겼어요", "말하는 중간에 길게 멈춘 부분이에요. 다음엔 할 말을 짧게 나눠서 이어 말해봐요.")
+        return ("말이 잠깐 끊겼어요", "말하는 중간에 멈춘 부분이에요. 다음엔 할 말을 짧게 나눠서 이어 말해봐요.")
     if kind == _SEG_IMPROVE and reason == "quiet":
         return ("목소리가 작아졌어요", "이 부분은 다른 때보다 작게 말했어요. 다음엔 조금 더 크게 말해봐요.")
     if kind == _SEG_IMPROVE and reason == "late":
@@ -1311,6 +1312,7 @@ class VoicePipeline:
             self._quiet_by_turn(recording_pcm, tremor_result),
             self._late_by_turn(tremor_result),
         )
+        self._speech_rates_by_turn(tremor_result)
 
         analysis = None
         try:
@@ -1558,7 +1560,9 @@ class VoicePipeline:
             index: long_pauses(turn, spans)
             for index, turn in enumerate(self._user_turn_intervals, start=1)
         }
-        return {index: pauses for index, pauses in by_turn.items() if pauses}
+        pauses_by_turn = {index: pauses for index, pauses in by_turn.items() if pauses}
+        self._note_turn_metric("pause_sec", pauses_by_turn)
+        return pauses_by_turn
 
     def _quiet_by_turn(self, recording_pcm: bytes, tremor_result) -> dict[int, float]:
         """턴 번호 → 같은 통화의 다른 턴보다 얼마나 작게 말했는지(dB). 작아진 턴만 키가 있다."""
@@ -1573,15 +1577,30 @@ class VoicePipeline:
                            exc_info=True, extra={"session_id": self._session_id})
             return {}
         # 작아진 턴을 가르는 기준(QUIET_DROP_DB)이 잠정값이라, 실제 통화의 값을 남겨 맞출 수 있게 한다.
-        logger.info(
-            "턴별 목소리 크기",
-            extra={
-                "session_id": self._session_id,
-                "levels_db": {index: round(level, 1) for index, level in levels.items()},
-                "quiet_db": quiet,
-            },
-        )
+        levels_db = {index: round(level, 1) for index, level in levels.items()}
+        log_metric("turn_loudness", session_id=self._session_id, levels_db=levels_db, quiet_db=quiet)
+        self._note_turn_metric("loudness_db", levels_db)
+        self._note_turn_metric("quiet_drop_db", quiet)
         return quiet
+
+    def _speech_rates_by_turn(self, tremor_result) -> dict[int, float]:
+        """턴 번호 → 말 속도(말한 시간 1초당 음절 수). 잴 만큼 말한 턴만 키가 있다.
+
+        아직 구간을 고르는 데는 쓰지 않는다. 빠르다고 볼 기준을 실제 통화의 값으로 정하려고 재서 남기기만 한다.
+        """
+        spans = getattr(tremor_result, "voiced_spans", None)
+        if not spans:
+            return {}
+        rates: dict[int, float] = {}
+        for index, (turn, text) in enumerate(
+            zip(self._user_turn_intervals, self._user_turn_texts, strict=False), start=1
+        ):
+            rate = speech_rate(text, turn, spans)
+            if rate is not None:
+                rates[index] = rate
+        log_metric("speech_rate", session_id=self._session_id, syllables_per_sec=rates)
+        self._note_turn_metric("syllables_per_sec", rates)
+        return rates
 
     def _late_by_turn(self, tremor_result) -> dict[int, float]:
         """턴 번호 → 상대 말이 다 들린 뒤 대답을 꺼내기까지 걸린 시간(초). 늦은 턴만 키가 있다.
@@ -1601,11 +1620,32 @@ class VoicePipeline:
                 delays[index] = delay
         late = {index: delay for index, delay in delays.items() if delay >= LATE_ANSWER_SEC}
         # 늦은 턴을 가르는 기준(LATE_ANSWER_SEC)이 잠정값이라, 실제 통화의 값을 남겨 맞출 수 있게 한다.
-        logger.info(
-            "턴별 대답까지 걸린 시간",
-            extra={"session_id": self._session_id, "delays_sec": delays, "late_sec": late},
-        )
+        log_metric("answer_delay", session_id=self._session_id, delays_sec=delays, late_sec=late)
+        self._note_turn_metric("answer_delay_sec", delays)
+        self._note_turn_metric("late_answer_sec", late)
         return late
+
+    def _note_turn_metric(self, name: str, value: dict | list) -> None:
+        """턴별 측정값과 판정을 모아 둔다. 통화가 끝나면 피드백과 같은 행에 저장한다."""
+        metrics = getattr(self, "_turn_metrics", None)
+        if metrics is None:
+            metrics = self._turn_metrics = {}
+        metrics[name] = value
+
+    def _turn_metrics_for_storage(self) -> dict | None:
+        """저장할 턴별 측정값과 판정. 턴 구간(녹음 위치)을 함께 넣어 나중에 녹음과 맞춰 볼 수 있게 한다.
+
+        잰 값(loudness_db·answer_delay_sec·syllables_per_sec·pause_sec·avti)과 그 값으로 내린 판정
+        (quiet_drop_db·late_answer_sec·picked)을 따로 둔다. 기준값이 바뀌어도 그때 어떻게 판정했는지 남는다.
+        """
+        metrics = getattr(self, "_turn_metrics", None)
+        if not metrics:
+            return None
+        turn_sec = {
+            index: [round(start, 2), round(end, 2)]
+            for index, (start, end) in enumerate(getattr(self, "_user_turn_intervals", []), start=1)
+        }
+        return {"turn_sec": turn_sec, **metrics}
 
     def _turn_index_for(self, start: float, end: float) -> int | None:
         """[start, end] 구간과 가장 많이 겹치는 사용자 턴의 순번(0부터). 겹치는 턴이 없으면 None."""
@@ -1642,6 +1682,7 @@ class VoicePipeline:
             shake_count=shake_count,
             silence_total=self._silence_total,
             good_segments=good_segments,
+            turn_metrics=self._turn_metrics_for_storage(),
         )
 
     async def _send_json(self, payload: dict) -> None:
@@ -1815,6 +1856,11 @@ class VoicePipeline:
                 for seg in self._pick_good_segments(candidates, intervals)
             ]
         chosen.sort(key=lambda p: p["start"])
+        self._note_turn_metric("avti", {index: value for index, value in avti_by_turn.items() if index})
+        self._note_turn_metric(
+            "picked",
+            [{key: seg.get(key) for key in ("turn", "type", "reason", "start", "end")} for seg in chosen],
+        )
         return chosen
 
     def _pick_good_segments(self, candidates, turn_intervals=None) -> list[dict]:

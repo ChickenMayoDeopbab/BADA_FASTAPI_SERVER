@@ -38,10 +38,12 @@ async def save_feedback(
     shake_count: int,
     silence_total: float,
     good_segments: list[dict] | None,
+    turn_metrics: dict | None = None,
     session_factory=AsyncSessionLocal,
 ) -> bool:
     """세션당 1행 저장. 이미 저장된 세션이면 조용히 건너뛴다."""
     highlights = json.dumps(good_segments or [], ensure_ascii=False)
+    metrics = json.dumps(turn_metrics, ensure_ascii=False) if turn_metrics else None
 
     try:
         async with session_factory() as db:
@@ -54,6 +56,7 @@ async def save_feedback(
                     shake_count=shake_count,
                     silence_duration=round(silence_total),
                     highlights=highlights,
+                    turn_metrics=metrics,
                     created_at=now_utc(),
                 )
                 # 재연결로 파이프라인이 두 번 떠도 중복 저장 안 되게
