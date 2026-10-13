@@ -5,7 +5,6 @@ import json
 import time
 import wave
 from pathlib import Path
-from urllib.parse import urlencode
 
 import websockets
 
@@ -29,8 +28,7 @@ def _load_audio(path: str) -> bytes:
 
 
 def _build_uri(args: argparse.Namespace) -> str:
-    base = args.url or f"{args.base_url.rstrip('/')}/ws/voice/{args.session_id}"
-    return f"{base}?{urlencode({'token': args.token})}"
+    return args.url or f"{args.base_url.rstrip('/')}/ws/voice/{args.session_id}"
 
 
 def _session_id_of(args: argparse.Namespace) -> str:
@@ -148,6 +146,7 @@ async def _run(args: argparse.Namespace) -> None:
 
     results: list[dict] = []
     async with websockets.connect(uri, max_size=None, open_timeout=args.timeout) as ws:
+        await ws.send(json.dumps({"type": "auth", "token": args.token}))
         for t in range(args.turns):
             name, audio = audios[t % len(audios)]
             res = await _run_turn(ws, audio, silence, chunk_bytes, chunk_s, args.turn_timeout, turn_gap=turn_gap)

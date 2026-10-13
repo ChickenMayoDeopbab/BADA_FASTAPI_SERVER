@@ -65,11 +65,21 @@ if [[ -f "$STATE_FILE" ]]; then
   SINCE=$(cat "$STATE_FILE")
 fi
 
+# 쿼리 token 값과 JWT 를 가린 뒤 저장한다 (app/core/logging.py 의 _SECRET_PATTERNS 와 같은 패턴,
+# 다만 sed 엔 lookbehind 가 없어 JWT 는 조금 더 넓게 잡는다 — sed 는 그래도 선형이다).
+# 앱 로그 필터 이전 컨테이너의 로그, 파이썬 로깅을 거치지 않은 출력까지 S3 에 안 올라가게.
+# LC_ALL=C: 패턴이 ASCII 뿐이라 바이트 단위로 돌려도 같고, 깨진 UTF-8 바이트에 sed 가 멈추지 않는다.
+redact_secrets() {
+  LC_ALL=C sed -E \
+    -e "s/([?&][Tt][Oo][Kk][Ee][Nn]=)[^&[:space:]\"'\\\\]+/\\1[REDACTED]/g" \
+    -e 's/eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*/[REDACTED]/g'
+}
+
 TMP=$(mktemp -t bada-logs.XXXXXX)
 if [[ -n "$SINCE" ]]; then
-  docker logs --since "$SINCE" --until "$NOW" "$CONTAINER" >"$TMP" 2>&1
+  docker logs --since "$SINCE" --until "$NOW" "$CONTAINER" 2>&1 | redact_secrets >"$TMP"
 else
-  docker logs --until "$NOW" "$CONTAINER" >"$TMP" 2>&1
+  docker logs --until "$NOW" "$CONTAINER" 2>&1 | redact_secrets >"$TMP"
 fi
 
 if [[ ! -s "$TMP" ]]; then

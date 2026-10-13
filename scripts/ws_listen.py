@@ -28,7 +28,6 @@ import time
 import wave
 from contextlib import suppress
 from pathlib import Path
-from urllib.parse import urlencode
 
 # 레포 루트를 경로에 넣어 `python scripts/ws_listen.py` 로도 app 모듈을 찾게 한다.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -163,11 +162,12 @@ async def _run_ws(args: argparse.Namespace, rec: Recorder) -> None:
     audios = [_load_audio(path) + tail for path in args.audio]
     chunk_bytes = int(_BYTES_PER_S * args.chunk_ms / 1000)
 
+    # 토큰은 URL 에 싣지 않는다(접근 로그에 남음) — 접속 직후 auth 프레임으로 보낸다
     base = args.url or f"{args.base_url.rstrip('/')}/ws/voice/{args.session_id}"
-    uri = f"{base}?{urlencode({'token': args.token})}"
     print(f"connect {base}  발화 {len(audios)}턴 " + " ".join(f"{len(a) / _BYTES_PER_S:.1f}s" for a in audios))
 
-    async with websockets.connect(uri, max_size=None, open_timeout=args.timeout) as ws:
+    async with websockets.connect(base, max_size=None, open_timeout=args.timeout) as ws:
+        await ws.send(json.dumps({"type": "auth", "token": args.token}))
         # --audio 를 여러 번 주면 한 연결(한 통화) 안에서 턴을 이어 간다: 보내고 → speaking_end 까지 듣고 → 다음.
         # 같은 통화라야 TTS 워커의 세션 문맥(앞 턴들)이 유지되는지 볼 수 있다.
         for turn, audio in enumerate(audios, start=1):
