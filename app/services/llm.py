@@ -339,14 +339,15 @@ class LLMClient:
         """구간마다 (제목, 내용) 한 쌍. 입력 순서 그대로 같은 개수를 돌려준다.
 
         items[i] = {"type": GOOD|IMPROVE, "utterance": 그 구간 발화,
-                    "avti": 그 턴의 떨림 값 or None, "reason": voice|pause|quiet|clean|fallback,
+                    "avti": 그 턴의 떨림 값 or None, "reason": voice|pause|quiet|late|clean|fallback,
                     "prev_ai": 그 구간 직전에 상대가 한 말,
                     "pause_count": 말 중간에 길게 멈춘 횟수, "pause_longest_sec": 그중 가장 긴 것,
-                    "quiet": 같은 통화의 다른 턴보다 작게 말했는지}
+                    "quiet": 같은 통화의 다른 턴보다 작게 말했는지,
+                    "late_sec": 상대 말이 끝나고 대답을 꺼내기까지 걸린 시간(늦지 않았으면 0)}
         prev_ai 는 없으면 빈 문자열이고, 그 줄은 입력에서 빠진다.
 
         GOOD 구간은 발화 내용을 칭찬하고, IMPROVE 구간은 그 구간을 고른 이유
-        (목소리가 흔들렸다 / 말 중간에 멈췄다 / 목소리가 작아졌다)를 말해야 한다. 그래서 여기서는
+        (목소리가 흔들렸다 / 말 중간에 멈췄다 / 목소리가 작아졌다 / 대답이 늦었다)를 말해야 한다. 그래서 여기서는
         음성 얘기를 금지하지 않는다. 그 뒤에 다음에 해볼 말을 제안으로 덧붙일 수 있다.
         """
         if not items:
@@ -377,7 +378,7 @@ class LLMClient:
             "구간 종류:\n"
             "- [칭찬할 구간]: 그 발화에서 잘한 점을 짚어준다.\n"
             "- [짚어줄 구간]: '짚을 점' 에 적힌 일이 있었다 — 목소리가 흔들렸거나, 말 중간에 길게 멈췄거나, "
-            "같은 통화의 다른 말보다 목소리가 작아졌다. "
+            "같은 통화의 다른 말보다 목소리가 작아졌거나, 상대 말이 끝나고 한참 뒤에 대답을 시작했다. "
             "그 얘기를 하고 다음에 어떻게 할지 알려준다.\n"
             "- '떨림 N/10' 이 붙어 있으면 그 구간의 측정값이다. "
             "낮으면 안정적, 높으면 흔들린 것. 판단에만 쓰고 숫자는 쓰지 마.\n"
@@ -409,6 +410,9 @@ class LLMClient:
             "- 목소리가 작아진 구간은 상대가 잘 듣지 못했거나 되묻고 싶었을 수 있다고 쓰고, "
             "'~는 조금 더 크게 말해봐요' 처럼 어느 말을 크게 하면 좋을지 알려준다. "
             "얼마나 작았는지는 쓰지 마.\n"
+            "- 대답이 늦은 구간은 기다리는 동안 상대가 어떻게 느꼈을지를 쓰고, "
+            "'네, 잠시만요' 처럼 짧게 먼저 받는 말을 알려준다. "
+            "왜 늦었는지는 알 수 없으니 '망설였어요' / '고민했어요' 처럼 이유를 지어내지 마.\n"
             "- 짚어줄 구간은 '다음엔 ~해봐요' 로 끝낸다.\n"
             "- 목소리 얘기는 '상대방이 ~하게 느꼈을 것 같아요' 처럼 "
             "듣는 사람 입장으로. 몸 상태를 단정하지 마.\n"
@@ -416,7 +420,8 @@ class LLMClient:
             "조언이 아니라 낙인이다. 꼭 그 얘기를 해야 하면 "
             "'상대방에게 자신 없게 들렸을 수 있어요' 처럼 "
             "상대가 어떻게 들었을지로 돌리거나 '~것 같아요' 로 추측해서 쓴다.\n"
-            "- 숫자, 지표 이름, 점수를 쓰지 마. 멈춘 횟수와 길이만 '두 번', '2초쯤' 처럼 어림으로 써도 된다.\n"
+            "- 숫자, 지표 이름, 점수를 쓰지 마. 멈춘 횟수와 길이, 대답까지 걸린 시간만 "
+            "'두 번', '2초쯤' 처럼 어림으로 써도 된다.\n"
             "- 어려운 말 없이 초등학생도 이해할 단어만. 겁주는 말투 금지.\n"
             "- 비유로 돌려 말하지 마. '상대방에게 닿지 않았어요' 같은 말 대신 "
             "'상대방이 잘 듣지 못했을 것 같아요' 처럼 실제로 어떻게 들렸는지 그대로 쓴다.\n"
@@ -469,13 +474,17 @@ class LLMClient:
     def _improve_points(item: dict) -> str:
         """짚어줄 구간을 고른 이유를 한 줄로. 멈춘 길이는 소수 없이 어림으로 준다."""
         points: list[str] = []
-        if item.get("reason") not in ("pause", "quiet"):
+        if item.get("reason") not in ("pause", "quiet", "late"):
             points.append("목소리가 흔들림")
         if count := item.get("pause_count") or 0:
             longest = max(1, round(item.get("pause_longest_sec") or 0))
             points.append(f"말 중간에 {count}번 길게 멈춤 (가장 길게 약 {longest}초)")
         if item.get("quiet") or item.get("reason") == "quiet":
             points.append("다른 말보다 목소리가 작아짐")
+        if late := item.get("late_sec") or 0:
+            points.append(f"상대 말이 끝나고 약 {max(1, round(late))}초 뒤에 대답을 시작함")
+        elif item.get("reason") == "late":
+            points.append("상대 말이 끝나고 한참 뒤에 대답을 시작함")
         return ", ".join(points)
 
     async def _call_segment_feedback(

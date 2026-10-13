@@ -33,7 +33,9 @@ from app.schemas.frames import (
 from app.schemas.llm import AiEmotion, LLMEventType, TurnContext
 from app.services.csm_tts import try_acquire_realtime_csm
 from app.services.feedback_points import (
+    LATE_ANSWER_SEC,
     Band,
+    answer_delay,
     is_safe,
     long_pauses,
     quiet_drops,
@@ -111,7 +113,7 @@ _MIN_GOOD_SEC = 1.0
 _SEG_GOOD = "GOOD"
 _SEG_IMPROVE = "IMPROVE"
 # 구간을 고르는 데만 쓰는 키. 밖으로 나가기 전에 털어낸다.
-_INTERNAL_SEGMENT_KEYS = ("turn", "avti", "reason", "pauses", "quiet_db")
+_INTERNAL_SEGMENT_KEYS = ("turn", "avti", "reason", "pauses", "quiet_db", "late_sec")
 
 
 def _segment_fallback(kind: str, reason: str | None = None) -> tuple[str, str]:
@@ -120,6 +122,11 @@ def _segment_fallback(kind: str, reason: str | None = None) -> tuple[str, str]:
         return ("말이 잠깐 끊겼어요", "말하는 중간에 길게 멈춘 부분이에요. 다음엔 할 말을 짧게 나눠서 이어 말해봐요.")
     if kind == _SEG_IMPROVE and reason == "quiet":
         return ("목소리가 작아졌어요", "이 부분은 다른 때보다 작게 말했어요. 다음엔 조금 더 크게 말해봐요.")
+    if kind == _SEG_IMPROVE and reason == "late":
+        return (
+            "대답이 조금 늦었어요",
+            "상대 말이 끝나고 조금 있다가 대답한 부분이에요. 다음엔 '네' 하고 짧게 먼저 받아봐요.",
+        )
     if kind == _SEG_IMPROVE:
         return ("이 구간을 다시 들어봐요", "말이 흔들린 부분이에요. 다음엔 여기서 한 호흡 쉬고 말해봐요.")
     return ("잘 이야기했어요", "이 구간은 흔들림 없이 이어서 말했어요.")
@@ -219,6 +226,8 @@ class VoicePipeline:
     _playback: _PlaybackTurn | None = None
     _playback_seq: int = 0
     _playback_ack_supported: bool = False
+    # 상대(AI) 말이 기기에서 다 재생된 때의 녹음 위치(초). 그 뒤 첫 사용자 턴에 붙이고, 다음 AI 말이 시작되면 지운다.
+    _ai_heard_at: float | None = None
 
     def __init__(
         self,
@@ -270,6 +279,8 @@ class VoicePipeline:
         self._user_turn_texts: list[str] = []
         # 그 턴 직전에 상대(AI)가 한 말. 구간 피드백을 쓸 때 맥락으로 준다. 위 두 목록과 같은 순서로 쌓인다.
         self._user_turn_prompts: list[str] = []
+        # 턴 번호 → 그 턴 직전 상대 말이 다 재생된 때의 녹음 위치(초). 재생 완료 신호를 받은 턴만 있다.
+        self._heard_at_by_turn: dict[int, float] = {}
         self._turn_open_at: float | None = 0.0
 
         max_duration = session.get("maxDurationSeconds")
@@ -384,6 +395,9 @@ class VoicePipeline:
                 and type(turn_id) is int
                 and turn_id == playback.turn_id
             ):
+                if not playback.done.is_set():
+                    # 마이크 소리와 같은 연결로 오는 신호라, 지금까지 받은 녹음 길이가 곧 재생이 끝난 때다.
+                    self._ai_heard_at = self._buf_sec()
                 playback.done.set()
         elif mtype == "playback_capabilities":
             self._playback_ack_supported = data.get("completion_ack") is True
@@ -1083,6 +1097,7 @@ class VoicePipeline:
         previous = self._playback
         self._playback_seq += 1
         self._playback = _PlaybackTurn(turn_id=self._playback_seq)
+        self._ai_heard_at = None
         # 부분 응답 뒤 폴백이 이어져도 이미 큐에 보낸 음성 길이는 남아 있다.
         if previous is not None and not previous.done.is_set():
             self._playback.expected_end_ms = previous.expected_end_ms
@@ -1294,6 +1309,7 @@ class VoicePipeline:
             avti_by_turn,
             self._long_pauses_by_turn(tremor_result),
             self._quiet_by_turn(recording_pcm, tremor_result),
+            self._late_by_turn(tremor_result),
         )
 
         analysis = None
@@ -1529,6 +1545,7 @@ class VoicePipeline:
                 "pause_count": len(pauses),
                 "pause_longest_sec": max(pauses, default=0.0),
                 "quiet": seg.get("quiet_db") is not None,
+                "late_sec": seg.get("late_sec") or 0.0,
             })
         return items
 
@@ -1565,6 +1582,30 @@ class VoicePipeline:
             },
         )
         return quiet
+
+    def _late_by_turn(self, tremor_result) -> dict[int, float]:
+        """턴 번호 → 상대 말이 다 들린 뒤 대답을 꺼내기까지 걸린 시간(초). 늦은 턴만 키가 있다.
+
+        재생 완료 신호를 받은 턴만 잰다 — 통화 첫마디, 끼어든 턴, 신호를 안 보내는 구버전 앱은 빠진다.
+        """
+        spans = getattr(tremor_result, "voiced_spans", None)
+        heard_at_by_turn = getattr(self, "_heard_at_by_turn", {})
+        if not spans or not heard_at_by_turn:
+            return {}
+        delays: dict[int, float] = {}
+        for index, turn in enumerate(self._user_turn_intervals, start=1):
+            if index not in heard_at_by_turn:
+                continue
+            delay = answer_delay(turn, heard_at_by_turn[index], spans)
+            if delay is not None:
+                delays[index] = delay
+        late = {index: delay for index, delay in delays.items() if delay >= LATE_ANSWER_SEC}
+        # 늦은 턴을 가르는 기준(LATE_ANSWER_SEC)이 잠정값이라, 실제 통화의 값을 남겨 맞출 수 있게 한다.
+        logger.info(
+            "턴별 대답까지 걸린 시간",
+            extra={"session_id": self._session_id, "delays_sec": delays, "late_sec": late},
+        )
+        return late
 
     def _turn_index_for(self, start: float, end: float) -> int | None:
         """[start, end] 구간과 가장 많이 겹치는 사용자 턴의 순번(0부터). 겹치는 턴이 없으면 None."""
@@ -1636,6 +1677,9 @@ class VoicePipeline:
             self._user_turn_texts.append(text)
             # 끝난 뒤 대화 기록에서 번호로 찾으면 글 없는 턴 때문에 한 칸씩 밀린다. 지금 적어 둔다.
             self._user_turn_prompts.append(self._last_ai_utterance())
+            heard_at, self._ai_heard_at = self._ai_heard_at, None
+            if heard_at is not None:
+                self._heard_at_by_turn[len(self._user_turn_intervals)] = heard_at
             self._turn_open_at = None
 
     def _last_ai_utterance(self) -> str:
@@ -1702,17 +1746,19 @@ class VoicePipeline:
         avti_by_turn: dict[int, float],
         pauses_by_turn: dict[int, list[float]] | None = None,
         quiet_by_turn: dict[int, float] | None = None,
+        late_by_turn: dict[int, float] | None = None,
     ) -> list[dict]:
         """칭찬할 구간과 아쉬운 구간을 함께 고른다. 발화 없는 턴은 제외한다.
 
-        아쉬운 구간이 되는 이유는 셋이다 — 목소리가 흔들렸거나(voice), 말 중간에 길게 멈췄거나(pause),
-        같은 통화의 다른 턴보다 작게 말했거나(quiet).
+        아쉬운 구간이 되는 이유는 넷이다 — 목소리가 흔들렸거나(voice), 말 중간에 길게 멈췄거나(pause),
+        같은 통화의 다른 턴보다 작게 말했거나(quiet), 상대 말이 끝나고 한참 뒤에 대답했거나(late).
         """
         turns = self._spoken_turns(avti_by_turn)
         intervals = [span for _, span in turns]
         clean = self._intersect(candidates, intervals)
         pauses_by_turn = pauses_by_turn or {}
         quiet_by_turn = quiet_by_turn or {}
+        late_by_turn = late_by_turn or {}
         picked: list[dict] = []
 
         for index, (start, end) in turns:
@@ -1720,6 +1766,7 @@ class VoicePipeline:
             band = voice_band(avti)
             pauses = pauses_by_turn.get(index, [])
             quiet_db = quiet_by_turn.get(index)
+            late_sec = late_by_turn.get(index)
             if band is Band.NEEDS_WORK:
                 kind, reason = _SEG_IMPROVE, "voice"
             elif pauses:
@@ -1728,6 +1775,8 @@ class VoicePipeline:
             elif quiet_db is not None:
                 # 떨림도 멈춤도 없었어도 다른 턴보다 작게 말한 턴은 칭찬하지 않고 짚는다.
                 kind, reason = _SEG_IMPROVE, "quiet"
+            elif late_sec is not None:
+                kind, reason = _SEG_IMPROVE, "late"
             elif band is Band.GOOD:
                 kind, reason = _SEG_GOOD, "voice"
             elif band is Band.MIDDLE:
@@ -1749,6 +1798,7 @@ class VoicePipeline:
                 "avti": avti,
                 "pauses": pauses,
                 "quiet_db": quiet_db,
+                "late_sec": late_sec,
             })
 
         # 아쉬운 구간을 먼저 살리고, 남는 자리를 긴 칭찬 구간으로 채운다.

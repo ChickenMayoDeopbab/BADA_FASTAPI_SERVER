@@ -10,7 +10,7 @@ from enum import StrEnum
 import numpy as np
 
 __all__ = [
-    "Band", "voice_band", "long_pauses", "turn_levels", "quiet_drops",
+    "Band", "voice_band", "long_pauses", "turn_levels", "quiet_drops", "answer_delay",
     "is_safe", "polish", "split_title",
 ]
 
@@ -109,6 +109,28 @@ def quiet_drops(levels: Mapping[int, float]) -> dict[int, float]:
         for index, level in levels.items()
         if usual - level >= QUIET_DROP_DB
     }
+
+
+# 상대 말이 끝난 뒤 이만큼 넘게 지나서 말을 꺼내면 '대답이 늦은 턴'으로 본다.
+# Roberts 외(2006)가 0 / 0.6 / 1.2초를 견줬는데, 1초 아래 침묵은 그것만으로는 듣는 사람의 판단이 갈렸다.
+# ★ 실음성 캘리브레이션 대상 — 현재 잠정값. 재생 완료 신호와 마이크 소리 사이의 시간 차가 오차로 섞인다.
+LATE_ANSWER_SEC = 1.2
+
+
+def answer_delay(
+    turn: tuple[float, float],
+    heard_at: float,
+    voiced_spans: Sequence[tuple[float, float]],
+) -> float | None:
+    """상대 말이 다 들린 때(heard_at)부터 말을 꺼내기까지 걸린 시간(초). 그 뒤로 말소리가 없으면 None.
+
+    상대 말이 끝나기 전부터 말하고 있었으면 0 이다 — 겹쳐 말한 것이지 뜸을 들인 게 아니다.
+    """
+    _, end = turn
+    starts = [start for start, stop in voiced_spans if stop > heard_at and start < end]
+    if not starts:
+        return None
+    return round(max(0.0, min(starts) - heard_at), 2)
 
 
 # --- 문구 검증 -----------------------------------------------------------
