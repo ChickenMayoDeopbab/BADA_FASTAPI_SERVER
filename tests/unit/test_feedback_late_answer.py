@@ -327,6 +327,7 @@ def test_segment_picked_for_another_reason_still_gets_the_sentence_for_its_pause
     [
         "대답하기 전에 멈췄어요. 상대방은 궁금해할 수 있으니 다음엔 짧게 먼저 받아봐요.",
         "기다리는 동안 상대방이 궁금했을 것 같아요. 다음엔 바로 답해봐요.",
+        "대답이 늦어서 상대방이 궁금할 수 있어요. 다음엔 바로 답해봐요.",
     ],
 )
 def test_vague_wording_about_the_listener_is_rejected(content: str) -> None:
