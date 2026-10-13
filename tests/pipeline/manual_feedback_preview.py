@@ -23,7 +23,7 @@ W = 78
 
 class Case:
     def __init__(self, name, scenario, turns, avti_by_turn, clean_spans, canned, context=None,
-                 pauses_by_turn=None, quiet_by_turn=None):
+                 pauses_by_turn=None, quiet_by_turn=None, late_by_turn=None):
         self.name = name
         self.scenario = scenario
         self.turns = turns          # [(start, end, 발화)]
@@ -33,6 +33,7 @@ class Case:
         self.context = context      # 턴마다 그 직전에 상대가 한 말. 없으면 맥락 없이.
         self.pauses_by_turn = pauses_by_turn or {}   # 턴 번호 → 말 중간에 길게 멈춘 곳들의 길이(초)
         self.quiet_by_turn = quiet_by_turn or {}     # 턴 번호 → 다른 턴보다 얼마나 작게 말했는지(dB)
+        self.late_by_turn = late_by_turn or {}       # 턴 번호 → 상대 말이 끝나고 대답까지 걸린 시간(초)
 
 
 CASES = [
@@ -231,6 +232,30 @@ CASES = [
         quiet_by_turn={2: 7.5},
     ),
     Case(
+        name="택배 문의 · 질문을 받고 한참 뒤에 대답",
+        scenario={"title": "택배 문의", "callTarget": "택배 기사",
+                  "callPurpose": "배송 시간 확인하기"},
+        turns=[
+            (0.5, 5.0, "안녕하세요, 오늘 오는 택배 시간을 알고 싶어서 전화드렸어요"),
+            (9.0, 15.0, "어… 송장 번호는 지금 잘 모르겠고 이름은 김민수예요"),
+            (19.0, 22.5, "네 알겠습니다, 감사합니다"),
+        ],
+        avti_by_turn={},
+        clean_spans=[(0.7, 4.8), (11.6, 14.8), (19.2, 22.3)],
+        canned=[
+            ("용건을 먼저 말했어요", "무엇이 궁금한지 처음에 말해서 상대방이 바로 알아들었어요."),
+            ("대답이 조금 늦었어요", "2초쯤 조용해서 상대방이 못 들은 줄 알았을 수 있어요. "
+                                      "다음엔 '잠시만요' 하고 짧게 먼저 받아봐요."),
+            ("마무리 인사를 했어요", "안내를 듣고 고맙다고 말해서 통화가 깔끔하게 끝났어요."),
+        ],
+        context=[
+            "",
+            "네, 확인해 드릴게요. 송장 번호나 받으시는 분 성함 알려주시겠어요?",
+            "김민수 님 앞으로 오후 세 시쯤 도착할 예정입니다.",
+        ],
+        late_by_turn={2: 2.4},
+    ),
+    Case(
         name="시나리오 정보 없음 · 일반 통화",
         scenario={"title": "", "callTarget": "", "callPurpose": ""},
         turns=[
@@ -280,14 +305,15 @@ async def run_case(case: Case, *, offline: bool, with_context: bool = True) -> N
 
     p = _pipeline_for(case, with_context=with_context)
     segments = p._pick_segments(
-        case.clean_spans, case.avti_by_turn, case.pauses_by_turn, case.quiet_by_turn
+        case.clean_spans, case.avti_by_turn, case.pauses_by_turn, case.quiet_by_turn,
+        case.late_by_turn,
     )
 
     print("\n[2] 고른 구간")
     print(rule())
     for seg in segments:
         why = {"voice": "AVTI 로 판단", "pause": "말 중간에 길게 멈춤",
-               "quiet": "다른 턴보다 작게 말함", "clean": "떨림 없는 구간",
+               "quiet": "다른 턴보다 작게 말함", "late": "한참 뒤에 대답함", "clean": "떨림 없는 구간",
                "fallback": "근거 없어 보충"}.get(seg.get("reason"), "-")
         print(f"  {seg['type']:<8} {seg['start']:5.1f}~{seg['end']:5.1f}초   ({why})")
 
@@ -321,6 +347,7 @@ async def run_case(case: Case, *, offline: bool, with_context: bool = True) -> N
         seg.pop("avti", None)
         seg.pop("pauses", None)
         seg.pop("quiet_db", None)
+        seg.pop("late_sec", None)
 
     print("\n[5] 사용자에게 나가는 구간 피드백")
     print(rule())
