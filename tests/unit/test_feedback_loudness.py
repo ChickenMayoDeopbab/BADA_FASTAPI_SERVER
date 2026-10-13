@@ -227,7 +227,7 @@ def test_items_say_whether_the_turn_was_quiet() -> None:
         ({"reason": "quiet", "quiet": True}, "   짚을 점: 다른 말보다 목소리가 작아짐"),
         ({"reason": "voice", "quiet": True}, "   짚을 점: 목소리가 흔들림, 다른 말보다 목소리가 작아짐"),
         ({"reason": "pause", "pause_count": 1, "pause_longest_sec": 2.1, "quiet": True},
-         "   짚을 점: 말 중간에 1번 길게 멈춤 (가장 길게 약 2초), 다른 말보다 목소리가 작아짐"),
+         "   짚을 점: 말 중간에 1번 멈춤 (최대 약 2초), 다른 말보다 목소리가 작아짐"),
         ({"reason": "quiet"}, "   짚을 점: 다른 말보다 목소리가 작아짐"),
         ({"reason": "voice", "quiet": False}, "   짚을 점: 목소리가 흔들림"),
     ],
@@ -235,7 +235,7 @@ def test_items_say_whether_the_turn_was_quiet() -> None:
 def test_improve_segment_states_the_quiet_voice(item: dict, line: str) -> None:
     lines = LLMClient._segment_lines([{"type": "IMPROVE", "utterance": "네", "avti": None, **item}])
 
-    assert lines == ["1. [짚어줄 구간]", line, '   내가 한 말: "네"']
+    assert (lines[0], lines[1], lines[-1]) == ("1. [짚어줄 구간]", line, '   내가 한 말: "네"')
 
 
 def test_how_much_quieter_is_not_given_to_the_writer() -> None:

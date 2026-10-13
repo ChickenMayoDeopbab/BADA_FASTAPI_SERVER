@@ -4,7 +4,13 @@ import json
 
 import pytest
 
-from app.services.feedback_points import LATE_ANSWER_SEC, answer_delay, is_safe
+from app.services.feedback_points import (
+    LATE_ANSWER_SEC,
+    LONG_SILENCE_SEC,
+    answer_delay,
+    is_long_silence,
+    is_safe,
+)
 from app.services.llm import LLMClient
 from app.services.pipeline import VoicePipeline, _segment_fallback
 from tests.unit.test_transcript_frames import _make_pipeline
@@ -52,6 +58,13 @@ def test_no_sound_afterwards_cannot_be_measured() -> None:
     assert answer_delay((2.0, 12.0), 6.0, []) is None
     assert answer_delay((2.0, 12.0), 6.0, [(3.0, 5.0)]) is None
     assert answer_delay((2.0, 12.0), 6.0, [(13.0, 15.0)]) is None
+
+
+def test_silence_is_called_long_only_from_the_long_threshold() -> None:
+    """짚는 기준(1.2초)을 넘었다고 길다고 쓰지 않는다. 길다고 쓰는 기준은 따로 있다."""
+    assert not is_long_silence(LATE_ANSWER_SEC)
+    assert not is_long_silence(LONG_SILENCE_SEC - 0.1)
+    assert is_long_silence(LONG_SILENCE_SEC)
 
 
 # --- 재생 완료 시각 기록 ---------------------------------------------------
@@ -242,28 +255,86 @@ def test_items_carry_how_long_the_answer_took() -> None:
 @pytest.mark.parametrize(
     ("item", "line"),
     [
-        ({"reason": "late", "late_sec": 2.4}, "   짚을 점: 상대 말이 끝나고 약 2초 뒤에 대답을 시작함"),
+        ({"reason": "late", "late_sec": 2.4}, "   짚을 점: 상대 말이 끝나고 약 2초 멈췄다가 대답을 시작함"),
         ({"reason": "voice", "late_sec": 1.2},
-         "   짚을 점: 목소리가 흔들림, 상대 말이 끝나고 약 1초 뒤에 대답을 시작함"),
+         "   짚을 점: 목소리가 흔들림, 상대 말이 끝나고 약 1초 멈췄다가 대답을 시작함"),
         ({"reason": "quiet", "quiet": True, "late_sec": 3.6},
-         "   짚을 점: 다른 말보다 목소리가 작아짐, 상대 말이 끝나고 약 4초 뒤에 대답을 시작함"),
-        ({"reason": "late"}, "   짚을 점: 상대 말이 끝나고 한참 뒤에 대답을 시작함"),
+         "   짚을 점: 다른 말보다 목소리가 작아짐, 상대 말이 끝나고 약 4초 길게 멈췄다가 대답을 시작함"),
+        ({"reason": "late"}, "   짚을 점: 상대 말이 끝나고 멈췄다가 대답을 시작함"),
         ({"reason": "voice", "late_sec": 0.0}, "   짚을 점: 목소리가 흔들림"),
     ],
 )
 def test_improve_segment_states_the_late_answer(item: dict, line: str) -> None:
     lines = LLMClient._segment_lines([{"type": "IMPROVE", "utterance": "네", "avti": None, **item}])
 
-    assert lines == ["1. [짚어줄 구간]", line, '   내가 한 말: "네"']
+    assert (lines[0], lines[1], lines[-1]) == ("1. [짚어줄 구간]", line, '   내가 한 말: "네"')
 
 
 def test_delay_is_given_without_decimals() -> None:
     """소수는 측정값 유출로 보고 안전 검사가 막는다. AI 에는 어림한 정수만 준다."""
-    (_, line, _) = LLMClient._segment_lines(
+    (_, line, *_) = LLMClient._segment_lines(
         [{"type": "IMPROVE", "utterance": "네", "avti": None, "reason": "late", "late_sec": 1.75}]
     )
 
     assert "." not in line
+
+
+@pytest.mark.parametrize(
+    ("item", "sentence"),
+    [
+        ({"reason": "pause", "pause_count": 1, "pause_longest_sec": 2.1}, "상대방이 말이 끝난 줄 알았을 수 있어요"),
+        ({"reason": "pause", "pause_count": 1, "pause_longest_sec": 3.4}, "상대방이 전화가 끊긴 줄 알았을 수 있어요"),
+        ({"reason": "late", "late_sec": 1.3}, "상대방이 내 말을 못 들은 줄 알았을 수 있어요"),
+        ({"reason": "late", "late_sec": 4.2}, "상대방이 전화가 끊긴 줄 알았을 수 있어요"),
+    ],
+)
+def test_paused_segment_is_given_the_sentence_for_its_length(item: dict, sentence: str) -> None:
+    """상대가 어떻게 받아들였을지는 멈춘 자리와 길이로 정해 준다. 글 쓰는 쪽이 고르면 짧은 멈춤에도 센 말을 쓴다."""
+    lines = LLMClient._segment_lines([{"type": "IMPROVE", "utterance": "네", "avti": None, **item}])
+
+    assert lines[2] == f"   넣을 문장: {sentence}"
+
+
+@pytest.mark.parametrize(
+    "item",
+    [{"reason": "voice"}, {"reason": "quiet", "quiet": True}],
+)
+def test_other_segments_get_no_fixed_sentence(item: dict) -> None:
+    lines = LLMClient._segment_lines([{"type": "IMPROVE", "utterance": "네", "avti": None, **item}])
+
+    assert not any("넣을 문장" in line for line in lines)
+
+
+@pytest.mark.parametrize(
+    ("item", "sentence"),
+    [
+        ({"reason": "voice", "late_sec": 2.6}, "상대방이 내 말을 못 들은 줄 알았을 수 있어요"),
+        ({"reason": "quiet", "quiet": True, "late_sec": 4.2}, "상대방이 전화가 끊긴 줄 알았을 수 있어요"),
+        ({"reason": "voice", "pause_count": 1, "pause_longest_sec": 2.1}, "상대방이 말이 끝난 줄 알았을 수 있어요"),
+        ({"reason": "voice", "pause_count": 1, "pause_longest_sec": 2.1, "late_sec": 4.2},
+         "상대방이 말이 끝난 줄 알았을 수 있어요"),
+    ],
+)
+def test_segment_picked_for_another_reason_still_gets_the_sentence_for_its_pause(item: dict, sentence: str) -> None:
+    """흔들림으로 고른 구간도 '짚을 점' 에 멈춤이 같이 적히면 글이 그 얘기를 한다. 문장을 안 주면 제멋대로 쓴다."""
+    lines = LLMClient._segment_lines([{"type": "IMPROVE", "utterance": "네", "avti": None, **item}])
+
+    assert f"   넣을 문장: {sentence}" in lines
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "대답하기 전에 멈췄어요. 상대방은 궁금해할 수 있으니 다음엔 짧게 먼저 받아봐요.",
+        "기다리는 동안 상대방이 궁금했을 것 같아요. 다음엔 바로 답해봐요.",
+    ],
+)
+def test_vague_wording_about_the_listener_is_rejected(content: str) -> None:
+    assert not is_safe("대답하기 전에 멈췄어요", content)
+
+
+def test_my_own_curiosity_is_not_rejected() -> None:
+    assert is_safe("궁금한 점을 먼저 물어봤어요", "궁금한 점을 바로 물어봐서 통화가 빨리 끝났어요.")
 
 
 # --- 기본 문구와 밖으로 나가는 모양 ----------------------------------------

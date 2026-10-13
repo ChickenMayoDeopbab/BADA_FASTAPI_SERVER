@@ -171,21 +171,23 @@ def test_items_without_pauses_report_zero() -> None:
     [
         ({"reason": "voice"}, "   짚을 점: 목소리가 흔들림"),
         ({"reason": "pause", "pause_count": 2, "pause_longest_sec": 2.1},
-         "   짚을 점: 말 중간에 2번 길게 멈춤 (가장 길게 약 2초)"),
+         "   짚을 점: 말 중간에 2번 멈춤 (최대 약 2초)"),
+        ({"reason": "pause", "pause_count": 1, "pause_longest_sec": 3.4},
+         "   짚을 점: 말 중간에 1번 길게 멈춤 (최대 약 3초)"),
         ({"reason": "voice", "pause_count": 1, "pause_longest_sec": 1.6},
-         "   짚을 점: 목소리가 흔들림, 말 중간에 1번 길게 멈춤 (가장 길게 약 2초)"),
+         "   짚을 점: 목소리가 흔들림, 말 중간에 1번 멈춤 (최대 약 2초)"),
         ({}, "   짚을 점: 목소리가 흔들림"),
     ],
 )
 def test_improve_segment_states_why_it_was_picked(item: dict, line: str) -> None:
     lines = LLMClient._segment_lines([{"type": "IMPROVE", "utterance": "네", "avti": None, **item}])
 
-    assert lines == ["1. [짚어줄 구간]", line, '   내가 한 말: "네"']
+    assert (lines[0], lines[1], lines[-1]) == ("1. [짚어줄 구간]", line, '   내가 한 말: "네"')
 
 
 def test_pause_length_is_given_without_decimals() -> None:
     """소수는 측정값 유출로 보고 안전 검사가 막는다. AI 에는 어림한 정수만 준다."""
-    (_, line, _) = LLMClient._segment_lines(
+    (_, line, *_) = LLMClient._segment_lines(
         [{"type": "IMPROVE", "utterance": "네", "avti": None, "reason": "pause",
           "pause_count": 1, "pause_longest_sec": 1.5}]
     )
