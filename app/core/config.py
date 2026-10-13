@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     jwt_secret: str
     jwt_algorithm: str = "HS256"
     internal_secret: str
+    ws_auth_timeout_seconds: float = 10.0
 
     # STT
     google_stt_credentials_path: str | None = None

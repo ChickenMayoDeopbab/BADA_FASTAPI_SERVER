@@ -184,8 +184,12 @@ async def test_real_uvicorn_handshake_lines_hide_token(capsys) -> None:
             with pytest.raises(websockets.ConnectionClosed):
                 await ws.recv()
         with pytest.raises(websockets.InvalidStatus):
-            async with websockets.connect(f"ws://{base}?Tok={_JWT}"):
+            async with websockets.connect(f"ws://127.0.0.1:{port}/ws/nope?Tok={_JWT}"):
                 pass
+        async with websockets.connect(f"ws://{base}") as ws:
+            await ws.send(json.dumps({"type": "auth", "token": _JWT}))
+            with pytest.raises(websockets.ConnectionClosed):
+                await ws.recv()
         async with httpx.AsyncClient() as client:
             assert (await client.get(f"http://{base}?token={_JWT}")).status_code == 404
     finally:
@@ -196,5 +200,6 @@ async def test_real_uvicorn_handshake_lines_hide_token(capsys) -> None:
     out = capsys.readouterr().out
     assert _JWT not in out
     assert '"WebSocket /ws/voice/s1?token=[REDACTED]" [accepted]' in out
-    assert '"WebSocket /ws/voice/s1?Tok=[REDACTED]" 403' in out
+    assert '"WebSocket /ws/nope?Tok=[REDACTED]" 403' in out
+    assert '"WebSocket /ws/voice/s1" [accepted]' in out
     assert '"GET /ws/voice/s1?token=[REDACTED] HTTP/1.1" 404' in out
