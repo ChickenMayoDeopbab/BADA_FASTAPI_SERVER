@@ -32,7 +32,14 @@ from app.schemas.frames import (
 )
 from app.schemas.llm import AiEmotion, LLMEventType, TurnContext
 from app.services.csm_tts import try_acquire_realtime_csm
-from app.services.feedback_points import Band, is_safe, long_pauses, voice_band
+from app.services.feedback_points import (
+    Band,
+    is_safe,
+    long_pauses,
+    quiet_drops,
+    turn_levels,
+    voice_band,
+)
 from app.services.feedback_service import save_feedback
 from app.services.llm import LLMClient
 from app.services.pcm_coalescer import DEFAULT_TARGET_MS, coalesce_pcm, target_bytes_for
@@ -104,13 +111,15 @@ _MIN_GOOD_SEC = 1.0
 _SEG_GOOD = "GOOD"
 _SEG_IMPROVE = "IMPROVE"
 # 구간을 고르는 데만 쓰는 키. 밖으로 나가기 전에 털어낸다.
-_INTERNAL_SEGMENT_KEYS = ("turn", "avti", "reason", "pauses")
+_INTERNAL_SEGMENT_KEYS = ("turn", "avti", "reason", "pauses", "quiet_db")
 
 
 def _segment_fallback(kind: str, reason: str | None = None) -> tuple[str, str]:
     """LLM 이 못 쓰거나 걸러졌을 때 구간에 남길 최소 문구."""
     if kind == _SEG_IMPROVE and reason == "pause":
         return ("말이 잠깐 끊겼어요", "말하는 중간에 길게 멈춘 부분이에요. 다음엔 할 말을 짧게 나눠서 이어 말해봐요.")
+    if kind == _SEG_IMPROVE and reason == "quiet":
+        return ("목소리가 작아졌어요", "이 부분은 다른 때보다 작게 말했어요. 다음엔 조금 더 크게 말해봐요.")
     if kind == _SEG_IMPROVE:
         return ("이 구간을 다시 들어봐요", "말이 흔들린 부분이에요. 다음엔 여기서 한 호흡 쉬고 말해봐요.")
     return ("잘 이야기했어요", "이 구간은 흔들림 없이 이어서 말했어요.")
@@ -1281,7 +1290,10 @@ class VoicePipeline:
         # 이 값으로 갈리기 때문에 end 프레임보다 앞에 있어야 한다(약 0.2초).
         avti_by_turn = await self._measure_avti(recording_pcm, sustained_spans)
         good_segments = self._pick_segments(
-            good_candidates, avti_by_turn, self._long_pauses_by_turn(tremor_result)
+            good_candidates,
+            avti_by_turn,
+            self._long_pauses_by_turn(tremor_result),
+            self._quiet_by_turn(recording_pcm, tremor_result),
         )
 
         analysis = None
@@ -1516,6 +1528,7 @@ class VoicePipeline:
                 "prev_ai": _clip(prev_ai.strip()),
                 "pause_count": len(pauses),
                 "pause_longest_sec": max(pauses, default=0.0),
+                "quiet": seg.get("quiet_db") is not None,
             })
         return items
 
@@ -1529,6 +1542,29 @@ class VoicePipeline:
             for index, turn in enumerate(self._user_turn_intervals, start=1)
         }
         return {index: pauses for index, pauses in by_turn.items() if pauses}
+
+    def _quiet_by_turn(self, recording_pcm: bytes, tremor_result) -> dict[int, float]:
+        """턴 번호 → 같은 통화의 다른 턴보다 얼마나 작게 말했는지(dB). 작아진 턴만 키가 있다."""
+        spans = getattr(tremor_result, "voiced_spans", None)
+        if not recording_pcm or not spans:
+            return {}
+        try:
+            levels = turn_levels(recording_pcm, self._user_turn_intervals, spans)
+            quiet = quiet_drops(levels)
+        except Exception:
+            logger.warning("목소리 크기 측정 실패 — 크기 근거 없이 진행",
+                           exc_info=True, extra={"session_id": self._session_id})
+            return {}
+        # 작아진 턴을 가르는 기준(QUIET_DROP_DB)이 잠정값이라, 실제 통화의 값을 남겨 맞출 수 있게 한다.
+        logger.info(
+            "턴별 목소리 크기",
+            extra={
+                "session_id": self._session_id,
+                "levels_db": {index: round(level, 1) for index, level in levels.items()},
+                "quiet_db": quiet,
+            },
+        )
+        return quiet
 
     def _turn_index_for(self, start: float, end: float) -> int | None:
         """[start, end] 구간과 가장 많이 겹치는 사용자 턴의 순번(0부터). 겹치는 턴이 없으면 None."""
@@ -1665,26 +1701,33 @@ class VoicePipeline:
         candidates,
         avti_by_turn: dict[int, float],
         pauses_by_turn: dict[int, list[float]] | None = None,
+        quiet_by_turn: dict[int, float] | None = None,
     ) -> list[dict]:
         """칭찬할 구간과 아쉬운 구간을 함께 고른다. 발화 없는 턴은 제외한다.
 
-        아쉬운 구간이 되는 이유는 둘이다 — 목소리가 흔들렸거나(voice), 말 중간에 길게 멈췄거나(pause).
+        아쉬운 구간이 되는 이유는 셋이다 — 목소리가 흔들렸거나(voice), 말 중간에 길게 멈췄거나(pause),
+        같은 통화의 다른 턴보다 작게 말했거나(quiet).
         """
         turns = self._spoken_turns(avti_by_turn)
         intervals = [span for _, span in turns]
         clean = self._intersect(candidates, intervals)
         pauses_by_turn = pauses_by_turn or {}
+        quiet_by_turn = quiet_by_turn or {}
         picked: list[dict] = []
 
         for index, (start, end) in turns:
             avti = avti_by_turn.get(index)
             band = voice_band(avti)
             pauses = pauses_by_turn.get(index, [])
+            quiet_db = quiet_by_turn.get(index)
             if band is Band.NEEDS_WORK:
                 kind, reason = _SEG_IMPROVE, "voice"
             elif pauses:
                 # 목소리가 안정적이었어도 말이 길게 끊긴 턴은 칭찬하지 않고 짚는다.
                 kind, reason = _SEG_IMPROVE, "pause"
+            elif quiet_db is not None:
+                # 떨림도 멈춤도 없었어도 다른 턴보다 작게 말한 턴은 칭찬하지 않고 짚는다.
+                kind, reason = _SEG_IMPROVE, "quiet"
             elif band is Band.GOOD:
                 kind, reason = _SEG_GOOD, "voice"
             elif band is Band.MIDDLE:
@@ -1705,6 +1748,7 @@ class VoicePipeline:
                 "reason": reason,
                 "avti": avti,
                 "pauses": pauses,
+                "quiet_db": quiet_db,
             })
 
         # 아쉬운 구간을 먼저 살리고, 남는 자리를 긴 칭찬 구간으로 채운다.

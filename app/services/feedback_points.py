@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+import math
 import re
-from collections.abc import Sequence
+import statistics
+from bisect import bisect_right
+from collections.abc import Mapping, Sequence
 from enum import StrEnum
 
-__all__ = ["Band", "voice_band", "long_pauses", "is_safe", "polish", "split_title"]
+import numpy as np
+
+__all__ = [
+    "Band", "voice_band", "long_pauses", "turn_levels", "quiet_drops",
+    "is_safe", "polish", "split_title",
+]
 
 
 class Band(StrEnum):
@@ -46,6 +54,61 @@ def long_pauses(
     )
     gaps = (later[0] - earlier[1] for earlier, later in zip(inside, inside[1:], strict=False))
     return [round(gap, 2) for gap in gaps if gap >= LONG_PAUSE_SEC]
+
+
+# 같은 통화의 다른 턴(턴 크기의 중앙값)보다 이만큼 넘게 작으면 '작아진 턴'으로 본다. 6 dB = 소리 폭 절반.
+# ★ 실음성 캘리브레이션 대상 — 현재 잠정값. 통화용 마이크의 자동 음량 보정이 차이를 줄일 수 있다.
+QUIET_DROP_DB = 6.0
+# 짧은 대답("네")은 크기가 들쭉날쭉해서 말소리가 이만큼은 있어야 잰다.
+MIN_LEVEL_VOICED_SEC = 1.0
+# 견줄 기준을 잡으려면 잰 턴이 이만큼은 있어야 한다.
+MIN_LEVEL_TURNS = 3
+
+_SAMPLE_RATE = 16000
+_FULL_SCALE = 32767.0
+
+
+def turn_levels(
+    pcm: bytes,
+    turns: Sequence[tuple[float, float]],
+    voiced_spans: Sequence[tuple[float, float]],
+) -> dict[int, float]:
+    """턴 번호(1부터) → 그 턴에서 말소리가 난 부분만의 평균 크기(dBFS). 못 잰 턴은 키가 없다.
+
+    멈춘 시간은 빼고 재므로 말 중간의 멈춤이 크기를 깎지 않는다.
+    """
+    samples = np.frombuffer(pcm, dtype=np.int16, count=len(pcm) // 2)
+    spans = sorted(voiced_spans)
+    span_ends = [end for _, end in spans]
+    levels: dict[int, float] = {}
+    for index, (start, end) in enumerate(turns, start=1):
+        power, count = 0.0, 0
+        for span_start, span_end in spans[bisect_right(span_ends, start):]:
+            if span_start >= end:
+                break
+            lo, hi = max(start, span_start), min(end, span_end)
+            part = samples[int(lo * _SAMPLE_RATE):int(hi * _SAMPLE_RATE)].astype(np.float32)
+            power += float(np.dot(part, part))
+            count += part.size
+        if count < MIN_LEVEL_VOICED_SEC * _SAMPLE_RATE or power <= 0:
+            continue
+        levels[index] = 10 * math.log10(power / count / _FULL_SCALE**2)
+    return levels
+
+
+def quiet_drops(levels: Mapping[int, float]) -> dict[int, float]:
+    """턴 번호 → 같은 통화의 다른 턴보다 얼마나 작았는지(dB). 기준을 넘게 작아진 턴만 담는다.
+
+    전화기마다 녹음 크기가 달라 절대값으로는 못 견준다. 그 통화에서 잰 턴 크기의 중앙값과 견준다.
+    """
+    if len(levels) < MIN_LEVEL_TURNS:
+        return {}
+    usual = statistics.median(levels.values())
+    return {
+        index: round(usual - level, 1)
+        for index, level in levels.items()
+        if usual - level >= QUIET_DROP_DB
+    }
 
 
 # --- 문구 검증 -----------------------------------------------------------
