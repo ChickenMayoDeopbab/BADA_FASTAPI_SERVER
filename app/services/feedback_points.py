@@ -1,10 +1,19 @@
 from __future__ import annotations
 
+import math
 import re
-from collections.abc import Sequence
+import statistics
+from bisect import bisect_right
+from collections.abc import Mapping, Sequence
 from enum import StrEnum
 
-__all__ = ["Band", "voice_band", "long_pauses", "is_safe", "polish", "split_title"]
+import numpy as np
+
+__all__ = [
+    "Band", "voice_band", "long_pauses", "turn_levels", "quiet_drops", "answer_delay", "is_long_silence",
+    "count_syllables", "speaking_seconds", "speech_rate",
+    "is_safe", "polish", "split_title",
+]
 
 
 class Band(StrEnum):
@@ -48,6 +57,144 @@ def long_pauses(
     return [round(gap, 2) for gap in gaps if gap >= LONG_PAUSE_SEC]
 
 
+# 같은 통화의 다른 턴(턴 크기의 중앙값)보다 이만큼 넘게 작으면 '작아진 턴'으로 본다. 6 dB = 소리 폭 절반.
+# ★ 실음성 캘리브레이션 대상 — 현재 잠정값. 통화용 마이크의 자동 음량 보정이 차이를 줄일 수 있다.
+QUIET_DROP_DB = 6.0
+# 짧은 대답("네")은 크기가 들쭉날쭉해서 말소리가 이만큼은 있어야 잰다.
+MIN_LEVEL_VOICED_SEC = 1.0
+# 견줄 기준을 잡으려면 잰 턴이 이만큼은 있어야 한다.
+MIN_LEVEL_TURNS = 3
+
+_SAMPLE_RATE = 16000
+_FULL_SCALE = 32767.0
+
+
+def turn_levels(
+    pcm: bytes,
+    turns: Sequence[tuple[float, float]],
+    voiced_spans: Sequence[tuple[float, float]],
+) -> dict[int, float]:
+    """턴 번호(1부터) → 그 턴에서 말소리가 난 부분만의 평균 크기(dBFS). 못 잰 턴은 키가 없다.
+
+    멈춘 시간은 빼고 재므로 말 중간의 멈춤이 크기를 깎지 않는다.
+    """
+    samples = np.frombuffer(pcm, dtype=np.int16, count=len(pcm) // 2)
+    spans = sorted(voiced_spans)
+    span_ends = [end for _, end in spans]
+    levels: dict[int, float] = {}
+    for index, (start, end) in enumerate(turns, start=1):
+        power, count = 0.0, 0
+        for span_start, span_end in spans[bisect_right(span_ends, start):]:
+            if span_start >= end:
+                break
+            lo, hi = max(start, span_start), min(end, span_end)
+            part = samples[int(lo * _SAMPLE_RATE):int(hi * _SAMPLE_RATE)].astype(np.float32)
+            power += float(np.dot(part, part))
+            count += part.size
+        if count < MIN_LEVEL_VOICED_SEC * _SAMPLE_RATE or power <= 0:
+            continue
+        levels[index] = 10 * math.log10(power / count / _FULL_SCALE**2)
+    return levels
+
+
+def quiet_drops(levels: Mapping[int, float]) -> dict[int, float]:
+    """턴 번호 → 같은 통화의 다른 턴보다 얼마나 작았는지(dB). 기준을 넘게 작아진 턴만 담는다.
+
+    전화기마다 녹음 크기가 달라 절대값으로는 못 견준다. 그 통화에서 잰 턴 크기의 중앙값과 견준다.
+    """
+    if len(levels) < MIN_LEVEL_TURNS:
+        return {}
+    usual = statistics.median(levels.values())
+    return {
+        index: round(usual - level, 1)
+        for index, level in levels.items()
+        if usual - level >= QUIET_DROP_DB
+    }
+
+
+# 상대 말이 끝난 뒤 이만큼 넘게 지나서 말을 꺼내면 '대답이 늦은 턴'으로 본다.
+# Roberts 외(2006)가 0 / 0.6 / 1.2초를 견줬는데, 1초 아래 침묵은 그것만으로는 듣는 사람의 판단이 갈렸다.
+# ★ 실음성 캘리브레이션 대상 — 현재 잠정값. 재생 완료 신호와 마이크 소리 사이의 시간 차가 오차로 섞인다.
+LATE_ANSWER_SEC = 1.2
+
+# 말 중간의 멈춤이든 대답 전의 멈춤이든, 이만큼 넘게 조용했을 때만 글에서 '길게' 멈췄다고 쓴다.
+# 그 아래는 짚기는 하되 그냥 멈췄다고 쓴다 — 1~2초는 알아챌 만하지만 길다고 하기엔 짧다.
+# ★ 실음성 캘리브레이션 대상 — 현재 잠정값.
+LONG_SILENCE_SEC = 3.0
+
+
+def is_long_silence(seconds: float) -> bool:
+    """글에서 '길게' 멈췄다고 써도 되는 길이인지."""
+    return seconds >= LONG_SILENCE_SEC
+
+
+# 말소리 사이가 이만큼 넘게 비면 쉼으로 보고 말한 시간에서 뺀다. 그보다 짧은 틈은 말하는 중으로 친다
+# (ㅂ·ㄷ·ㄱ 같은 소리를 낼 때 입이 잠깐 막히는 순간, 낱말 사이의 짧은 틈). 말 속도 연구에서 흔히 쓰는 값이다.
+ARTICULATION_GAP_SEC = 0.25
+# 짧은 대답은 속도가 들쭉날쭉해서 음절과 말한 시간이 이만큼은 있어야 잰다.
+MIN_RATE_SYLLABLES = 8
+MIN_RATE_SPEAKING_SEC = 1.5
+
+
+def count_syllables(text: str) -> int:
+    """받아적은 글의 음절 수. 한글은 글자 하나가 한 음절이다.
+
+    받아쓰기가 숫자와 영문자로 적은 말('17일', 'A동')은 글자 하나를 한 음절로 어림한다 —
+    '17일'(십칠일)처럼 대개 맞거나 한 음절쯤 어긋난다. 문장부호와 빈칸은 세지 않는다.
+    """
+    return sum(
+        1 for ch in text if "가" <= ch <= "힣" or ch.isdigit() or (ch.isascii() and ch.isalpha())
+    )
+
+
+def speaking_seconds(
+    turn: tuple[float, float], voiced_spans: Sequence[tuple[float, float]]
+) -> float:
+    """턴 안에서 말하고 있던 시간(초). 쉼(ARTICULATION_GAP_SEC 이상)은 빼고, 그보다 짧은 틈은 잇는다."""
+    start, end = turn
+    inside = sorted(
+        (max(s, start), min(e, end)) for s, e in voiced_spans if e > start and s < end
+    )
+    total, previous_end = 0.0, None
+    for span_start, span_end in inside:
+        if previous_end is not None and span_start - previous_end < ARTICULATION_GAP_SEC:
+            total += span_start - previous_end
+        total += span_end - span_start
+        previous_end = span_end
+    return total
+
+
+def speech_rate(
+    text: str, turn: tuple[float, float], voiced_spans: Sequence[tuple[float, float]]
+) -> float | None:
+    """말 속도 — 말한 시간 1초에 몇 음절을 말했는지. 잴 만큼 말이 없으면 None.
+
+    쉼을 뺀 시간으로 나누므로 중간에 멈춘 턴이 느린 턴으로 나오지 않는다. 멈춤은 따로 짚는다.
+    받아쓰기가 말을 빠뜨리거나 잡음이 말소리로 잡히면 값이 실제보다 작게 나온다 — 빠른 쪽으로 틀리지는 않는다.
+    """
+    syllables = count_syllables(text)
+    seconds = speaking_seconds(turn, voiced_spans)
+    if syllables < MIN_RATE_SYLLABLES or seconds < MIN_RATE_SPEAKING_SEC:
+        return None
+    return round(syllables / seconds, 2)
+
+
+def answer_delay(
+    turn: tuple[float, float],
+    heard_at: float,
+    voiced_spans: Sequence[tuple[float, float]],
+) -> float | None:
+    """상대 말이 다 들린 때(heard_at)부터 말을 꺼내기까지 걸린 시간(초). 그 뒤로 말소리가 없으면 None.
+
+    상대 말이 끝나기 전부터 말하고 있었으면 0 이다 — 겹쳐 말한 것이지 뜸을 들인 게 아니다.
+    """
+    _, end = turn
+    starts = [start for start, stop in voiced_spans if stop > heard_at and start < end]
+    if not starts:
+        return None
+    return round(max(0.0, min(starts) - heard_at), 2)
+
+
 # --- 문구 검증 -----------------------------------------------------------
 
 _HARD_BANNED = re.compile(
@@ -73,6 +220,9 @@ _MIND_STATE = re.compile(
     r"|(?:긴장|불안|초조|위축|주눅|소심|겁먹)"
     r"(?!\s*하지\s*않|\s*되지\s*않|\s*없이|\s*하지\s*마|\s*안\s*하)"
 )
+# 상대가 '궁금했을 것' 이라는 말은 무엇을 느꼈는지가 흐릿해서 쓰지 않기로 했다. 지시문으로 막아도 가끔 새어 나온다.
+# '궁금한 점을 먼저 물어봤어요' 처럼 내가 궁금해한 얘기는 막지 않는다.
+_VAGUE_LISTENER = re.compile(r"궁금(?:했을|해할|해했을|해하실|하셨을|할)")
 _HEDGED = re.compile(r"들렸|들릴|들리|느꼈|느낄|느껴|것\s*같|수\s*있|거예요|거에요")
 
 _MAX_TITLE_LEN = 30
@@ -99,6 +249,8 @@ def is_safe(title: str, content: str) -> bool:
     if _asserts_mind_state(title) or _asserts_mind_state(content):
         return False
     joined = f"{title} {content}"
+    if _VAGUE_LISTENER.search(joined):
+        return False
     return not _HARD_BANNED.search(joined) and not _VOICE_PATHOLOGY.search(joined)
 
 

@@ -99,6 +99,23 @@ async def test_empty_good_segments_saved_as_empty_list() -> None:
     assert store["values"]["highlights"] == "[]"
 
 
+@pytest.mark.asyncio
+async def test_turn_metrics_saved_as_json() -> None:
+    store: dict = {}
+    await _save(store, turn_metrics={"turn_sec": {1: [0.0, 4.2]}, "syllables_per_sec": {1: 6.67}})
+
+    saved = json.loads(store["values"]["turn_metrics"])
+    assert saved == {"turn_sec": {"1": [0.0, 4.2]}, "syllables_per_sec": {"1": 6.67}}
+
+
+@pytest.mark.asyncio
+async def test_missing_turn_metrics_saved_as_null() -> None:
+    """못 잰 통화를 빈 값으로 채우면 '재 봤는데 없었다'와 구분이 안 된다."""
+    store: dict = {}
+    await _save(store)
+    assert store["values"]["turn_metrics"] is None
+
+
 # --- 실패/멱등 ----------------------------------------------------------
 
 
@@ -234,3 +251,69 @@ async def test_warmup_session_is_saved(monkeypatch) -> None:
 def test_module_uses_postgres_insert() -> None:
     """ON CONFLICT 를 쓰려면 postgres 방언 insert 여야 한다."""
     assert feedback_service.pg_insert.__module__.startswith("sqlalchemy.dialects.postgresql")
+
+
+@pytest.mark.asyncio
+async def test_pipeline_passes_the_turn_measurements(monkeypatch) -> None:
+    """통화가 끝날 때 잰 턴별 값이 턴 구간과 함께 저장으로 넘어간다."""
+    calls: list[dict] = []
+
+    async def _fake_save(**kwargs) -> bool:
+        calls.append(kwargs)
+        return True
+
+    monkeypatch.setattr("app.services.pipeline.save_feedback", _fake_save)
+
+    p = _pipeline({"userId": 42, "scenarioId": 5})
+    p._user_turn_intervals = [(0.0, 4.2), (6.0, 11.5)]
+    p._note_turn_metric("loudness_db", {1: -21.4, 2: -27.9})
+    p._note_turn_metric("syllables_per_sec", {2: 6.67})
+    await p._save_feedback(0, [])
+
+    assert calls[0]["turn_metrics"] == {
+        "turn_sec": {1: [0.0, 4.2], 2: [6.0, 11.5]},
+        "loudness_db": {1: -21.4, 2: -27.9},
+        "syllables_per_sec": {2: 6.67},
+    }
+
+
+@pytest.mark.asyncio
+async def test_pipeline_passes_no_measurements_when_none_were_taken(monkeypatch) -> None:
+    calls: list[dict] = []
+
+    async def _fake_save(**kwargs) -> bool:
+        calls.append(kwargs)
+        return True
+
+    monkeypatch.setattr("app.services.pipeline.save_feedback", _fake_save)
+
+    await _pipeline({"userId": 42, "scenarioId": 5})._save_feedback(0, [])
+
+    assert calls[0]["turn_metrics"] is None
+
+
+class _Tremor:
+    def __init__(self, voiced_spans) -> None:
+        self.voiced_spans = voiced_spans
+
+
+def test_judgements_are_kept_next_to_the_measurements() -> None:
+    """잰 값만 남기면 기준값을 바꾼 뒤에는 그때 무엇을 짚었는지 알 수 없다. 판정과 고른 구간도 같이 남긴다."""
+    p = _pipeline({"userId": 42, "scenarioId": 5})
+    p._user_turn_intervals = [(0.0, 5.0), (6.0, 16.0)]
+    p._user_turn_texts = ["예약하려고 전화드렸어요", "토요일 저녁 여섯 시에 네 명이요"]
+    p._heard_at_by_turn = {2: 7.0}
+    tremor = _Tremor([(0.5, 4.5), (9.0, 11.0), (13.2, 15.0)])   # 2번 턴: 2초 뒤 대답, 중간에 2.2초 멈춤
+
+    pauses = p._long_pauses_by_turn(tremor)
+    late = p._late_by_turn(tremor)
+    p._pick_segments([(0.5, 4.5)], {0: 3.3, 1: 2.0}, pauses, {}, late)
+    stored = p._turn_metrics_for_storage()
+
+    assert stored["pause_sec"] == {2: [2.2]}
+    assert stored["answer_delay_sec"] == stored["late_answer_sec"] == {2: 2.0}
+    assert stored["avti"] == {1: 2.0}          # 0번(통화 전체)은 턴이 아니라 뺀다
+    assert stored["picked"] == [
+        {"turn": 1, "type": "GOOD", "reason": "voice", "start": 0.0, "end": 5.0},
+        {"turn": 2, "type": "IMPROVE", "reason": "pause", "start": 6.0, "end": 16.0},
+    ]

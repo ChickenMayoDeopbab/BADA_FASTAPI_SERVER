@@ -73,6 +73,8 @@ class FeedbackORM(Base):
     shake_count: Mapped[int] = mapped_column(BigInteger, nullable=False)
     silence_duration: Mapped[int] = mapped_column(BigInteger, nullable=False)
     highlights: Mapped[str] = mapped_column(Text, nullable=False)
+    # 턴별 측정값(JSON) — 턴 구간, 목소리 크기, 대답까지 걸린 시간, 말 속도. 못 잰 통화는 NULL.
+    turn_metrics: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 class VoiceTremorMetricORM(Base):
