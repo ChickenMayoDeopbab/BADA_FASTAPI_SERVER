@@ -1234,6 +1234,21 @@ class VoicePipeline:
                 with suppress(asyncio.CancelledError, Exception):
                     await task
 
+        drain = asyncio.create_task(self._drain_inbound()) if self._ws_alive else None
+        try:
+            await self._close_session()
+        finally:
+            if drain is not None:
+                drain.cancel()
+                with suppress(asyncio.CancelledError, Exception):
+                    await drain
+
+    async def _drain_inbound(self) -> None:
+        while (await self._ws.receive()).get("type") != "websocket.disconnect":
+            pass
+        self._ws_alive = False
+
+    async def _close_session(self) -> None:
         reason = self._end_reason or EndReason.USER_END
 
         self._close_user_turn()
