@@ -25,6 +25,8 @@ _CONTROL_TAGS: dict[str, LLMEventType] = {
 
 # 모델이 입력의 구간 표시('[칭찬할 구간]')를 제목에 그대로 옮겨 적는 경우
 _SEGMENT_LABEL_PREFIX = re.compile(r"^\s*\[[^\]]{0,16}\]\s*")
+# 칭찬할 구간의 '잘한 점' 줄 — 구간을 고를 때 붙인 좋은 점 이름 → 글 쓰는 쪽에 줄 말
+_GOOD_POINTS = {"voice": "목소리가 흔들림 없이 안정적임", "clean": "끊김 없이 이어 말함"}
 # 구간 피드백 줄머리 번호. '2.5초' 같은 소수는 번호로 보지 않는다.
 _NUMBERED_LINE = re.compile(r"^(\d+)\s*[.)](?!\d)\s*(.*)$")
 
@@ -375,6 +377,7 @@ class LLMClient:
             "입력 읽는 법 — 번호 아래에 줄이 붙는다:\n"
             "- '상대가 한 말': 그 구간 바로 앞에 통화 상대가 한 말. 없으면 통화를 시작하는 첫마디다.\n"
             "- '짚을 점': 짚어줄 구간에만 붙는다. 그 구간을 짚는 이유다.\n"
+            "- '잘한 점': 칭찬할 구간에만 붙는다. 목소리를 재서 확인한 잘한 점이다.\n"
             "- '넣을 문장': 붙어 있으면 내용에 이 문장을 글자 그대로 넣는다. "
             "그 일을 상대가 어떻게 받아들였을지 적어 둔 것이라 다른 말로 바꿔 쓰지 마.\n"
             "- '내가 한 말': 피드백을 받을 사람이 그 구간에서 한 말.\n"
@@ -405,7 +408,8 @@ class LLMClient:
             "내용 규칙:\n"
             "- '내가 한 말' 에 근거해서 써. 거기에 없는 행동이나 장면을 지어내지 마.\n"
             "- 칭찬할 구간은 상대가 한 말에 맞게 답했는지를 보고, "
-            "무엇을 말했는지(날짜, 이름, 용건처럼)를 짚어서 쓴다.\n"
+            "무엇을 말했는지(날짜, 이름, 용건처럼)를 짚어서 쓴다. "
+            "'잘한 점' 이 붙어 있으면 그 얘기도 한 마디 넣는다.\n"
             "- 발화를 그대로 따라 읽지 마. 상대가 한 말을 통째로 옮겨 적지도 마. "
             "무엇이 좋았는지/아쉬웠는지를 써.\n"
             "- 짚어줄 구간은 '짚을 점' 에 적힌 것을 먼저 말한다. 적히지 않은 일은 짚지 마. "
@@ -483,6 +487,8 @@ class LLMClient:
                 lines.append(f"   짚을 점: {LLMClient._improve_points(item)}")
                 if sentence := LLMClient._listener_sentence(item):
                     lines.append(f"   넣을 문장: {sentence}")
+            elif good := LLMClient._good_points(item):
+                lines.append(f"   잘한 점: {good}")
             lines.append(f"   내가 한 말: \"{said}\"")
         return lines
 
@@ -494,6 +500,11 @@ class LLMClient:
         """
         points = [LLMClient._point(reason, item) for reason in LLMClient._reasons(item)]
         return ", ".join(point for point in points if point)
+
+    @staticmethod
+    def _good_points(item: dict) -> str:
+        """칭찬할 구간에서 목소리를 재서 확인한 잘한 점. 점수가 큰 것부터."""
+        return ", ".join(_GOOD_POINTS[r] for r in item.get("reasons") or [] if r in _GOOD_POINTS)
 
     @staticmethod
     def _reasons(item: dict) -> list[str]:
