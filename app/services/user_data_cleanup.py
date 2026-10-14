@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from sqlalchemy import delete, or_, select, update
+from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -13,7 +13,6 @@ from app.db.models import (
     FeedbackORM,
     FileORM,
     PostAttachmentORM,
-    PostCommentORM,
     PostORM,
     PostReactionORM,
     ScenarioORM,
@@ -31,7 +30,10 @@ async def delete_user_data(
     *,
     storage: RecordingStorageService | None = None,
 ) -> None:
-    """회원 탈퇴 대상 데이터만 삭제하고 법정·정책상 보존 대상은 유지한다."""
+    """회원 탈퇴 대상 데이터만 삭제하고 법정·정책상 보존 대상은 유지한다.
+
+    커뮤니티 글·댓글은 남기고 첨부만 지운다. 회원 행이 사라지면 작성자는 "삭제된 사용자"로 보인다.
+    """
     training_rows = (
         await db.execute(
             select(
@@ -55,13 +57,6 @@ async def delete_user_data(
             await db.execute(select(PostORM.post_id).where(PostORM.user_id == user_id))
         ).scalars()
     )
-    comment_ids = list(
-        (
-            await db.execute(
-                select(PostCommentORM.comment_id).where(PostCommentORM.user_id == user_id)
-            )
-        ).scalars()
-    )
     file_ids = list(
         (
             await db.execute(
@@ -83,13 +78,6 @@ async def delete_user_data(
     }
 
     try:
-        if comment_ids:
-            await db.execute(
-                update(PostCommentORM)
-                .where(PostCommentORM.parent_comment_id.in_(comment_ids))
-                .values(parent_comment_id=None)
-            )
-
         attachment_conditions = []
         if post_ids:
             attachment_conditions.append(PostAttachmentORM.post_id.in_(post_ids))
@@ -113,18 +101,7 @@ async def delete_user_data(
                 delete(PostAttachmentORM).where(or_(*attachment_conditions))
             )
 
-        reaction_conditions = [PostReactionORM.user_id == user_id]
-        if post_ids:
-            reaction_conditions.append(PostReactionORM.post_id.in_(post_ids))
-        await db.execute(delete(PostReactionORM).where(or_(*reaction_conditions)))
-
-        comment_conditions = [PostCommentORM.user_id == user_id]
-        if post_ids:
-            comment_conditions.append(PostCommentORM.post_id.in_(post_ids))
-        await db.execute(delete(PostCommentORM).where(or_(*comment_conditions)))
-
-        if post_ids:
-            await db.execute(delete(PostORM).where(PostORM.post_id.in_(post_ids)))
+        await db.execute(delete(PostReactionORM).where(PostReactionORM.user_id == user_id))
 
         await db.execute(delete(FeedbackORM).where(FeedbackORM.user_id == user_id))
         if session_ids:
