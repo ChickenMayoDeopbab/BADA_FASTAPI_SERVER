@@ -134,7 +134,7 @@ async def test_posts_survive_when_their_author_withdraws() -> None:
     assert detail.status_code == 200
     assert tree.status_code == 200
     assert feed.json()["posts"][0]["author"] == {
-        "user_id": 7, "name": None, "profile_image_url": None
+        "user_id": 7, "name": "삭제된 사용자", "profile_image_url": None, "is_withdrawn": True
     }
-    assert detail.json()["author"]["name"] is None
-    assert tree.json()["comments"][0]["author"]["name"] is None
+    assert detail.json()["author"]["name"] == "삭제된 사용자"
+    assert tree.json()["comments"][0]["author"]["name"] == "삭제된 사용자"

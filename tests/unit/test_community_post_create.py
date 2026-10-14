@@ -17,6 +17,7 @@ async def test_create_post_returns_201_with_author_and_zero_views() -> None:
         "user_id": 7,
         "name": "사용자1",
         "profile_image_url": "profiles/7.png",
+        "is_withdrawn": False,
     }
     assert body["view_count"] == 0
 

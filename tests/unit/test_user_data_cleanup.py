@@ -209,7 +209,7 @@ async def _seed_user_data(session) -> None:
     await session.commit()
 
 
-async def test_delete_user_data_purges_owned_content_and_keeps_policy_records() -> None:
+async def test_delete_user_data_purges_owned_data_and_keeps_community_text() -> None:
     storage = _Storage()
 
     async with community_app() as env, env.sessions() as session:
@@ -221,12 +221,17 @@ async def test_delete_user_data_purges_owned_content_and_keeps_policy_records() 
         assert await _count(session, FeedbackORM) == 0
         assert await _count(session, VoiceTremorMetricORM) == 0
         assert await _count(session, PostAttachmentORM) == 0
-        assert await _count(session, PostReactionORM) == 0
-        assert await _count(session, PostORM) == 1
-        assert await _count(session, PostCommentORM) == 1
-        remaining_comment = await session.get(PostCommentORM, 22)
-        assert remaining_comment is not None
-        assert remaining_comment.parent_comment_id is None
+
+        # 글·댓글은 남고, 탈퇴자가 누른 공감만 빠진다
+        assert await _count(session, PostORM) == 2
+        assert await _count(session, PostCommentORM) == 3
+        reply = await session.get(PostCommentORM, 22)
+        assert reply is not None
+        assert reply.parent_comment_id == 21, "남의 답글이 일반 댓글로 올라가면 안 된다"
+        remaining_reactions = set(
+            (await session.execute(select(PostReactionORM.reaction_id))).scalars()
+        )
+        assert remaining_reactions == {51}
 
         assert await _count(session, CommunityReportORM) == 1
         assert await _count(session, CommunityUserBlockORM) == 1
