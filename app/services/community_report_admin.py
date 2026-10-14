@@ -20,7 +20,7 @@ from app.schemas.community_admin import (
     AdminUserModerationRequest,
 )
 from app.services.community_comment import hard_delete_comment_thread
-from app.services.community_post import hard_delete_post
+from app.services.community_post import hard_delete_post, user_exists
 from app.services.spring_client import SpringInternalClient
 
 
@@ -147,16 +147,18 @@ async def resolve_report(
     else:
         moderation_status, suspended_until = _sanction_values(request.action, request.suspended_until)
         await _delete_target(db, report)
-        succeeded = await spring.update_user_moderation_status(
-            report.reported_user_id,
-            moderation_status=moderation_status,
-            suspended_until=suspended_until,
-            reason=request.note,
-            actor_user_id=admin_user_id,
-        )
-        if not succeeded:
-            await db.rollback()
-            raise UserModerationFailedError
+        # 탈퇴한 사람은 제재할 계정이 없어 콘텐츠만 지운다
+        if await user_exists(db, report.reported_user_id):
+            succeeded = await spring.update_user_moderation_status(
+                report.reported_user_id,
+                moderation_status=moderation_status,
+                suspended_until=suspended_until,
+                reason=request.note,
+                actor_user_id=admin_user_id,
+            )
+            if not succeeded:
+                await db.rollback()
+                raise UserModerationFailedError
         report.status = CommunityReportStatus.RESOLVED.value
 
     report.resolved_at = processed_at

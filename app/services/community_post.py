@@ -53,17 +53,33 @@ _COUNT_FIELD_BY_KIND = {
     ReactionKind.LIKE: "like",
 }
 
+WITHDRAWN_AUTHOR_NAME = "삭제된 사용자"
+
+
+def author_from_join(
+    user_id: int, joined_user_id: int | None, name: str | None, profile_image: str | None
+) -> AuthorInfo:
+    """users 외부 조인 결과로 작성자 만들기. 회원 행이 없으면 탈퇴한 사람"""
+    if joined_user_id is None:
+        return AuthorInfo(user_id=user_id, name=WITHDRAWN_AUTHOR_NAME, is_withdrawn=True)
+    return AuthorInfo(user_id=user_id, name=name, profile_image_url=profile_image)
 
 
 async def load_author(db: AsyncSession, user_id: int) -> AuthorInfo:
     """작성자 정보"""
-    stmt = select(users_table.c.name, users_table.c.profile_image).where(
+    stmt = select(users_table.c.user_id, users_table.c.name, users_table.c.profile_image).where(
         users_table.c.user_id == user_id
     )
     row = (await db.execute(stmt)).first()
     if row is None:
-        return AuthorInfo(user_id=user_id)
-    return AuthorInfo(user_id=user_id, name=row.name, profile_image_url=row.profile_image)
+        return author_from_join(user_id, None, None, None)
+    return author_from_join(user_id, row.user_id, row.name, row.profile_image)
+
+
+async def user_exists(db: AsyncSession, user_id: int) -> bool:
+    """탈퇴하면 Spring 이 회원 행을 지운다"""
+    stmt = select(users_table.c.user_id).where(users_table.c.user_id == user_id)
+    return (await db.execute(stmt)).first() is not None
 
 
 def _to_detail(row: PostORM, author: AuthorInfo) -> PostDetailResponse:
@@ -268,6 +284,7 @@ async def list_posts(
     stmt = (
         select(
             PostORM,
+            users_table.c.user_id,
             users_table.c.name,
             users_table.c.profile_image,
             func.count().over(),
@@ -280,11 +297,11 @@ async def list_posts(
     )
     rows = (await db.execute(stmt)).all()
 
-    total = rows[0][3] if rows else await _count_posts(db, conditions)
+    total = rows[0][4] if rows else await _count_posts(db, conditions)
     has_next = len(rows) > size
     rows = rows[:size]
 
-    post_ids = [row.post_id for row, _, _, _ in rows]
+    post_ids = [row.post_id for row, *_ in rows]
     comment_counts = await _comment_counts(db, post_ids, viewer_id)
     reaction_counts, my_reactions = await reaction_summary(db, post_ids, viewer_id)
     attachment_kinds = await kinds_by_post(db, post_ids)
@@ -294,7 +311,7 @@ async def list_posts(
             post_id=row.post_id,
             title=row.title,
             content_preview=preview_of(row.content),
-            author=AuthorInfo(user_id=row.user_id, name=name, profile_image_url=image),
+            author=author_from_join(row.user_id, joined_user_id, name, image),
             view_count=row.view_count,
             comment_count=comment_counts.get(row.post_id, 0),
             reactions=reaction_counts.get(row.post_id, ReactionCounts()),
@@ -303,7 +320,7 @@ async def list_posts(
             created_at=row.created_at,
             updated_at=row.updated_at,
         )
-        for row, name, image, _ in rows
+        for row, joined_user_id, name, image, _ in rows
     ]
     return PostListResponse(
         posts=posts, page=page, size=size, total=total, has_next=has_next

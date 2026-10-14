@@ -44,6 +44,7 @@ class AuthorInfo(BaseModel):
     user_id: int
     name: str | None = None
     profile_image_url: str | None = None
+    is_withdrawn: bool = False
 
 
 class BlockedUserResponse(BaseModel):

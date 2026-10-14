@@ -19,7 +19,15 @@ from app.schemas.community import (
 )
 from app.services.community_block import blocked_user_exists, is_user_blocked
 from app.services.community_content_moderation import CommunityContentModerator
-from app.services.community_post import PostNotFoundError, alive_post, is_admin_user, load_author, visible_post
+from app.services.community_post import (
+    PostNotFoundError,
+    alive_post,
+    author_from_join,
+    is_admin_user,
+    load_author,
+    user_exists,
+    visible_post,
+)
 
 
 class CommentNotFoundError(Exception):
@@ -96,6 +104,8 @@ async def create_comment(
         return response, None
     if await is_user_blocked(db, blocker_user_id=recipient_user_id, blocked_user_id=user_id):
         return response, None
+    if not await user_exists(db, recipient_user_id):
+        return response, None
 
     return response, CommunityNotificationEvent(
         notification_type=(
@@ -116,7 +126,7 @@ async def list_comments(db: AsyncSession, post_id: int, *, viewer_id: int) -> Co
         raise PostNotFoundError
 
     stmt = (
-        select(PostCommentORM, users_table.c.name, users_table.c.profile_image)
+        select(PostCommentORM, users_table.c.user_id, users_table.c.name, users_table.c.profile_image)
         .join(users_table, users_table.c.user_id == PostCommentORM.user_id, isouter=True)
         .where(
             PostCommentORM.post_id == post_id,
@@ -129,8 +139,8 @@ async def list_comments(db: AsyncSession, post_id: int, *, viewer_id: int) -> Co
 
     threads: dict[int, CommentThread] = {}
     replies: list[tuple[int, CommentResponse]] = []
-    for row, name, image in rows:
-        author = AuthorInfo(user_id=row.user_id, name=name, profile_image_url=image)
+    for row, joined_user_id, name, image in rows:
+        author = author_from_join(row.user_id, joined_user_id, name, image)
         if row.parent_comment_id is None:
             threads[row.comment_id] = CommentThread(
                 comment_id=row.comment_id,
