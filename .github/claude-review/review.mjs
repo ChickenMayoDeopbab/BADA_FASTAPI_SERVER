@@ -21,6 +21,7 @@ async function github(method, path, body) {
     headers: {
       Authorization: `Bearer ${GH_TOKEN}`,
       Accept: "application/vnd.github+json",
+      "Content-Type": "application/json",
       "X-GitHub-Api-Version": "2022-11-28",
     },
     body: JSON.stringify(body),
