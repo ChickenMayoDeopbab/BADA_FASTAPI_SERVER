@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 
 _SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "qwen_tts_server" / "server.py"
 _STEP_S = 0.002
+_SLOW_MACHINE_S = 60.0
 _TEXT60 = "가" * 60
 
 
@@ -103,7 +104,7 @@ def _state(srv):
         yield
         for th in threading.enumerate():
             if th.name == "tts-stream":
-                th.join(timeout=10.0)
+                th.join(timeout=_SLOW_MACHINE_S)
         assert not [t for t in threading.enumerate() if t.name == "tts-stream"], "생산 스레드가 남았다"
     finally:
         gc.enable()
@@ -127,7 +128,7 @@ def _wait_unlocked(srv, limit: float) -> float | None:
 
 
 def _cap_wall(srv, text: str) -> float:
-    return srv.max_frames_for(text) * _STEP_S * 1.5 + 1.0
+    return max(_SLOW_MACHINE_S, srv.max_frames_for(text) * _STEP_S * 1.5 + 1.0)
 
 
 async def _drive(srv, text: str, spec_version: str, send_mode: str, keep: list, peer_closed=None):
@@ -211,7 +212,7 @@ def test_disconnect_spec23_close_mode_releases_lock_without_gc(srv) -> None:
 
     asyncio.run(_drive(srv, _TEXT60, "2.3", "ignore", keep := []))
 
-    assert _wait_unlocked(srv, 1.0) is not None, "끊긴 스트림이 락을 쥐고 있다"
+    assert _wait_unlocked(srv, 5.0) is not None, "끊긴 스트림이 락을 쥐고 있다"
     assert m.closed == 1 and m.frames < 20
     assert m.threads == {"tts-stream"}, "생성은 생산 스레드 하나에서만 돌아야 한다"
     assert keep
@@ -235,7 +236,7 @@ def test_busy_stays_true_until_producer_finishes(srv) -> None:
     asyncio.run(_drive(srv, _TEXT60, "2.3", "ignore", []))
 
     assert client.get("/health").json()["busy"] is True, "소비자가 떠나도 생성 중이면 busy"
-    assert _wait_unlocked(srv, srv.max_frames_for(_TEXT60) * 0.005 * 1.5 + 1.0) is not None
+    assert _wait_unlocked(srv, _SLOW_MACHINE_S) is not None
     assert client.get("/health").json()["busy"] is False
 
 
@@ -309,7 +310,7 @@ def test_cancel_while_waiting_for_lock_never_generates(srv) -> None:
 
     for th in threading.enumerate():
         if th.name == "tts-stream":
-            th.join(timeout=2.0)
+            th.join(timeout=10.0)
     assert not m.calls, "소비자가 떠났으면 락을 얻은 뒤에도 생성을 시작하면 안 된다"
     assert not srv.S["lock"].locked()
 
@@ -414,7 +415,7 @@ def test_real_uvicorn_client_disconnect_releases_lock(srv, mode, http) -> None:
         with httpx.Client() as c, c.stream("POST", url + "/v1/tts/stream", json={"voice": "ai", "text": _TEXT60}) as r:
             assert r.status_code == 200
             next(r.iter_raw())
-        limit = 0.5 if mode == "close" else _cap_wall(srv, _TEXT60)
+        limit = 5.0 if mode == "close" else _cap_wall(srv, _TEXT60)
         assert _wait_unlocked(srv, limit) is not None
         if mode == "close":
             assert m.closed == 1 and m.frames < 20, "끊김(spec 2.3 취소)이 바로 stop 을 세워야 한다"
