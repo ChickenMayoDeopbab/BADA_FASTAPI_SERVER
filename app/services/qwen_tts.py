@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 import httpx
 
 from app.core.config import Settings
+from app.core.metrics import log_metric
 from app.schemas.llm import AiEmotion
 from app.services.tts import _SentenceBuffer
 
@@ -136,6 +137,28 @@ class QwenTTSClient:
         except Exception:
             logger.info("Qwen TTS 헬스체크 실패 — ElevenLabs로 폴백", exc_info=True)
             return False
+
+    async def health_state(self) -> str:
+        """ready / busy(락 잡힘) / warming(ready:false) / down(연결 거부) / unhealthy(응답 이상)"""
+        if not self.enabled:
+            return "unhealthy"
+        try:
+            async with self._client(self._health_timeout) as client:
+                response = await client.get(f"{self._base_url}/health")
+                response.raise_for_status()
+                body = response.json()
+        except httpx.ConnectError:
+            # 워밍업 중인 워커 — 박스 다운(타임아웃)과 구분
+            logger.info("Qwen TTS 헬스체크 연결 거부", exc_info=True)
+            return "down"
+        except Exception:
+            logger.info("Qwen TTS 헬스체크 실패", exc_info=True)
+            return "unhealthy"
+        if not isinstance(body, dict):
+            return "unhealthy"
+        if not body.get("ready"):
+            return "warming"
+        return "busy" if body.get("busy") else "ready"
 
     async def _post(
         self, client: httpx.AsyncClient, base_url: str, voice: str, text: str
@@ -285,18 +308,32 @@ async def try_acquire_realtime_tts(
     if not (settings.qwen_tts_realtime_enabled and worker_urls(settings)):
         return None, "disabled"
     pool = _pool(settings)
+    skipped: list[tuple[str, str]] = []
     try:
-        url = pool.get_nowait()
-    except asyncio.QueueEmpty:
+        for _ in range(len(worker_urls(settings))):
+            try:
+                url = pool.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+            try:
+                state = await QwenTTSClient(settings, transport, base_url=url).health_state()
+            except BaseException:
+                pool.put_nowait(url)
+                raise
+            if state == "ready":
+                client = QwenRealtimeTTSClient(settings, transport, base_url=url)
+                client._worker_url = url
+                return client, None
+            if state == "unhealthy":
+                pool.put_nowait(url)
+                return None, "unhealthy"
+            skipped.append((url, state))
+    finally:
+        for url, state in skipped:
+            pool.put_nowait(url)
+            log_metric("realtime_tts_worker_skip", url=url, state=state)
+    if not skipped:
         return None, "busy"
-    try:
-        healthy = await QwenTTSClient(settings, transport, base_url=url).healthy()
-    except BaseException:
-        pool.put_nowait(url)
-        raise
-    if not healthy:
-        pool.put_nowait(url)
-        return None, "unhealthy"
-    client = QwenRealtimeTTSClient(settings, transport, base_url=url)
-    client._worker_url = url
-    return client, None
+    if any(state == "busy" for _, state in skipped):
+        return None, "worker_busy"
+    return None, "unhealthy"
