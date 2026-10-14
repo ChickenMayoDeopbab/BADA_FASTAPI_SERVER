@@ -117,6 +117,31 @@ async def test_realtime_speed_shortens_each_sentence() -> None:
     assert all(len(c) % 2 == 0 for c in out)
 
 
+async def test_warmup_goes_to_first_sentence_with_sound() -> None:
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        body = b"".join(_pcm_chunks(1.0)) if len(calls) > 1 else b""
+        return httpx.Response(200, content=body)
+
+    out = await _speak(_settings(speed=1.1), httpx.MockTransport(handler))
+    assert len(calls) == 2
+    assert sum(map(len, out)) == 2 * (round(2880 + (16000 - 2880) / 1.1) + 160)
+
+
+async def test_short_first_sentence_heard_only_through_flush_still_counts() -> None:
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        seconds = 1.0 if len(calls) > 1 else 0.02
+        return httpx.Response(200, content=b"".join(_pcm_chunks(seconds)))
+
+    out = await _speak(_settings(speed=1.1), httpx.MockTransport(handler))
+    assert sum(map(len, out)) == 2 * ((320 + 160) + (round(16000 / 1.1) + 160))
+
+
 async def test_realtime_speed_one_yields_worker_chunks_as_is() -> None:
     chunks = _pcm_chunks(1.0)
     got = await _speak(_settings(speed=1.0), _chunk_transport(chunks))
