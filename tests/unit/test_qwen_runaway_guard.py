@@ -44,9 +44,12 @@ def _babble_transport(total_ms: int) -> httpx.MockTransport:
 
 
 async def _stream_one(
-    text: str, transport: httpx.MockTransport, got: list[bytes] | None = None
+    text: str,
+    transport: httpx.MockTransport,
+    got: list[bytes] | None = None,
+    speed: float | None = None,
 ) -> list[bytes]:
-    session = await QwenRealtimeTTSClient(_settings(), transport=transport).open()
+    session = await QwenRealtimeTTSClient(_settings(speed=speed), transport=transport).open()
     await session.begin()
     got = [] if got is None else got
     try:
@@ -78,6 +81,28 @@ async def test_sentence_over_cap_raises_runaway_without_yielding_past_cap(monkey
     assert (exc.chars, exc.cap_ms, exc.worker) == (6, 1600, "http://tts.test")
     assert exc.pcm_bytes > 1600 * BYTES_PER_MS
     assert sum(map(len, got)) == 1600 * BYTES_PER_MS, "상한까지만 내보내고 넘긴 청크는 내보내면 안 된다"
+
+
+async def test_guard_counts_worker_bytes_not_sped_up_bytes(monkeypatch) -> None:
+    monkeypatch.setattr(qwen_mod, "_RUNAWAY_FLOOR_MS", 1000)
+    monkeypatch.setattr(qwen_mod, "_RUNAWAY_MS_PER_CHAR", 100)
+    tripped = {}
+    sent = {}
+    for speed in (1.0, 1.15):
+        got: list[bytes] = []
+        with pytest.raises(QwenTTSRunawayError) as info:
+            await asyncio.wait_for(
+                _stream_one("안녕하세요.", _babble_transport(60_000), got, speed=speed),
+                timeout=2.0,
+            )
+        tripped[speed] = info.value.pcm_bytes
+        sent[speed] = sum(map(len, got))
+
+    assert tripped[1.15] == tripped[1.0], "가드는 워커에서 받은 바이트로 센다"
+    cap_samples = 1600 * BYTES_PER_MS // 2
+    warm = qwen_mod._SPEED_WARMUP_MS * 16
+    flushed = round(warm + (cap_samples - warm) / 1.15) + 160
+    assert 0 < sent[1.15] < 2 * flushed, "끊긴 문장은 꼬리를 flush 하지 않는다"
 
 
 async def test_sentence_under_cap_passes_through() -> None:
