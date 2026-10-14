@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 import weakref
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 import httpx
 
+from app.core.audio_stats import BYTES_PER_MS
 from app.core.config import Settings
 from app.core.metrics import log_metric
 from app.schemas.llm import AiEmotion
@@ -25,10 +27,32 @@ _SLOT_WAIT_TIMEOUT = 90.0
 _REALTIME_VOICE = "ai"
 _REALTIME_CONNECT_TIMEOUT = 3.0
 _REALTIME_READ_TIMEOUT = 10.0
+_RUNAWAY_FLOOR_MS = 3000
+_RUNAWAY_MS_PER_CHAR = 300
 
 
 class QwenTTSUnavailableError(Exception):
     """합성 실패"""
+
+
+class QwenTTSRunawayError(QwenTTSUnavailableError):
+    """문장 길이에 비해 오디오가 너무 길다"""
+
+    def __init__(
+        self, *, worker: str, chars: int, pcm_bytes: int, cap_ms: int, wall_ms: float
+    ) -> None:
+        self.worker = worker
+        self.chars = chars
+        self.pcm_bytes = pcm_bytes
+        self.audio_ms = round(pcm_bytes / BYTES_PER_MS, 1)
+        self.cap_ms = cap_ms
+        self.wall_ms = round(wall_ms, 1)
+        super().__init__(f"runaway chars={chars} audio_ms={self.audio_ms} cap_ms={cap_ms}")
+
+
+def runaway_cap_ms(text: str) -> int:
+    """문장 하나에 허용하는 오디오 길이"""
+    return _RUNAWAY_FLOOR_MS + len(text.strip()) * _RUNAWAY_MS_PER_CHAR
 
 
 _worker_pools: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Queue[str]] = (
@@ -241,6 +265,9 @@ class QwenRealtimeTTSSession:
 
     async def _synth_sentence(self, text: str) -> AsyncIterator[bytes]:
         self.chars_sent += len(text)
+        cap_ms = runaway_cap_ms(text)
+        received = 0
+        started = time.monotonic()
         try:
             async with self._client.stream(
                 "POST",
@@ -249,8 +276,20 @@ class QwenRealtimeTTSSession:
             ) as response:
                 response.raise_for_status()
                 async for chunk in response.aiter_bytes():
-                    if chunk:
-                        yield chunk
+                    if not chunk:
+                        continue
+                    received += len(chunk)
+                    if received > cap_ms * BYTES_PER_MS:
+                        raise QwenTTSRunawayError(
+                            worker=self._base_url,
+                            chars=len(text.strip()),
+                            pcm_bytes=received,
+                            cap_ms=cap_ms,
+                            wall_ms=(time.monotonic() - started) * 1000,
+                        )
+                    yield chunk
+        except QwenTTSUnavailableError:
+            raise
         except Exception as exc:
             raise QwenTTSUnavailableError(f"{type(exc).__name__}: {exc}") from exc
 
