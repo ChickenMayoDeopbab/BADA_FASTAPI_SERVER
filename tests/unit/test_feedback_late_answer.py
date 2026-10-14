@@ -204,16 +204,17 @@ def test_stable_voice_does_not_hide_a_late_answer() -> None:
     assert (seg["type"], seg["reason"]) == ("IMPROVE", "late")
 
 
-def test_other_reasons_come_first_and_keep_the_late_mark() -> None:
+def test_late_answer_is_kept_next_to_other_reasons() -> None:
     p = _pipeline([(0.0, 8.0), (10.0, 18.0), (20.0, 28.0)])
 
     shaky, paused, quiet = p._pick_segments(
-        [], {1: 8.0}, {2: [1.8]}, {3: 7.5}, {1: 2.0, 2: 1.5, 3: 3.0}
+        [], {1: 5.5}, {2: [2.4]}, {3: 9.0}, {1: 2.0, 2: 1.3, 3: 1.3}
     )
 
-    assert (shaky["reason"], shaky["late_sec"]) == ("voice", 2.0)
-    assert (paused["reason"], paused["late_sec"]) == ("pause", 1.5)
-    assert (quiet["reason"], quiet["late_sec"]) == ("quiet", 3.0)
+    # 1번: 뜸 2.0/1.2 이 흔들림 5.5/5.0 보다 기준을 더 넘었다. 2·3번은 반대.
+    assert (shaky["reasons"], shaky["late_sec"]) == (["late", "voice"], 2.0)
+    assert (paused["reasons"], paused["late_sec"]) == (["pause", "late"], 1.3)
+    assert (quiet["reasons"], quiet["late_sec"]) == (["quiet", "late"], 1.3)
 
 
 def test_late_turn_without_transcript_is_ignored() -> None:

@@ -65,13 +65,17 @@ def test_turn_with_a_long_pause_becomes_an_improve_segment() -> None:
     assert (by_turn[1]["type"], by_turn[1]["reason"]) == ("GOOD", "clean")
 
 
-def test_stable_voice_does_not_hide_a_long_pause() -> None:
-    """목소리가 안정적이었어도 말이 길게 끊긴 턴은 칭찬하지 않는다."""
+@pytest.mark.parametrize(
+    ("pause_sec", "kind", "reason"),
+    [(1.8, "GOOD", "voice"), (3.0, "IMPROVE", "pause")],
+)
+def test_stable_voice_and_a_long_pause_are_added_up(pause_sec: float, kind: str, reason: str) -> None:
+    """안정된 목소리 +1.5 와 멈춤(÷1.5)을 더해 큰 쪽이 그 구간의 종류가 된다."""
     p = _pipeline([(0.0, 8.0)])
 
-    (seg,) = p._pick_segments([], {1: 2.0}, {1: [1.8]})
+    (seg,) = p._pick_segments([], {1: 2.0}, {1: [pause_sec]})
 
-    assert (seg["type"], seg["reason"]) == ("IMPROVE", "pause")
+    assert (seg["type"], seg["reason"]) == (kind, reason)
 
 
 def test_shaky_voice_stays_the_reason_and_keeps_the_pause() -> None:

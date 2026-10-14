@@ -11,7 +11,7 @@ import numpy as np
 
 __all__ = [
     "Band", "voice_band", "long_pauses", "turn_levels", "quiet_drops", "answer_delay", "is_long_silence",
-    "count_syllables", "speaking_seconds", "speech_rate",
+    "count_syllables", "speaking_seconds", "speech_rate", "fast_turns", "turn_points",
     "is_safe", "polish", "split_title",
 ]
 
@@ -179,6 +179,30 @@ def speech_rate(
     return round(syllables / seconds, 2)
 
 
+# 같은 통화의 다른 턴(말 속도 중앙값)보다 이만큼 넘게 빠르면 '빨라진 턴'으로 본다. 1.25 = 25% 빠름.
+# ★ 실음성 캘리브레이션 대상 — 현재 잠정값. 통화 내내 빠르게 말하는 사람은 이 기준으로 잡히지 않는다.
+FAST_RATE_RATIO = 1.25
+# 견줄 기준을 잡으려면 잰 턴이 이만큼은 있어야 한다.
+MIN_RATE_TURNS = 3
+
+
+def fast_turns(rates: Mapping[int, float]) -> dict[int, float]:
+    """턴 번호 → 같은 통화의 다른 턴보다 몇 배 빠르게 말했는지. 기준을 넘게 빨라진 턴만 담는다.
+
+    사람마다 평소 빠르기가 달라 절대값으로는 견주지 않는다. 그 통화에서 잰 말 속도의 중앙값과 견준다.
+    """
+    if len(rates) < MIN_RATE_TURNS:
+        return {}
+    usual = statistics.median(rates.values())
+    if usual <= 0:
+        return {}
+    return {
+        index: round(rate / usual, 2)
+        for index, rate in rates.items()
+        if rate / usual >= FAST_RATE_RATIO
+    }
+
+
 def answer_delay(
     turn: tuple[float, float],
     heard_at: float,
@@ -193,6 +217,52 @@ def answer_delay(
     if not starts:
         return None
     return round(max(0.0, min(starts) - heard_at), 2)
+
+
+# 턴 점수 — 항목마다 기준선을 몇 배 넘었는지로 매겨, 좋은 점은 +, 아쉬운 점은 − 로 모두 더한다.
+# 항목 하나는 기준선의 이만큼 배까지만 친다. 값 하나가 너무 커서 다른 항목을 다 덮지 않게.
+# ★ 항목끼리 같은 무게로 보는 것과 이 상한은 근거 논문 없는 잠정값이다.
+POINT_CAP = 2.0
+# 목소리 떨림을 못 잰 짧은 턴에서 떨림 없이 이어 말했을 때의 점수.
+CLEAN_POINT = 1.0
+
+
+def turn_points(
+    *,
+    avti: float | None = None,
+    pauses: Sequence[float] = (),
+    quiet_db: float | None = None,
+    late_sec: float | None = None,
+    fast_ratio: float | None = None,
+    clean: bool = False,
+) -> dict[str, float]:
+    """항목 → 점수. 걸린 항목만 담는다. 이 값들을 모두 더한 것이 그 턴의 점수다.
+
+    좋은 점: 목소리가 안정적(AVTI ≤ 3.0 → 3.0 ÷ AVTI), 떨림 없이 이어 말함(clean → 1).
+    아쉬운 점: 흔들림(AVTI ÷ 5.0), 멈춤(가장 긴 멈춤 ÷ 1.5), 작은 목소리(작아진 dB ÷ 6),
+    늦은 대답(걸린 초 ÷ 1.2), 빠른 말(배수 ÷ 1.25). AVTI 3.0~5.0 은 0 이라 담지 않는다.
+    """
+
+    def capped(ratio: float) -> float:
+        return round(min(ratio, POINT_CAP), 3)
+
+    points: dict[str, float] = {}
+    if avti is None:
+        if clean:
+            points["clean"] = CLEAN_POINT
+    elif avti <= VOICE_GOOD_MAX:
+        points["voice"] = capped(VOICE_GOOD_MAX / avti) if avti > 0 else POINT_CAP
+    elif avti >= VOICE_WORK_MIN:
+        points["voice"] = -capped(avti / VOICE_WORK_MIN)
+    if pauses:
+        points["pause"] = -capped(max(pauses) / LONG_PAUSE_SEC)
+    if quiet_db is not None:
+        points["quiet"] = -capped(quiet_db / QUIET_DROP_DB)
+    if late_sec is not None:
+        points["late"] = -capped(late_sec / LATE_ANSWER_SEC)
+    if fast_ratio is not None:
+        points["fast"] = -capped(fast_ratio / FAST_RATE_RATIO)
+    return points
 
 
 # --- 문구 검증 -----------------------------------------------------------
