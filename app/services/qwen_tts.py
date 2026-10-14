@@ -242,7 +242,7 @@ class QwenRealtimeTTSSession:
         self._client = client
         self._base_url = base_url
         self._speed = speed
-        self._sentences = 0
+        self._audio_started = False
         self._inited = False
         self._closed = False
         self.chars_sent = 0
@@ -273,9 +273,8 @@ class QwenRealtimeTTSSession:
         received = 0
         started = time.monotonic()
         stretcher = PcmStretcher(
-            self._speed, warmup_ms=0 if self._sentences else _SPEED_WARMUP_MS
+            self._speed, warmup_ms=0 if self._audio_started else _SPEED_WARMUP_MS
         )
-        self._sentences += 1
         try:
             async with self._client.stream(
                 "POST",
@@ -297,9 +296,11 @@ class QwenRealtimeTTSSession:
                         )
                     out = stretcher.push(chunk)
                     if out:
+                        self._audio_started = True
                         yield out
                 tail = stretcher.flush()
                 if tail:
+                    self._audio_started = True
                     yield tail
         except QwenTTSUnavailableError:
             raise
