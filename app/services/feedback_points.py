@@ -11,7 +11,7 @@ import numpy as np
 
 __all__ = [
     "Band", "voice_band", "long_pauses", "turn_levels", "quiet_drops", "answer_delay", "is_long_silence",
-    "count_syllables", "speaking_seconds", "speech_rate",
+    "count_syllables", "speaking_seconds", "speech_rate", "fast_turns",
     "is_safe", "polish", "split_title",
 ]
 
@@ -177,6 +177,30 @@ def speech_rate(
     if syllables < MIN_RATE_SYLLABLES or seconds < MIN_RATE_SPEAKING_SEC:
         return None
     return round(syllables / seconds, 2)
+
+
+# 같은 통화의 다른 턴(말 속도 중앙값)보다 이만큼 넘게 빠르면 '빨라진 턴'으로 본다. 1.25 = 25% 빠름.
+# ★ 실음성 캘리브레이션 대상 — 현재 잠정값. 통화 내내 빠르게 말하는 사람은 이 기준으로 잡히지 않는다.
+FAST_RATE_RATIO = 1.25
+# 견줄 기준을 잡으려면 잰 턴이 이만큼은 있어야 한다.
+MIN_RATE_TURNS = 3
+
+
+def fast_turns(rates: Mapping[int, float]) -> dict[int, float]:
+    """턴 번호 → 같은 통화의 다른 턴보다 몇 배 빠르게 말했는지. 기준을 넘게 빨라진 턴만 담는다.
+
+    사람마다 평소 빠르기가 달라 절대값으로는 견주지 않는다. 그 통화에서 잰 말 속도의 중앙값과 견준다.
+    """
+    if len(rates) < MIN_RATE_TURNS:
+        return {}
+    usual = statistics.median(rates.values())
+    if usual <= 0:
+        return {}
+    return {
+        index: round(rate / usual, 2)
+        for index, rate in rates.items()
+        if rate / usual >= FAST_RATE_RATIO
+    }
 
 
 def answer_delay(

@@ -339,15 +339,17 @@ class LLMClient:
         """구간마다 (제목, 내용) 한 쌍. 입력 순서 그대로 같은 개수를 돌려준다.
 
         items[i] = {"type": GOOD|IMPROVE, "utterance": 그 구간 발화,
-                    "avti": 그 턴의 떨림 값 or None, "reason": voice|pause|quiet|late|clean|fallback,
+                    "avti": 그 턴의 떨림 값 or None, "reason": voice|pause|quiet|late|fast|clean|fallback,
                     "prev_ai": 그 구간 직전에 상대가 한 말,
                     "pause_count": 말 중간에 길게 멈춘 횟수, "pause_longest_sec": 그중 가장 긴 것,
                     "quiet": 같은 통화의 다른 턴보다 작게 말했는지,
-                    "late_sec": 상대 말이 끝나고 대답을 꺼내기까지 걸린 시간(늦지 않았으면 0)}
+                    "late_sec": 상대 말이 끝나고 대답을 꺼내기까지 걸린 시간(늦지 않았으면 0),
+                    "fast": 같은 통화의 다른 턴보다 빠르게 말했는지}
         prev_ai 는 없으면 빈 문자열이고, 그 줄은 입력에서 빠진다.
 
         GOOD 구간은 발화 내용을 칭찬하고, IMPROVE 구간은 그 구간을 고른 이유
-        (목소리가 흔들렸다 / 말 중간에 멈췄다 / 목소리가 작아졌다 / 대답이 늦었다)를 말해야 한다. 그래서 여기서는
+        (목소리가 흔들렸다 / 말 중간에 멈췄다 / 목소리가 작아졌다 / 대답이 늦었다 / 말이 빨라졌다)를 말해야 한다.
+        그래서 여기서는
         음성 얘기를 금지하지 않는다. 그 뒤에 다음에 해볼 말을 제안으로 덧붙일 수 있다.
         """
         if not items:
@@ -380,7 +382,8 @@ class LLMClient:
             "구간 종류:\n"
             "- [칭찬할 구간]: 그 발화에서 잘한 점을 짚어준다.\n"
             "- [짚어줄 구간]: '짚을 점' 에 적힌 일이 있었다 — 목소리가 흔들렸거나, 말 중간에 멈췄거나, "
-            "같은 통화의 다른 말보다 목소리가 작아졌거나, 상대 말이 끝난 뒤 멈췄다가 대답을 시작했다. "
+            "같은 통화의 다른 말보다 목소리가 작아졌거나, 상대 말이 끝난 뒤 멈췄다가 대답을 시작했거나, "
+            "같은 통화의 다른 말보다 빠르게 말했다. "
             "그 얘기를 하고 다음에 어떻게 할지 알려준다.\n"
             "- '떨림 N/10' 이 붙어 있으면 그 구간의 측정값이다. "
             "낮으면 안정적, 높으면 흔들린 것. 판단에만 쓰고 숫자는 쓰지 마.\n"
@@ -406,6 +409,7 @@ class LLMClient:
             "- 발화를 그대로 따라 읽지 마. 상대가 한 말을 통째로 옮겨 적지도 마. "
             "무엇이 좋았는지/아쉬웠는지를 써.\n"
             "- 짚어줄 구간은 '짚을 점' 에 적힌 것을 먼저 말한다. 적히지 않은 일은 짚지 마. "
+            "'짚을 점' 에 여러 가지가 적혀 있으면 앞에 있을수록 두드러진 것이라 앞에서부터 짚는다. "
             "상대가 한 말에 비춰 더 잘 전해질 말이 있으면, 다음에 해볼 말을 짧은 예시로 덧붙여도 된다. "
             "틀렸다고 지적하지 말고 '~처럼 말해봐요' 로 제안한다.\n"
             "- 멈춘 길이는 '짚을 점' 에 적힌 말을 그대로 따른다. '길게' 라고 적혀 있지 않으면 "
@@ -416,6 +420,9 @@ class LLMClient:
             "- 목소리가 작아진 구간은 상대가 잘 듣지 못했거나 되묻고 싶었을 수 있다고 쓰고, "
             "'~는 조금 더 크게 말해봐요' 처럼 어느 말을 크게 하면 좋을지 알려준다. "
             "얼마나 작았는지는 쓰지 마.\n"
+            "- 말이 빨라진 구간은 상대가 말을 놓쳤거나 되묻고 싶었을 수 있다고 쓰고, "
+            "'~는 천천히 말해봐요' 처럼 어느 말을 천천히 하면 좋을지 알려준다. "
+            "얼마나 빨랐는지는 쓰지 마.\n"
             "- 대답하기 전에 멈춘 구간은 '넣을 문장' 을 쓰고, "
             "그다음 '네, 잠시만요' 처럼 짧게 먼저 받는 말을 알려준다. "
             "왜 멈췄는지는 알 수 없으니 '망설였어요' / '고민했어요' 처럼 이유를 지어내지 마.\n"
@@ -485,22 +492,55 @@ class LLMClient:
 
         멈춤은 길이에 따라 '멈춤' 과 '길게 멈춤' 으로 나눠 적는다. 글이 이 말을 그대로 따라 쓴다.
         """
-        points: list[str] = []
-        if item.get("reason") not in ("pause", "quiet", "late"):
-            points.append("목소리가 흔들림")
-        if count := item.get("pause_count") or 0:
+        points = [LLMClient._point(reason, item) for reason in LLMClient._reasons(item)]
+        return ", ".join(point for point in points if point)
+
+    @staticmethod
+    def _reasons(item: dict) -> list[str]:
+        """그 구간을 짚는 이유들. 기준을 많이 넘은 것부터 온다.
+
+        구간을 고를 때 붙인 목록이 없으면(이유 하나만 받은 경우) 측정값으로 채운다.
+        """
+        if reasons := item.get("reasons"):
+            return list(reasons)
+        reason = item.get("reason")
+        reasons = []
+        if reason not in ("pause", "quiet", "late", "fast"):
+            reasons.append("voice")
+        if item.get("pause_count"):
+            reasons.append("pause")
+        if item.get("quiet") or reason == "quiet":
+            reasons.append("quiet")
+        if item.get("late_sec") or reason == "late":
+            reasons.append("late")
+        if item.get("fast") or reason == "fast":
+            reasons.append("fast")
+        return reasons
+
+    @staticmethod
+    def _point(reason: str, item: dict) -> str:
+        """이유 하나를 '짚을 점' 의 한 마디로."""
+        if reason == "voice":
+            return "목소리가 흔들림"
+        if reason == "pause":
+            count = item.get("pause_count") or 0
             longest = item.get("pause_longest_sec") or 0
+            if not count:
+                return "말 중간에 멈춤"
             how = "길게 멈춤" if is_long_silence(longest) else "멈춤"
             # 괄호 안에 '길게' 가 있으면 길지 않은 멈춤에도 글이 그 말을 따라 쓴다.
-            points.append(f"말 중간에 {count}번 {how} (최대 약 {max(1, round(longest))}초)")
-        if item.get("quiet") or item.get("reason") == "quiet":
-            points.append("다른 말보다 목소리가 작아짐")
-        if late := item.get("late_sec") or 0:
+            return f"말 중간에 {count}번 {how} (최대 약 {max(1, round(longest))}초)"
+        if reason == "quiet":
+            return "다른 말보다 목소리가 작아짐"
+        if reason == "late":
+            late = item.get("late_sec") or 0
+            if not late:
+                return "상대 말이 끝나고 멈췄다가 대답을 시작함"
             how = "길게 멈췄다가" if is_long_silence(late) else "멈췄다가"
-            points.append(f"상대 말이 끝나고 약 {max(1, round(late))}초 {how} 대답을 시작함")
-        elif item.get("reason") == "late":
-            points.append("상대 말이 끝나고 멈췄다가 대답을 시작함")
-        return ", ".join(points)
+            return f"상대 말이 끝나고 약 {max(1, round(late))}초 {how} 대답을 시작함"
+        if reason == "fast":
+            return "다른 말보다 말이 빨라짐"
+        return ""
 
     @staticmethod
     def _listener_sentence(item: dict) -> str:
@@ -508,19 +548,17 @@ class LLMClient:
 
         글 쓰는 쪽에 고르게 두면 1~2초 멈춤에도 '전화가 끊긴 줄' 처럼 센 말을 쓴다.
         """
-        reason = item.get("reason")
-        paused = bool(item.get("pause_count"))
-        late = item.get("late_sec") or 0
         # 흔들림·작은 목소리로 고른 구간이라도 '짚을 점' 에 멈춤이 같이 적히면 글이 그 얘기를 한다.
-        # 그때도 문장을 정해 준다.
-        if reason == "pause" or (reason != "late" and paused):
-            if is_long_silence(item.get("pause_longest_sec") or 0):
-                return "상대방이 전화가 끊긴 줄 알았을 수 있어요"
-            return "상대방이 말이 끝난 줄 알았을 수 있어요"
-        if reason == "late" or late:
-            if is_long_silence(late):
-                return "상대방이 전화가 끊긴 줄 알았을 수 있어요"
-            return "상대방이 내 말을 못 들은 줄 알았을 수 있어요"
+        # 그때도 문장을 정해 준다. 멈춤과 늦은 대답이 함께 있으면 기준을 더 많이 넘은 쪽을 따른다.
+        for reason in LLMClient._reasons(item):
+            if reason == "pause":
+                if is_long_silence(item.get("pause_longest_sec") or 0):
+                    return "상대방이 전화가 끊긴 줄 알았을 수 있어요"
+                return "상대방이 말이 끝난 줄 알았을 수 있어요"
+            if reason == "late":
+                if is_long_silence(item.get("late_sec") or 0):
+                    return "상대방이 전화가 끊긴 줄 알았을 수 있어요"
+                return "상대방이 내 말을 못 들은 줄 알았을 수 있어요"
         return ""
 
     async def _call_segment_feedback(

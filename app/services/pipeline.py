@@ -33,9 +33,14 @@ from app.schemas.frames import (
 from app.schemas.llm import AiEmotion, LLMEventType, TurnContext
 from app.services.csm_tts import try_acquire_realtime_csm
 from app.services.feedback_points import (
+    FAST_RATE_RATIO,
     LATE_ANSWER_SEC,
+    LONG_PAUSE_SEC,
+    QUIET_DROP_DB,
+    VOICE_WORK_MIN,
     Band,
     answer_delay,
+    fast_turns,
     is_safe,
     long_pauses,
     quiet_drops,
@@ -115,7 +120,35 @@ _MIN_GOOD_SEC = 1.0
 _SEG_GOOD = "GOOD"
 _SEG_IMPROVE = "IMPROVE"
 # 구간을 고르는 데만 쓰는 키. 밖으로 나가기 전에 털어낸다.
-_INTERNAL_SEGMENT_KEYS = ("turn", "avti", "reason", "pauses", "quiet_db", "late_sec")
+_INTERNAL_SEGMENT_KEYS = (
+    "turn", "avti", "reason", "reasons", "strength", "pauses", "quiet_db", "late_sec", "fast_ratio",
+)
+
+
+def _rank_improve(candidates: list[dict], slots: int) -> list[dict]:
+    """짚을 구간을 종합해서 고른다. 이유 종류(떨림·멈춤·크기·뜸·속도)끼리는 순서를 두지 않는다.
+
+    한 자리씩 채운다. 이미 고른 구간에 없는 이유를 가장 많이 더하는 구간 → 이유가 많은 구간 →
+    기준을 많이 넘은 구간 → 앞쪽 구간 순으로 견준다. 그래서 같은 이유만 세 번 짚기보다
+    통화에서 드러난 여러 가지를 고루 짚는다.
+    """
+    chosen: list[dict] = []
+    covered: set[str] = set()
+    pool = list(candidates)
+    while pool and len(chosen) < slots:
+        best = max(
+            pool,
+            key=lambda seg: (
+                len(set(seg["reasons"]) - covered),
+                len(seg["reasons"]),
+                seg["strength"],
+                -seg["start"],
+            ),
+        )
+        chosen.append(best)
+        covered |= set(best["reasons"])
+        pool.remove(best)
+    return chosen
 
 
 def _segment_fallback(kind: str, reason: str | None = None) -> tuple[str, str]:
@@ -124,6 +157,8 @@ def _segment_fallback(kind: str, reason: str | None = None) -> tuple[str, str]:
         return ("말이 잠깐 끊겼어요", "말하는 중간에 멈춘 부분이에요. 다음엔 할 말을 짧게 나눠서 이어 말해봐요.")
     if kind == _SEG_IMPROVE and reason == "quiet":
         return ("목소리가 작아졌어요", "이 부분은 다른 때보다 작게 말했어요. 다음엔 조금 더 크게 말해봐요.")
+    if kind == _SEG_IMPROVE and reason == "fast":
+        return ("말이 빨라졌어요", "이 부분은 다른 때보다 빠르게 말했어요. 다음엔 조금 천천히 말해봐요.")
     if kind == _SEG_IMPROVE and reason == "late":
         return (
             "대답이 조금 늦었어요",
@@ -1358,8 +1393,8 @@ class VoicePipeline:
             self._long_pauses_by_turn(tremor_result),
             self._quiet_by_turn(recording_pcm, tremor_result),
             self._late_by_turn(tremor_result),
+            self._fast_by_turn(tremor_result),
         )
-        self._speech_rates_by_turn(tremor_result)
 
         analysis = None
         try:
@@ -1595,6 +1630,8 @@ class VoicePipeline:
                 "pause_longest_sec": max(pauses, default=0.0),
                 "quiet": seg.get("quiet_db") is not None,
                 "late_sec": seg.get("late_sec") or 0.0,
+                "fast": seg.get("fast_ratio") is not None,
+                "reasons": seg.get("reasons") or [],
             })
         return items
 
@@ -1633,7 +1670,7 @@ class VoicePipeline:
     def _speech_rates_by_turn(self, tremor_result) -> dict[int, float]:
         """턴 번호 → 말 속도(말한 시간 1초당 음절 수). 잴 만큼 말한 턴만 키가 있다.
 
-        아직 구간을 고르는 데는 쓰지 않는다. 빠르다고 볼 기준을 실제 통화의 값으로 정하려고 재서 남기기만 한다.
+        이 값으로 같은 통화의 다른 턴보다 빨라진 턴을 가린다(_fast_by_turn).
         """
         spans = getattr(tremor_result, "voiced_spans", None)
         if not spans:
@@ -1645,9 +1682,17 @@ class VoicePipeline:
             rate = speech_rate(text, turn, spans)
             if rate is not None:
                 rates[index] = rate
-        log_metric("speech_rate", session_id=self._session_id, syllables_per_sec=rates)
         self._note_turn_metric("syllables_per_sec", rates)
         return rates
+
+    def _fast_by_turn(self, tremor_result) -> dict[int, float]:
+        """턴 번호 → 같은 통화의 다른 턴보다 몇 배 빠르게 말했는지. 빨라진 턴만 키가 있다."""
+        rates = self._speech_rates_by_turn(tremor_result)
+        fast = fast_turns(rates)
+        # 빨라진 턴을 가르는 기준(FAST_RATE_RATIO)이 잠정값이라, 실제 통화의 값을 남겨 맞출 수 있게 한다.
+        log_metric("speech_rate", session_id=self._session_id, syllables_per_sec=rates, fast_ratio=fast)
+        self._note_turn_metric("fast_rate_ratio", fast)
+        return fast
 
     def _late_by_turn(self, tremor_result) -> dict[int, float]:
         """턴 번호 → 상대 말이 다 들린 뒤 대답을 꺼내기까지 걸린 시간(초). 늦은 턴만 키가 있다.
@@ -1835,11 +1880,14 @@ class VoicePipeline:
         pauses_by_turn: dict[int, list[float]] | None = None,
         quiet_by_turn: dict[int, float] | None = None,
         late_by_turn: dict[int, float] | None = None,
+        fast_by_turn: dict[int, float] | None = None,
     ) -> list[dict]:
         """칭찬할 구간과 아쉬운 구간을 함께 고른다. 발화 없는 턴은 제외한다.
 
-        아쉬운 구간이 되는 이유는 넷이다 — 목소리가 흔들렸거나(voice), 말 중간에 길게 멈췄거나(pause),
-        같은 통화의 다른 턴보다 작게 말했거나(quiet), 상대 말이 끝나고 한참 뒤에 대답했거나(late).
+        아쉬운 구간이 되는 이유는 다섯이다 — 목소리가 흔들렸거나(voice), 말 중간에 길게 멈췄거나(pause),
+        같은 통화의 다른 턴보다 작게 말했거나(quiet), 상대 말이 끝나고 한참 뒤에 대답했거나(late),
+        같은 통화의 다른 턴보다 빠르게 말했거나(fast). 이유끼리 순서는 없다 — 한 턴에 걸린 이유는
+        모두 남기고, 기준을 얼마나 넘었는지로 그 턴의 대표 이유를 정한다.
         """
         turns = self._spoken_turns(avti_by_turn)
         intervals = [span for _, span in turns]
@@ -1847,6 +1895,7 @@ class VoicePipeline:
         pauses_by_turn = pauses_by_turn or {}
         quiet_by_turn = quiet_by_turn or {}
         late_by_turn = late_by_turn or {}
+        fast_by_turn = fast_by_turn or {}
         picked: list[dict] = []
 
         for index, (start, end) in turns:
@@ -1855,16 +1904,23 @@ class VoicePipeline:
             pauses = pauses_by_turn.get(index, [])
             quiet_db = quiet_by_turn.get(index)
             late_sec = late_by_turn.get(index)
+            fast_ratio = fast_by_turn.get(index)
+            # 이유마다 기준을 몇 배 넘었는지. 단위가 달라도 같은 잣대(기준 = 1)로 견줄 수 있다.
+            strength: dict[str, float] = {}
             if band is Band.NEEDS_WORK:
-                kind, reason = _SEG_IMPROVE, "voice"
-            elif pauses:
-                # 목소리가 안정적이었어도 말이 길게 끊긴 턴은 칭찬하지 않고 짚는다.
-                kind, reason = _SEG_IMPROVE, "pause"
-            elif quiet_db is not None:
-                # 떨림도 멈춤도 없었어도 다른 턴보다 작게 말한 턴은 칭찬하지 않고 짚는다.
-                kind, reason = _SEG_IMPROVE, "quiet"
-            elif late_sec is not None:
-                kind, reason = _SEG_IMPROVE, "late"
+                strength["voice"] = avti / VOICE_WORK_MIN
+            if pauses:
+                strength["pause"] = max(pauses) / LONG_PAUSE_SEC
+            if quiet_db is not None:
+                strength["quiet"] = quiet_db / QUIET_DROP_DB
+            if late_sec is not None:
+                strength["late"] = late_sec / LATE_ANSWER_SEC
+            if fast_ratio is not None:
+                strength["fast"] = fast_ratio / FAST_RATE_RATIO
+            reasons = sorted(strength, key=strength.__getitem__, reverse=True)
+            if reasons:
+                # 목소리가 안정적이었어도 짚을 일이 하나라도 있으면 칭찬하지 않고 짚는다.
+                kind, reason = _SEG_IMPROVE, reasons[0]
             elif band is Band.GOOD:
                 kind, reason = _SEG_GOOD, "voice"
             elif band is Band.MIDDLE:
@@ -1883,14 +1939,17 @@ class VoicePipeline:
                 "end": round(end, 2),
                 "type": kind,
                 "reason": reason,
+                "reasons": reasons,
+                "strength": round(sum(strength.values()), 3),
                 "avti": avti,
                 "pauses": pauses,
                 "quiet_db": quiet_db,
                 "late_sec": late_sec,
+                "fast_ratio": fast_ratio,
             })
 
-        # 아쉬운 구간을 먼저 살리고, 남는 자리를 긴 칭찬 구간으로 채운다.
-        improve = [p for p in picked if p["type"] == _SEG_IMPROVE]
+        # 아쉬운 구간을 종합해서 먼저 고르고, 남는 자리를 긴 칭찬 구간으로 채운다.
+        improve = _rank_improve([p for p in picked if p["type"] == _SEG_IMPROVE], _MAX_SEGMENTS)
         good = sorted(
             (p for p in picked if p["type"] == _SEG_GOOD),
             key=lambda p: p["end"] - p["start"],
@@ -1906,7 +1965,7 @@ class VoicePipeline:
         self._note_turn_metric("avti", {index: value for index, value in avti_by_turn.items() if index})
         self._note_turn_metric(
             "picked",
-            [{key: seg.get(key) for key in ("turn", "type", "reason", "start", "end")} for seg in chosen],
+            [{key: seg.get(key) for key in ("turn", "type", "reason", "reasons", "start", "end")} for seg in chosen],
         )
         return chosen
 
