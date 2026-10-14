@@ -313,7 +313,8 @@ def test_judgements_are_kept_next_to_the_measurements() -> None:
     assert stored["pause_sec"] == {2: [2.2]}
     assert stored["answer_delay_sec"] == stored["late_answer_sec"] == {2: 2.0}
     assert stored["avti"] == {1: 2.0}          # 0번(통화 전체)은 턴이 아니라 뺀다
+    # 2번 턴: 뜸 2.0/1.2 이 멈춤 2.2/1.5 보다 기준을 더 넘어 대표 이유가 된다.
     assert stored["picked"] == [
-        {"turn": 1, "type": "GOOD", "reason": "voice", "start": 0.0, "end": 5.0},
-        {"turn": 2, "type": "IMPROVE", "reason": "pause", "start": 6.0, "end": 16.0},
+        {"turn": 1, "type": "GOOD", "reason": "voice", "reasons": [], "start": 0.0, "end": 5.0},
+        {"turn": 2, "type": "IMPROVE", "reason": "late", "reasons": ["late", "pause"], "start": 6.0, "end": 16.0},
     ]
