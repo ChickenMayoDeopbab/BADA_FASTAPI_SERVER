@@ -116,13 +116,17 @@ def test_quiet_turn_becomes_an_improve_segment() -> None:
     assert (by_turn[1]["type"], by_turn[1]["reason"], by_turn[1]["quiet_db"]) == ("GOOD", "clean", None)
 
 
-def test_stable_voice_does_not_hide_a_quiet_turn() -> None:
-    """목소리가 안정적이었어도 작게 말한 턴은 칭찬하지 않는다."""
+@pytest.mark.parametrize(
+    ("drop_db", "kind", "reason"),
+    [(7.5, "GOOD", "voice"), (12.0, "IMPROVE", "quiet")],
+)
+def test_stable_voice_and_a_quiet_turn_are_added_up(drop_db: float, kind: str, reason: str) -> None:
+    """안정된 목소리 +1.5 와 작아진 정도(÷6)를 더해 큰 쪽이 그 구간의 종류가 된다."""
     p = _pipeline([(0.0, 8.0)])
 
-    (seg,) = p._pick_segments([], {1: 2.0}, {}, {1: 7.5})
+    (seg,) = p._pick_segments([], {1: 2.0}, {}, {1: drop_db})
 
-    assert (seg["type"], seg["reason"]) == ("IMPROVE", "quiet")
+    assert (seg["type"], seg["reason"]) == (kind, reason)
 
 
 def test_ambiguous_voice_with_a_quiet_turn_is_still_picked() -> None:

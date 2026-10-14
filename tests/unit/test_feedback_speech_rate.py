@@ -170,12 +170,17 @@ def test_fast_turn_becomes_an_improve_segment() -> None:
     assert (by_turn[1]["type"], by_turn[1]["reason"], by_turn[1]["fast_ratio"]) == ("GOOD", "clean", None)
 
 
-def test_stable_voice_does_not_hide_a_fast_turn() -> None:
+@pytest.mark.parametrize(
+    ("avti", "kind", "reason"),
+    [(2.0, "GOOD", "voice"), (2.9, "IMPROVE", "fast")],
+)
+def test_stable_voice_and_a_fast_turn_are_added_up(avti: float, kind: str, reason: str) -> None:
+    """안정된 목소리(3.0÷AVTI)와 빨라진 정도(÷1.25)를 더해 큰 쪽이 그 구간의 종류가 된다."""
     p = _picking_pipeline([(0.0, 8.0)])
 
-    (seg,) = p._pick_segments([], {1: 2.0}, {}, {}, {}, {1: 1.4})
+    (seg,) = p._pick_segments([], {1: avti}, {}, {}, {}, {1: 1.4})
 
-    assert (seg["type"], seg["reason"]) == ("IMPROVE", "fast")
+    assert (seg["type"], seg["reason"]) == (kind, reason)
 
 
 def test_fast_mark_is_kept_next_to_other_reasons() -> None:
