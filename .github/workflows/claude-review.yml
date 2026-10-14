@@ -49,8 +49,15 @@ jobs:
         run: echo "at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
       - name: Install review dependencies
+        env:
+          BASE_REF: ${{ github.base_ref }}
         run: |
-          cp -r .github/claude-review "$RUNNER_TEMP/claude-review"
+          if [ -d .github/claude-review ]; then
+            cp -r .github/claude-review "$RUNNER_TEMP/claude-review"
+          else
+            echo "::notice::이 브랜치에 .github/claude-review 가 없어 origin/$BASE_REF 의 것을 쓴다 (base 를 머지하면 사라짐)"
+            git archive "origin/$BASE_REF" .github/claude-review | tar -x --strip-components=1 -C "$RUNNER_TEMP"
+          fi
           npm ci --prefix "$RUNNER_TEMP/claude-review" --no-audit --no-fund
 
       - name: Claude Code Review
@@ -61,6 +68,7 @@ jobs:
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_REF: ${{ github.base_ref }}
           RESULT_FILE: ${{ runner.temp }}/claude-execution.jsonl
         run: node "$RUNNER_TEMP/claude-review/review.mjs"
 
