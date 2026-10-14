@@ -64,6 +64,34 @@ async def test_healthy_false_on_server_error() -> None:
     assert await _client(lambda _r: httpx.Response(503)).healthy() is False
 
 
+@pytest.mark.parametrize(
+    ("handler", "expected"),
+    [
+        (lambda _r: httpx.Response(200, json={"ready": True, "busy": False}), "ready"),
+        (lambda _r: httpx.Response(200, json={"ready": True, "busy": True}), "busy"),
+        (lambda _r: httpx.Response(200, json={"ready": True}), "ready"),
+        (lambda _r: httpx.Response(200, json={"ready": False}), "warming"),
+        (lambda _r: httpx.Response(200, json=[1]), "unhealthy"),
+        (lambda _r: httpx.Response(503), "unhealthy"),
+        (_raise(httpx.ConnectError), "down"),
+        (_raise(httpx.ConnectTimeout), "unhealthy"),
+        (_raise(httpx.ReadTimeout), "unhealthy"),
+    ],
+)
+async def test_health_state_classifies(handler, expected) -> None:
+    assert await _client(handler).health_state() == expected
+
+
+async def test_health_state_unhealthy_when_url_missing() -> None:
+    assert await QwenTTSClient(_settings(url=None)).health_state() == "unhealthy"
+
+
+async def test_healthy_true_when_busy() -> None:
+    """예시 굽기는 urls[0] 만 보고 다른 워커로 합성한다 — busy 를 섞으면 EL 로 굽는다"""
+    client = _client(lambda _r: httpx.Response(200, json={"ready": True, "busy": True}))
+    assert await client.healthy() is True
+
+
 async def test_synth_returns_pcm_and_sends_voice_and_text() -> None:
     seen: dict = {}
 

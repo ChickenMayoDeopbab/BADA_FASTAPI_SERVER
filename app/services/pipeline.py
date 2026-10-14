@@ -49,6 +49,7 @@ from app.services.pcm_coalescer import DEFAULT_TARGET_MS, coalesce_pcm, target_b
 from app.services.qwen_tts import (
     QwenRealtimeTTSClient,
     QwenRealtimeTTSSession,
+    QwenTTSRunawayError,
     QwenTTSUnavailableError,
     try_acquire_realtime_tts,
 )
@@ -227,6 +228,7 @@ class VoicePipeline:
     _playback: _PlaybackTurn | None = None
     _playback_seq: int = 0
     _playback_ack_supported: bool = False
+    _drop_pending: bool = False
     # 상대(AI) 말이 기기에서 다 재생된 때의 녹음 위치(초). 그 뒤 첫 사용자 턴에 붙이고, 다음 AI 말이 시작되면 지운다.
     _ai_heard_at: float | None = None
 
@@ -782,7 +784,22 @@ class VoicePipeline:
             raise
         except QwenTTSUnavailableError as exc:
             flags["tts_failed"] = True
-            self._switch_to_eleven("synth_failed")
+            runaway = isinstance(exc, QwenTTSRunawayError)
+            if runaway:
+                flags["tts_runaway"] = True
+                log_metric(
+                    "realtime_tts_runaway",
+                    session_id=self._session_id,
+                    step=self._current_step,
+                    worker=exc.worker,
+                    chars=exc.chars,
+                    pcm_bytes=exc.pcm_bytes,
+                    audio_ms=exc.audio_ms,
+                    cap_ms=exc.cap_ms,
+                    wall_ms=exc.wall_ms,
+                    sent_audio_ms=audio.as_metrics()["audio_ms"],
+                )
+            self._switch_to_eleven("synth_runaway" if runaway else "synth_failed")
             logger.warning(
                 "Qwen TTS 실패 — 이번 턴은 건너뛰고 ElevenLabs로 전환: %s",
                 exc,
@@ -802,6 +819,10 @@ class VoicePipeline:
             if flags.get("cancelled"):
                 await self._salvage_cancelled_turn(user_utterance, ai_parts)
 
+        if flags.get("tts_runaway") and timings.first_pcm_at is not None:
+            self._drop_pending = True
+            if self._playback is not None:
+                self._playback.done.set()
         try:
             await self._finalize_turn(
                 user_utterance,
@@ -1015,6 +1036,8 @@ class VoicePipeline:
             self._history.append({"role": "assistant", "text": ai_text})
             await self._send_json(transcript_frame(TranscriptRole.AI, ai_text))
 
+        if not fallback:
+            await self._drop_queued_audio()
         if flags["error"]:
             await self._close(EndReason.ERROR)
             return
@@ -1087,12 +1110,20 @@ class VoicePipeline:
                 exc_info=True,
                 extra={"session_id": self._session_id},
             )
+        await self._drop_queued_audio()
         if self._history and self._history[-1]["role"] == "assistant":
             self._history[-1]["text"] += " " + _TURN_FALLBACK_TEXT
         else:
             self._history.append({"role": "assistant", "text": _TURN_FALLBACK_TEXT})
         await self._send_json(transcript_frame(TranscriptRole.AI, _TURN_FALLBACK_TEXT))
         await self._send_speaking_end()
+
+    async def _drop_queued_audio(self) -> None:
+        """이미 보낸 이상한 음성을 앱 재생 큐에서 버리게 함"""
+        if not self._drop_pending:
+            return
+        self._drop_pending = False
+        await self._send_json(interrupt_frame())
 
     def _begin_playback(self) -> None:
         previous = self._playback
@@ -1121,6 +1152,7 @@ class VoicePipeline:
         audio = TurnAudioStats()
         try:
             await session.begin(AiEmotion.NEUTRAL)
+            await self._drop_queued_audio()
             await self._send_json(emotion_frame(AiEmotion.NEUTRAL))
 
             async def _text():

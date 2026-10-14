@@ -311,3 +311,159 @@ async def test_realtime_busy_while_batch_connect_holds() -> None:
             timeout=1.0,
         )
         assert client is None and reason == "busy"
+
+
+# --- 배정 시 busy 워커 건너뛰기 (계획 0064 F101) ---
+
+_READY = {"ready": True, "busy": False}
+_BUSY = {"ready": True, "busy": True}
+_WARMING = {"ready": False, "busy": False}
+
+
+def _health_by_host(
+    states: dict, seen: list[str] | None = None, delay: float = 0.0
+) -> httpx.MockTransport:
+    """워커(host)별 /health 응답. 예외 타입을 넣으면 그 예외로 실패"""
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if seen is not None:
+            seen.append(request.url.host)
+        if delay:
+            await asyncio.sleep(delay)
+        state = states[request.url.host]
+        if isinstance(state, type) and issubclass(state, Exception):
+            raise state("boom", request=request)
+        return httpx.Response(200, json=state)
+
+    return httpx.MockTransport(handler)
+
+
+def _pool_hosts(settings) -> list[str]:
+    return [httpx.URL(u).host for u in qwen_mod._pool(settings)._queue]
+
+
+def _three() -> SimpleNamespace:
+    return _settings(urls="http://w1.test,http://w2.test,http://w3.test")
+
+
+async def _acquire(settings, transport):
+    return await asyncio.wait_for(
+        try_acquire_realtime_tts(settings, transport=transport), timeout=1.0
+    )
+
+
+async def test_acquire_skips_busy_worker_and_takes_next(monkeypatch) -> None:
+    metrics: list[tuple[str, dict]] = []
+    monkeypatch.setattr(qwen_mod, "log_metric", lambda name, **kw: metrics.append((name, kw)))
+    settings = _settings(urls="http://w1.test,http://w2.test")
+    seen: list[str] = []
+
+    client, reason = await _acquire(
+        settings, _health_by_host({"w1.test": _BUSY, "w2.test": _READY}, seen)
+    )
+
+    assert client is not None and reason is None
+    assert client._base_url == "http://w2.test", "락이 잡힌 워커를 통화에 주면 안 된다"
+    assert seen == ["w1.test", "w2.test"]
+    assert _pool_hosts(settings) == ["w1.test"], "건너뛴 워커는 풀로 돌아가야 한다"
+    assert metrics == [
+        ("realtime_tts_worker_skip", {"url": "http://w1.test", "state": "busy"})
+    ]
+
+
+async def test_acquire_all_busy_reports_worker_busy_and_restores_pool() -> None:
+    settings = _three()
+    seen: list[str] = []
+    states = {"w1.test": _BUSY, "w2.test": _BUSY, "w3.test": _BUSY}
+
+    client, reason = await _acquire(settings, _health_by_host(states, seen))
+
+    assert client is None and reason == "worker_busy"
+    assert seen == ["w1.test", "w2.test", "w3.test"], "워커마다 한 번씩만 봐야 한다"
+    assert _pool_hosts(settings) == ["w1.test", "w2.test", "w3.test"]
+
+
+async def test_acquire_unhealthy_stops_without_trying_next() -> None:
+    settings = _settings(urls="http://w1.test,http://w2.test")
+    seen: list[str] = []
+    states = {"w1.test": httpx.ConnectTimeout, "w2.test": _READY}
+
+    client, reason = await _acquire(settings, _health_by_host(states, seen))
+
+    assert client is None and reason == "unhealthy"
+    assert seen == ["w1.test"], "박스가 죽었으면 나머지에 헬스 타임아웃을 더 쓰면 안 된다"
+    assert _pool_hosts(settings) == ["w2.test", "w1.test"]
+
+
+async def test_acquire_busy_then_unhealthy_returns_every_worker() -> None:
+    settings = _three()
+    states = {"w1.test": _BUSY, "w2.test": httpx.ConnectTimeout, "w3.test": _READY}
+
+    client, reason = await _acquire(settings, _health_by_host(states))
+
+    assert client is None and reason == "unhealthy"
+    assert sorted(_pool_hosts(settings)) == ["w1.test", "w2.test", "w3.test"]
+
+
+async def test_acquire_skips_restarting_worker() -> None:
+    """워밍업 중인 워커는 포트를 아직 안 열어 연결 거부가 온다"""
+    settings = _settings(urls="http://w1.test,http://w2.test")
+
+    client, reason = await _acquire(
+        settings, _health_by_host({"w1.test": httpx.ConnectError, "w2.test": _READY})
+    )
+
+    assert client is not None and reason is None
+    assert client._base_url == "http://w2.test", "하나만 재기동된 워커 때문에 EL 로 가면 안 된다"
+
+
+async def test_acquire_only_down_or_warming_reports_unhealthy() -> None:
+    settings = _settings(urls="http://w1.test,http://w2.test")
+
+    client, reason = await _acquire(
+        settings, _health_by_host({"w1.test": httpx.ConnectError, "w2.test": _WARMING})
+    )
+
+    assert client is None and reason == "unhealthy"
+    assert _pool_hosts(settings) == ["w1.test", "w2.test"]
+
+
+async def test_acquire_treats_missing_busy_field_as_free() -> None:
+    settings = _settings(urls="http://w1.test")
+
+    client, reason = await _acquire(settings, _health_by_host({"w1.test": {"ready": True}}))
+
+    assert client is not None and reason is None
+
+
+async def test_concurrent_acquire_does_not_recheck_busy_worker() -> None:
+    settings = _settings(urls="http://w1.test,http://w2.test")
+    seen: list[str] = []
+    transport = _health_by_host({"w1.test": _BUSY, "w2.test": _READY}, seen, delay=0.01)
+
+    results = await asyncio.wait_for(
+        asyncio.gather(
+            try_acquire_realtime_tts(settings, transport=transport),
+            try_acquire_realtime_tts(settings, transport=transport),
+        ),
+        timeout=1.0,
+    )
+
+    got = [c._base_url for c, _ in results if c is not None]
+    assert got == ["http://w2.test"]
+    assert sorted(reason for c, reason in results if c is None) == ["worker_busy"]
+    assert seen.count("w1.test") == 1, "busy 워커를 바로 풀에 넣으면 같은 통화가 다시 꺼내 본다"
+    assert _pool_hosts(settings) == ["w1.test"]
+
+
+async def test_acquire_cancelled_mid_check_returns_every_worker() -> None:
+    settings = _settings(urls="http://w1.test,http://w2.test")
+    transport = _health_by_host({"w1.test": _BUSY, "w2.test": _READY}, delay=0.2)
+
+    task = asyncio.create_task(try_acquire_realtime_tts(settings, transport=transport))
+    await asyncio.sleep(0.3)  # w1 은 건너뛰었고 w2 를 확인하는 중
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=1.0)
+
+    assert sorted(_pool_hosts(settings)) == ["w1.test", "w2.test"]

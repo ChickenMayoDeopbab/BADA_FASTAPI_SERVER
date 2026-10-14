@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 import weakref
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 import httpx
 
+from app.core.audio_stats import BYTES_PER_MS
 from app.core.config import Settings
+from app.core.metrics import log_metric
 from app.schemas.llm import AiEmotion
 from app.services.tts import _SentenceBuffer
 
@@ -24,10 +27,32 @@ _SLOT_WAIT_TIMEOUT = 90.0
 _REALTIME_VOICE = "ai"
 _REALTIME_CONNECT_TIMEOUT = 3.0
 _REALTIME_READ_TIMEOUT = 10.0
+_RUNAWAY_FLOOR_MS = 3000
+_RUNAWAY_MS_PER_CHAR = 300
 
 
 class QwenTTSUnavailableError(Exception):
     """합성 실패"""
+
+
+class QwenTTSRunawayError(QwenTTSUnavailableError):
+    """문장 길이에 비해 오디오가 너무 길다"""
+
+    def __init__(
+        self, *, worker: str, chars: int, pcm_bytes: int, cap_ms: int, wall_ms: float
+    ) -> None:
+        self.worker = worker
+        self.chars = chars
+        self.pcm_bytes = pcm_bytes
+        self.audio_ms = round(pcm_bytes / BYTES_PER_MS, 1)
+        self.cap_ms = cap_ms
+        self.wall_ms = round(wall_ms, 1)
+        super().__init__(f"runaway chars={chars} audio_ms={self.audio_ms} cap_ms={cap_ms}")
+
+
+def runaway_cap_ms(text: str) -> int:
+    """문장 하나에 허용하는 오디오 길이"""
+    return _RUNAWAY_FLOOR_MS + len(text.strip()) * _RUNAWAY_MS_PER_CHAR
 
 
 _worker_pools: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Queue[str]] = (
@@ -137,6 +162,28 @@ class QwenTTSClient:
             logger.info("Qwen TTS 헬스체크 실패 — ElevenLabs로 폴백", exc_info=True)
             return False
 
+    async def health_state(self) -> str:
+        """ready / busy(락 잡힘) / warming(ready:false) / down(연결 거부) / unhealthy(응답 이상)"""
+        if not self.enabled:
+            return "unhealthy"
+        try:
+            async with self._client(self._health_timeout) as client:
+                response = await client.get(f"{self._base_url}/health")
+                response.raise_for_status()
+                body = response.json()
+        except httpx.ConnectError:
+            # 워밍업 중인 워커 — 박스 다운(타임아웃)과 구분
+            logger.info("Qwen TTS 헬스체크 연결 거부", exc_info=True)
+            return "down"
+        except Exception:
+            logger.info("Qwen TTS 헬스체크 실패", exc_info=True)
+            return "unhealthy"
+        if not isinstance(body, dict):
+            return "unhealthy"
+        if not body.get("ready"):
+            return "warming"
+        return "busy" if body.get("busy") else "ready"
+
     async def _post(
         self, client: httpx.AsyncClient, base_url: str, voice: str, text: str
     ) -> bytes:
@@ -218,6 +265,9 @@ class QwenRealtimeTTSSession:
 
     async def _synth_sentence(self, text: str) -> AsyncIterator[bytes]:
         self.chars_sent += len(text)
+        cap_ms = runaway_cap_ms(text)
+        received = 0
+        started = time.monotonic()
         try:
             async with self._client.stream(
                 "POST",
@@ -226,8 +276,20 @@ class QwenRealtimeTTSSession:
             ) as response:
                 response.raise_for_status()
                 async for chunk in response.aiter_bytes():
-                    if chunk:
-                        yield chunk
+                    if not chunk:
+                        continue
+                    received += len(chunk)
+                    if received > cap_ms * BYTES_PER_MS:
+                        raise QwenTTSRunawayError(
+                            worker=self._base_url,
+                            chars=len(text.strip()),
+                            pcm_bytes=received,
+                            cap_ms=cap_ms,
+                            wall_ms=(time.monotonic() - started) * 1000,
+                        )
+                    yield chunk
+        except QwenTTSUnavailableError:
+            raise
         except Exception as exc:
             raise QwenTTSUnavailableError(f"{type(exc).__name__}: {exc}") from exc
 
@@ -285,18 +347,32 @@ async def try_acquire_realtime_tts(
     if not (settings.qwen_tts_realtime_enabled and worker_urls(settings)):
         return None, "disabled"
     pool = _pool(settings)
+    skipped: list[tuple[str, str]] = []
     try:
-        url = pool.get_nowait()
-    except asyncio.QueueEmpty:
+        for _ in range(len(worker_urls(settings))):
+            try:
+                url = pool.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+            try:
+                state = await QwenTTSClient(settings, transport, base_url=url).health_state()
+            except BaseException:
+                pool.put_nowait(url)
+                raise
+            if state == "ready":
+                client = QwenRealtimeTTSClient(settings, transport, base_url=url)
+                client._worker_url = url
+                return client, None
+            if state == "unhealthy":
+                pool.put_nowait(url)
+                return None, "unhealthy"
+            skipped.append((url, state))
+    finally:
+        for url, state in skipped:
+            pool.put_nowait(url)
+            log_metric("realtime_tts_worker_skip", url=url, state=state)
+    if not skipped:
         return None, "busy"
-    try:
-        healthy = await QwenTTSClient(settings, transport, base_url=url).healthy()
-    except BaseException:
-        pool.put_nowait(url)
-        raise
-    if not healthy:
-        pool.put_nowait(url)
-        return None, "unhealthy"
-    client = QwenRealtimeTTSClient(settings, transport, base_url=url)
-    client._worker_url = url
-    return client, None
+    if any(state == "busy" for _, state in skipped):
+        return None, "worker_busy"
+    return None, "unhealthy"
