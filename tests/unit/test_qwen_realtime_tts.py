@@ -3,8 +3,10 @@ import json
 from types import SimpleNamespace
 
 import httpx
+import numpy as np
 import pytest
 
+from app.core.config import Settings
 from app.services import qwen_tts as qwen_mod
 from app.services.qwen_tts import (
     QwenRealtimeTTSClient,
@@ -19,14 +21,18 @@ def _settings(
     url: str | None = "http://tts.test",
     realtime: bool = True,
     urls: str | None = None,
+    speed: float | None = None,
 ) -> SimpleNamespace:
-    return SimpleNamespace(
+    settings = SimpleNamespace(
         qwen_tts_url=url,
         qwen_tts_urls=urls,
         qwen_tts_timeout=5.0,
         qwen_tts_health_timeout=1.0,
         qwen_tts_realtime_enabled=realtime,
     )
+    if speed is not None:
+        settings.qwen_tts_speed = speed
+    return settings
 
 
 def _ready_transport(ready: bool = True) -> httpx.MockTransport:
@@ -69,6 +75,126 @@ async def test_realtime_stream_synthesizes_per_sentence() -> None:
     assert [c["text"] for c in calls] == ["안녕하세요. ", "반갑습니다 "]
     assert {c["voice"] for c in calls} == {"ai"}, "Qwen 보이스는 ai 고정"
     assert {c["path"] for c in calls} == {"/v1/tts/stream"}
+
+
+def _pcm_chunks(seconds: float, seed: int = 0) -> list[bytes]:
+    pcm = np.random.default_rng(seed).normal(0, 3000, int(16000 * seconds)).astype("<i2").tobytes()
+    return [pcm[:4480]] + [pcm[i : i + 5120] for i in range(4480, len(pcm), 5120)]
+
+
+def _chunk_transport(chunks: list[bytes], error: Exception | None = None) -> httpx.MockTransport:
+    def handler(request: httpx.Request) -> httpx.Response:
+        async def _chunks():
+            for c in chunks:
+                yield c
+            if error is not None:
+                raise error
+
+        return httpx.Response(200, content=_chunks())
+
+    return httpx.MockTransport(handler)
+
+
+async def _speak(settings: SimpleNamespace, transport: httpx.MockTransport) -> list[bytes]:
+    session = await QwenRealtimeTTSClient(settings, transport=transport).open()
+    await session.begin()
+    try:
+        async def source():
+            yield "안녕하세요. 반갑"
+            yield "습니다."
+
+        return [chunk async for chunk in session.stream(source())]
+    finally:
+        await session.aclose()
+
+
+async def test_realtime_speed_shortens_each_sentence() -> None:
+    out = await _speak(_settings(speed=1.1), _chunk_transport(_pcm_chunks(1.0)))
+    tol = 160
+    first = round(2880 + (16000 - 2880) / 1.1) + tol
+    rest = round(16000 / 1.1) + tol
+    assert sum(map(len, out)) == 2 * (first + rest)
+    assert all(len(c) % 2 == 0 for c in out)
+
+
+async def test_warmup_goes_to_first_sentence_with_sound() -> None:
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        body = b"".join(_pcm_chunks(1.0)) if len(calls) > 1 else b""
+        return httpx.Response(200, content=body)
+
+    out = await _speak(_settings(speed=1.1), httpx.MockTransport(handler))
+    assert len(calls) == 2
+    assert sum(map(len, out)) == 2 * (round(2880 + (16000 - 2880) / 1.1) + 160)
+
+
+async def test_short_first_sentence_heard_only_through_flush_still_counts() -> None:
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        seconds = 1.0 if len(calls) > 1 else 0.02
+        return httpx.Response(200, content=b"".join(_pcm_chunks(seconds)))
+
+    out = await _speak(_settings(speed=1.1), httpx.MockTransport(handler))
+    assert sum(map(len, out)) == 2 * ((320 + 160) + (round(16000 / 1.1) + 160))
+
+
+async def test_realtime_speed_one_yields_worker_chunks_as_is() -> None:
+    chunks = _pcm_chunks(1.0)
+    got = await _speak(_settings(speed=1.0), _chunk_transport(chunks))
+    assert got == chunks + chunks
+
+
+async def test_transport_error_mid_sentence_does_not_flush() -> None:
+    chunks = _pcm_chunks(1.0)[:5]
+    session = await QwenRealtimeTTSClient(
+        _settings(speed=1.15), transport=_chunk_transport(chunks, httpx.ReadError("boom"))
+    ).open()
+    await session.begin()
+    got: list[bytes] = []
+    try:
+        async def source():
+            yield "안녕하세요."
+
+        with pytest.raises(QwenTTSUnavailableError):
+            async for c in session.stream(source()):
+                got.append(c)
+    finally:
+        await session.aclose()
+    n_in = sum(map(len, chunks)) // 2
+    assert 0 < sum(map(len, got)) < 2 * (round(2880 + (n_in - 2880) / 1.15) + 160)
+
+
+def test_realtime_speed_is_clamped() -> None:
+    assert QwenRealtimeTTSClient(_settings(speed=3.0)).speed == 1.25
+    assert QwenRealtimeTTSClient(_settings(speed=float("nan"))).speed == 1.0
+    assert QwenRealtimeTTSClient(_settings()).speed == 1.0
+
+
+def _real_settings() -> Settings:
+    return Settings(
+        _env_file=None,
+        redis_url="redis://localhost:6379/0",
+        jwt_secret="secret",
+        internal_secret="internal",
+        google_project_id="project",
+        gemini_api_key="gemini",
+        anthropic_api_key="anthropic",
+        elevenlabs_api_key="eleven",
+        elevenlabs_voice_id="voice",
+        spring_boot_internal_url="http://spring",
+        database_url="postgresql+asyncpg://user:pass@localhost/db",
+    )
+
+
+def test_env_speed_reaches_realtime_client(monkeypatch) -> None:
+    monkeypatch.delenv("QWEN_TTS_SPEED", raising=False)
+    assert _real_settings().qwen_tts_speed == 1.0, "기본값은 동작 변화 없음"
+    monkeypatch.setenv("QWEN_TTS_SPEED", "1.15")
+    assert QwenRealtimeTTSClient(_real_settings()).speed == 1.15
 
 
 async def test_realtime_stream_requires_begin() -> None:

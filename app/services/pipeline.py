@@ -867,6 +867,7 @@ class VoicePipeline:
             engine=self._current_tts_engine(),
             skip_reason=skip_reason,
             csm_skip_reason=csm_skip_reason,
+            speed=getattr(client, "speed", None),
         )
 
     async def _begin_tts(self, session, emotion: AiEmotion, user_text: str) -> None:

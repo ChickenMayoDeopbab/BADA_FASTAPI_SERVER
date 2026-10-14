@@ -190,6 +190,7 @@ async def test_open_tts_falls_back_when_qwen_open_fails() -> None:
 async def test_init_qwen_tts_records_engine_metric(monkeypatch) -> None:
     records = _capture_metrics(monkeypatch)
     qwen = _FakeQwenClient()
+    qwen.speed = 1.15
 
     async def _acquire(_settings):
         return qwen, None
@@ -201,7 +202,8 @@ async def test_init_qwen_tts_records_engine_metric(monkeypatch) -> None:
     await p._init_qwen_tts()
 
     assert p._qwen_tts is qwen
-    assert dict(records)["realtime_tts_engine"]["engine"] == "qwen"
+    metric = dict(records)["realtime_tts_engine"]
+    assert (metric["engine"], metric["speed"]) == ("qwen", 1.15)
 
 
 async def test_run_releases_slot_on_exit(monkeypatch) -> None:
