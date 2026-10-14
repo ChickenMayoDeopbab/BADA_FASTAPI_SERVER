@@ -13,6 +13,7 @@ from app.core.audio_stats import BYTES_PER_MS
 from app.core.config import Settings
 from app.core.metrics import log_metric
 from app.schemas.llm import AiEmotion
+from app.services.pcm_stretch import PcmStretcher, clamp_speed
 from app.services.tts import _SentenceBuffer
 
 logger = logging.getLogger(__name__)
@@ -29,6 +30,7 @@ _REALTIME_CONNECT_TIMEOUT = 3.0
 _REALTIME_READ_TIMEOUT = 10.0
 _RUNAWAY_FLOOR_MS = 3000
 _RUNAWAY_MS_PER_CHAR = 300
+_SPEED_WARMUP_MS = 180  # 턴 첫 문장 앞 부분은 원래 속도
 
 
 class QwenTTSUnavailableError(Exception):
@@ -236,9 +238,11 @@ class QwenTTSClient:
 class QwenRealtimeTTSSession:
     """실시간 한 턴"""
 
-    def __init__(self, client: httpx.AsyncClient, base_url: str) -> None:
+    def __init__(self, client: httpx.AsyncClient, base_url: str, speed: float = 1.0) -> None:
         self._client = client
         self._base_url = base_url
+        self._speed = speed
+        self._sentences = 0
         self._inited = False
         self._closed = False
         self.chars_sent = 0
@@ -268,6 +272,10 @@ class QwenRealtimeTTSSession:
         cap_ms = runaway_cap_ms(text)
         received = 0
         started = time.monotonic()
+        stretcher = PcmStretcher(
+            self._speed, warmup_ms=0 if self._sentences else _SPEED_WARMUP_MS
+        )
+        self._sentences += 1
         try:
             async with self._client.stream(
                 "POST",
@@ -287,7 +295,12 @@ class QwenRealtimeTTSSession:
                             cap_ms=cap_ms,
                             wall_ms=(time.monotonic() - started) * 1000,
                         )
-                    yield chunk
+                    out = stretcher.push(chunk)
+                    if out:
+                        yield out
+                tail = stretcher.flush()
+                if tail:
+                    yield tail
         except QwenTTSUnavailableError:
             raise
         except Exception as exc:
@@ -319,6 +332,7 @@ class QwenRealtimeTTSClient:
         self._base_url = (base_url or (urls[0] if urls else "")).rstrip("/")
         self._transport = transport
         self._worker_url: str | None = None
+        self.speed = clamp_speed(getattr(settings, "qwen_tts_speed", 1.0))
 
     async def open(self, voice_id: str | None = None) -> QwenRealtimeTTSSession:
         """턴마다 호출"""
@@ -328,7 +342,7 @@ class QwenRealtimeTTSClient:
             ),
             transport=self._transport,
         )
-        return QwenRealtimeTTSSession(client, self._base_url)
+        return QwenRealtimeTTSSession(client, self._base_url, self.speed)
 
     def release_slot(self) -> None:
         """통화 종료, 잡고 있던 워커를 풀에 되돌림"""

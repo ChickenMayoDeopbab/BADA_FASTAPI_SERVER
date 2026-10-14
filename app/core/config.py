@@ -76,6 +76,7 @@ class Settings(BaseSettings):
     qwen_tts_timeout: float = 30.0
     qwen_tts_health_timeout: float = 1.0
     qwen_tts_realtime_enabled: bool = False
+    qwen_tts_speed: float = 1.0 # 실시간 말 속도(0.8~1.25)
     csm_tts_urls: str | None = None
     csm_tts_realtime_enabled: bool = False
     csm_tts_voice: str = "ai"
