@@ -362,18 +362,26 @@ def test_qwen_speed_uses_production_stretcher_with_turn_warmup(tmp_path):
 def test_set_meta_points_prompt_at_new_ref(tmp_path):
     ref = tmp_path / "my.WAV"
     ref.write_bytes(b"RIFF")
-    post.write_set(tmp_path / "out", {"s01": "가나다.", "s02": "라마."}, ref, " 안녕 | 하세요 ")
+    post.write_set(tmp_path / "out", {"s01": "가나다.", "s02": "라마."}, ref, " 안녕,  하세요 ")
     assert (tmp_path / "out" / "set" / "ref.wav").read_bytes() == b"RIFF"
     lines = (tmp_path / "out" / "set" / "meta.lst").read_text("utf-8").splitlines()
-    assert lines == ["s01|안녕 하세요|ref.wav|가나다.", "s02|안녕 하세요|ref.wav|라마."]
+    assert lines == ["s01|안녕,  하세요|ref.wav|가나다.", "s02|안녕,  하세요|ref.wav|라마."]
 
 
-@pytest.mark.parametrize("sents", [{"s01": "가|나다."}, {"s01": "가나\n다."}, {"s|1": "가나다."}])
-def test_set_meta_refuses_sentences_that_break_the_pipe_format(tmp_path, sents):
+@pytest.mark.parametrize(("sents", "ref_text", "named"), [
+    ({"s01": "가|나다."}, "전사", "s01"),
+    ({"s01": "가나\n다."}, "전사", "s01"),
+    ({"s01": "가나\r다."}, "전사", "s01"),
+    ({"s|1": "가나다."}, "전사", "s|1"),
+    ({"s01": "가나다."}, "안녕 | 하세요", "ref_text"),
+    ({"s01": "가나다."}, "안녕\n하세요", "ref_text"),
+])
+def test_set_meta_refuses_fields_that_break_the_pipe_format(tmp_path, sents, ref_text, named):
     ref = tmp_path / "ref.wav"
     ref.write_bytes(b"RIFF")
-    with pytest.raises(ValueError, match="s"):
-        post.write_set(tmp_path / "out", {"s00": "정상.", **sents}, ref, "전사")
+    with pytest.raises(ValueError) as err:
+        post.write_set(tmp_path / "out", {"s00": "정상.", **sents}, ref, ref_text)
+    assert named in str(err.value) and "s00" not in str(err.value)
     assert not (tmp_path / "out" / "set").exists()
 
 
