@@ -1,4 +1,8 @@
+import re
+
 from app.core.preset_scenarios import PRESET_SCENARIOS
+
+_TIME_PHRASES = ("15분 안에",)
 
 
 def test_all_presets_have_example_dialogue() -> None:
@@ -23,3 +27,12 @@ def test_example_dialogue_starts_with_ai_and_alternates() -> None:
         assert dialogue[0]["speaker"] == "ai", scenario["title"]
         for prev, cur in zip(dialogue, dialogue[1:], strict=False):
             assert prev["speaker"] != cur["speaker"], f"{scenario['title']}: 연속 동일 화자"
+
+
+def test_example_dialogue_people_counter_not_in_digits() -> None:
+    for scenario in PRESET_SCENARIOS:
+        for turn in scenario["example_dialogue"]:
+            rest = turn["text"]
+            for phrase in _TIME_PHRASES:
+                rest = rest.replace(phrase, " ")
+            assert not re.search(r"\d+\s*분", rest), f"{scenario['title']}: {turn['text']}"
