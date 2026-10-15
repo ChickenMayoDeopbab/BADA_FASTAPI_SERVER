@@ -115,18 +115,22 @@ def conditions(out: Path) -> tuple[list[str], list[str]]:
     return [n for n in order if not n.endswith("_turns")], turn
 
 
+def breaks_meta(value: str) -> bool:
+    return any(c in value for c in "|\n\r")
+
+
 def write_set(out: Path, sentences: dict[str, str], ref: Path, ref_text: str) -> None:
     """g1_score 세트: id|프롬프트 전사|프롬프트 wav|읽을 글 — 프롬프트(SIM 기준)는 새 ref"""
-    # 문장은 합성한 글과 같아야 채점이 맞으므로 고치지 않고 막는다
-    bad = [sid for sid, text in sentences.items() if "|" in sid or "|" in text or "\n" in text]
+    # 전사·문장 모두 채점 기준 글이라 고치지 않고 막는다
+    bad = ["ref_text"] if breaks_meta(ref_text) else []
+    bad += [sid for sid, text in sentences.items() if breaks_meta(sid) or breaks_meta(text)]
     if bad:
-        raise ValueError(f"meta.lst 는 | 로 칸을 나눈다 — | 나 줄바꿈이 든 문장: {', '.join(bad)}")
+        raise ValueError(f"meta.lst 는 | 로 칸을 나눈다 — | 나 줄바꿈이 든 칸: {', '.join(bad)}")
     sdir = out / "set"
     sdir.mkdir(parents=True, exist_ok=True)
     name = "ref" + ref.suffix.lower()
     shutil.copyfile(ref, sdir / name)
-    clean = " ".join(ref_text.replace("|", " ").split())
-    lines = [f"{sid}|{clean}|{name}|{text}" for sid, text in sentences.items()]
+    lines = [f"{sid}|{ref_text.strip()}|{name}|{text}" for sid, text in sentences.items()]
     (sdir / "meta.lst").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
