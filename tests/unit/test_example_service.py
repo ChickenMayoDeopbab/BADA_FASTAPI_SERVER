@@ -811,3 +811,28 @@ class _RecordingSpy:
 
     def presigned_url(self, key: str, expires_in: int = 600) -> str | None:
         return f"https://signed.test/{key}"
+
+
+async def test_custom_generation_prompt_writes_people_counter_in_hangul(monkeypatch) -> None:
+    _wire(monkeypatch)
+    calls: list[dict] = []
+
+    class _Messages:
+        async def create(self, **kw) -> SimpleNamespace:
+            calls.append(kw)
+            turns = [{"speaker": "ai", "text": "여보세요."}, {"speaker": "user", "text": "네."}]
+            text = json.dumps(turns, ensure_ascii=False)
+            return SimpleNamespace(content=[SimpleNamespace(text=text)])
+
+    class _Client:
+        def __init__(self, api_key: str) -> None:
+            self.messages = _Messages()
+
+    monkeypatch.setattr(example_service, "AsyncAnthropic", _Client)
+
+    await get_example_conversation(_FakeDB(_custom_row()), 42, user_id=7)
+
+    system = calls[0]["system"]
+    assert "In \"ai\" lines" in system
+    assert "never digits like '4분'" in system
+    assert "own party with 명" in system
