@@ -58,6 +58,8 @@ Rules:
 - 8 to 12 turns total, following the script steps in order, ending with a natural closing.
 - Plain spoken dialogue only. No stage directions, no parentheses.
 - Use concrete example values (dates, times, names) where natural.
+- In "ai" lines, write the honorific people counter 분 with Korean number words ('네 분', '열 분'), \
+never digits like '4분' — TTS reads '4분' as minutes. The "user" counts their own party with 명 ('4명').
 """
 
 
