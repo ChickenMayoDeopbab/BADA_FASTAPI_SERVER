@@ -117,6 +117,10 @@ def conditions(out: Path) -> tuple[list[str], list[str]]:
 
 def write_set(out: Path, sentences: dict[str, str], ref: Path, ref_text: str) -> None:
     """g1_score 세트: id|프롬프트 전사|프롬프트 wav|읽을 글 — 프롬프트(SIM 기준)는 새 ref"""
+    # 문장은 합성한 글과 같아야 채점이 맞으므로 고치지 않고 막는다
+    bad = [sid for sid, text in sentences.items() if "|" in sid or "|" in text or "\n" in text]
+    if bad:
+        raise ValueError(f"meta.lst 는 | 로 칸을 나눈다 — | 나 줄바꿈이 든 문장: {', '.join(bad)}")
     sdir = out / "set"
     sdir.mkdir(parents=True, exist_ok=True)
     name = "ref" + ref.suffix.lower()
