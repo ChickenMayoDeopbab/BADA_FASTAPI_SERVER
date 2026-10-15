@@ -368,6 +368,15 @@ def test_set_meta_points_prompt_at_new_ref(tmp_path):
     assert lines == ["s01|안녕 하세요|ref.wav|가나다.", "s02|안녕 하세요|ref.wav|라마."]
 
 
+@pytest.mark.parametrize("sents", [{"s01": "가|나다."}, {"s01": "가나\n다."}, {"s|1": "가나다."}])
+def test_set_meta_refuses_sentences_that_break_the_pipe_format(tmp_path, sents):
+    ref = tmp_path / "ref.wav"
+    ref.write_bytes(b"RIFF")
+    with pytest.raises(ValueError, match="s"):
+        post.write_set(tmp_path / "out", {"s00": "정상.", **sents}, ref, "전사")
+    assert not (tmp_path / "out" / "set").exists()
+
+
 # ───────── 블라인드 청감 ─────────
 def test_blind_page_hides_names_and_maps_back(tmp_path):
     out, sents, turns = _bench_out(tmp_path)
