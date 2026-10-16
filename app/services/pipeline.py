@@ -60,6 +60,7 @@ from app.services.session import (
     parse_scenario_id,
     parse_user_id,
 )
+from app.services.speech_metrics import summarize_speech_metrics
 from app.services.spring_client import SpringInternalClient
 from app.services.stt import (
     AUDIO_EOS,
@@ -1410,6 +1411,14 @@ class VoicePipeline:
 
         await self._save_feedback(shake_count, good_segments)
 
+        speech_metrics = None
+        try:
+            speech_metrics = summarize_speech_metrics(self._turn_metrics_for_storage())
+        except Exception:
+            # 선택 지표의 실패로 기존 통화 기록 저장까지 유실되지 않도록 한다.
+            logger.warning("음성 요약 생성 실패 — 요약 없이 종료 콜백 진행",
+                           exc_info=True, extra={"session_id": self._session_id})
+
         session_closed = await self._spring.notify_session_closed(
             self._session_id,
             reason=reason,
@@ -1420,6 +1429,7 @@ class VoicePipeline:
             recording_key=recording_key,
             session_type=self._session.get("type"),
             analysis=analysis,
+            speech_metrics=speech_metrics,
         )
 
         # 정상 종료 이벤트는 Spring 트랜잭션이 완료된 뒤에만 보낸다. 앱은 이
@@ -1614,6 +1624,11 @@ class VoicePipeline:
             index: long_pauses(turn, spans)
             for index, turn in enumerate(self._user_turn_intervals, start=1)
         }
+        eligible = [
+            index for index, (start, end) in enumerate(self._user_turn_intervals, start=1)
+            if sum(max(0.0, min(end, stop) - max(start, begin)) for begin, stop in spans) >= 0.5
+        ]
+        self._note_turn_metric("pause_eligible_turns", eligible)
         pauses_by_turn = {index: pauses for index, pauses in by_turn.items() if pauses}
         self._note_turn_metric("pause_sec", pauses_by_turn)
         return pauses_by_turn

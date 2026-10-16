@@ -7,6 +7,7 @@ import httpx
 from app.core.config import Settings
 from app.core.enums import CommunityNotificationType, ReactionKind, UserModerationStatus
 from app.schemas.frames import EndReason
+from app.schemas.speech_metrics import SpeechMetricsPayload
 from app.schemas.training_analysis import TrainingAnalysisPayload
 
 logger = logging.getLogger(__name__)
@@ -80,6 +81,7 @@ class SpringInternalClient:
         recording_key: str | None = None,
         session_type: str | None = None,
         analysis: TrainingAnalysisPayload | None = None,
+        speech_metrics: SpeechMetricsPayload | None = None,
     ) -> bool:
         url = f"{self._base_url}/internal/v1/sessions/{session_id}/closed"
         payload = {
@@ -95,6 +97,7 @@ class SpringInternalClient:
                 if analysis is not None
                 else None
             ),
+            "speech_metrics": speech_metrics.model_dump(mode="json") if speech_metrics is not None else None,
         }
 
         last_error: httpx.HTTPError | None = None
