@@ -7,6 +7,7 @@ import httpx
 from app.core.config import Settings
 from app.core.enums import CommunityNotificationType, ReactionKind, UserModerationStatus
 from app.schemas.frames import EndReason
+from app.schemas.speech_metrics import SpeechMetricsPayload
 from app.schemas.training_analysis import TrainingAnalysisPayload
 
 logger = logging.getLogger(__name__)
@@ -80,6 +81,7 @@ class SpringInternalClient:
         recording_key: str | None = None,
         session_type: str | None = None,
         analysis: TrainingAnalysisPayload | None = None,
+        speech_metrics: SpeechMetricsPayload | None = None,
     ) -> bool:
         url = f"{self._base_url}/internal/v1/sessions/{session_id}/closed"
         payload = {
@@ -96,6 +98,9 @@ class SpringInternalClient:
                 else None
             ),
         }
+        # 요약이 없는 호출은 기존 Spring 종료 요청의 필드 구성을 유지한다.
+        if speech_metrics is not None:
+            payload["speech_metrics"] = speech_metrics.model_dump(mode="json")
 
         last_error: httpx.HTTPError | None = None
         for attempt in range(_RETRY_ATTEMPTS):
