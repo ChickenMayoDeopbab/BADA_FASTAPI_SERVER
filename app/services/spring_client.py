@@ -97,8 +97,10 @@ class SpringInternalClient:
                 if analysis is not None
                 else None
             ),
-            "speech_metrics": speech_metrics.model_dump(mode="json") if speech_metrics is not None else None,
         }
+        # 요약이 없는 호출은 기존 Spring 종료 요청의 필드 구성을 유지한다.
+        if speech_metrics is not None:
+            payload["speech_metrics"] = speech_metrics.model_dump(mode="json")
 
         last_error: httpx.HTTPError | None = None
         for attempt in range(_RETRY_ATTEMPTS):
