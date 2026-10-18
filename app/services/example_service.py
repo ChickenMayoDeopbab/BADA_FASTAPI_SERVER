@@ -45,7 +45,7 @@ _prebake_semaphore = loop_semaphore(1)
 _CLEAN_METHOD = "clean1"  # Qwen 키에 넣는 굽기 방식 표지
 _PRESET_PREBAKE_TIMEOUT_SEC = 600.0  # 10턴 clean 합성 최악(~150초)과 워커 대기에 여유
 _PRESET_RETRY_SEC = 300.0
-_PRESET_PREBAKE_ROUNDS = 12
+_PRESET_PREBAKE_ROUNDS = 12  # 워커가 살아 있을 때 구워 본 라운드 상한, 죽은 라운드는 안 셈
 
 # 사용 중인 요청(지역변수)만 락을 강참조 → 요청이 끝나면 GC가 엔트리를 자동 제거
 _generation_locks: weakref.WeakValueDictionary[int, asyncio.Lock] = weakref.WeakValueDictionary()
@@ -442,15 +442,17 @@ async def prebake_presets() -> None:
     if not settings.s3_bucket or not getattr(settings, "example_preset_prebake", True) or not worker_urls(settings):
         return
     pending = list(PRESET_MAP)
-    for round_ in range(_PRESET_PREBAKE_ROUNDS):
-        if round_:
-            await asyncio.sleep(_PRESET_RETRY_SEC)
-        if not await QwenTTSClient(settings).healthy():
-            continue
-        pending = [sid for sid in pending if not await _prebake_preset(settings, sid)]
-        if not pending:
-            return
-    logger.warning("프리셋 예시 미리 굽기 못 끝냄: %s", pending)
+    tried = 0
+    while True:
+        if await QwenTTSClient(settings).healthy():
+            tried += 1
+            pending = [sid for sid in pending if not await _prebake_preset(settings, sid)]
+            if not pending:
+                return
+            if tried >= _PRESET_PREBAKE_ROUNDS:
+                logger.warning("프리셋 예시 미리 굽기 못 끝냄: %s", pending)
+                return
+        await asyncio.sleep(_PRESET_RETRY_SEC)
 
 
 async def _prebake_preset(settings: Settings, scenario_id: int) -> bool:
