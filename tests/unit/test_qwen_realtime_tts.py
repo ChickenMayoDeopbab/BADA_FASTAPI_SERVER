@@ -59,7 +59,7 @@ def _stream_transport(calls: list[dict]) -> httpx.MockTransport:
 async def test_realtime_stream_synthesizes_per_sentence() -> None:
     calls: list[dict] = []
     client = QwenRealtimeTTSClient(_settings(), transport=_stream_transport(calls))
-    session = await client.open("elevenlabs-voice-id")
+    session = await client.open("male_old_rough")
     try:
         await session.begin()
 
@@ -73,7 +73,7 @@ async def test_realtime_stream_synthesizes_per_sentence() -> None:
 
     assert out == [b"\x01", b"\x02", b"\x01", b"\x02"], "문장 2개 × 청크 2개"
     assert [c["text"] for c in calls] == ["안녕하세요. ", "반갑습니다 "]
-    assert {c["voice"] for c in calls} == {"ai"}, "Qwen 보이스는 ai 고정"
+    assert {c["voice"] for c in calls} == {"male_old_rough"}, "열 때 받은 칸 보이스로 합성"
     assert {c["path"] for c in calls} == {"/v1/tts/stream"}
 
 
@@ -593,3 +593,31 @@ async def test_acquire_cancelled_mid_check_returns_every_worker() -> None:
         await asyncio.wait_for(task, timeout=1.0)
 
     assert sorted(_pool_hosts(settings)) == ["w1.test", "w2.test"]
+
+
+async def test_realtime_open_without_voice_uses_ai() -> None:
+    calls: list[dict] = []
+    client = QwenRealtimeTTSClient(_settings(), transport=_stream_transport(calls))
+    session = await client.open()
+    try:
+        await session.begin()
+
+        async def source():
+            yield "네."
+
+        _ = [chunk async for chunk in session.stream(source())]
+    finally:
+        await session.aclose()
+    assert {c["voice"] for c in calls} == {"ai"}
+
+
+async def test_acquire_copies_worker_voices_to_client() -> None:
+    settings = _settings(url="http://voices.test")
+    transport = httpx.MockTransport(
+        lambda _r: httpx.Response(200, json={"ready": True, "voices": ["ai", "user", "male_old_rough", 3]})
+    )
+    client, reason = await try_acquire_realtime_tts(settings, transport=transport)
+    try:
+        assert reason is None and client.voices == frozenset({"ai", "user", "male_old_rough"})
+    finally:
+        client.release_slot()
