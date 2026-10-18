@@ -19,6 +19,7 @@ _DUMMY_MAX_S = 0.55  # 네 렌더 길이 상한
 _WORD_GAP_S = 0.06  # 꼬리 안에 이만큼 쉬면 두 낱말
 _CLICK_MAX_S = 0.012  # 쉼 속 이보다 짧은 소리는 딸깍
 _MAX_INNER_PAUSE_S = 1.8  # 남길 말 안에 이보다 긴 쉼은 '...' 망설임(실측 한 요청 최대 1.36초)
+_MERGED_GAP_S, _MERGED_WORD_S = 0.1, (0.1, 0.55)  # 남길 말 끝이 이 틈 뒤 '네' 길이 조각이면 붙은 꼬리말
 _SYLLABLE = re.compile(r"[가-힣0-9]")
 
 
@@ -81,6 +82,18 @@ def _longest_quiet_s(w: np.ndarray, start: int, end: int) -> float:
     return best * _BLOCK_S
 
 
+def _last_word_s(w: np.ndarray, start: int, end: int, gap_s: float) -> float | None:
+    """start~end 에서 gap_s 이상 쉰 마지막 틈 뒤 조각 길이, 틈 없으면 None"""
+    b = int(SR * _BLOCK_S)
+    quiet = _block_db(w)[start // b : end // b] < _QUIET_DB
+    last, run = None, 0
+    for i, q in enumerate(quiet):
+        run = run + 1 if q else 0
+        if run * _BLOCK_S >= gap_s:
+            last = i + 1
+    return None if last is None else (len(quiet) - last) * _BLOCK_S
+
+
 def _onset(w: np.ndarray) -> int | None:
     """20ms RMS 가 -45dBFS 이상으로 60ms 이어지는 첫 샘플"""
     n = int(SR * _FRAME_S)
@@ -135,6 +148,9 @@ def cut_tail_phrase(pcm: bytes, text: str) -> tuple[bytes, float] | None:
     onset = _onset(w) or 0
     spoken_s = (pause_start - onset) / SR
     if spoken_s <= 0 or _longest_quiet_s(w, onset, pause_start) > _MAX_INNER_PAUSE_S:
+        return None
+    last_word = _last_word_s(w, onset, pause_start, _MERGED_GAP_S)
+    if last_word is not None and _MERGED_WORD_S[0] <= last_word <= _MERGED_WORD_S[1]:
         return None
     per_syllable_s = spoken_s / max(syllables(text), 1)
     if not _TAIL_MIN_S <= tail_s <= min(_TAIL_MAX_S, _TAIL_MAX_SYLLABLES * per_syllable_s):
