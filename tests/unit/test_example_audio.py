@@ -200,3 +200,22 @@ def test_a_quiet_breath_before_the_first_loud_sound_is_not_an_end():
     assert len(_ends(_samples(data))) == 2
     got = cut_tail_phrase(data, "예약하려고 전화드렸어요.")
     assert got is not None and seconds(got[0]) == pytest.approx(0.2 + 0.3 + 1.5 + 0.09 + 0.12, abs=0.02)
+
+
+def test_cut_tail_phrase_refuses_a_hesitation_kept_before_the_dummy():
+    murmur = tone(0.6, 30.0, amp=0.3 * 10 ** (-20 / 20))
+    data = pcm(tone(1.5), silence(2.4), murmur, silence(0.3), tone(0.3, 30.0), silence(0.1))
+    assert cut_tail_phrase(data, "예약하려고 전화드렸어요.") is None
+
+
+def test_cut_tail_phrase_keeps_a_normal_sentence_pause():
+    data = pcm(tone(1.0), silence(1.3), tone(1.0), silence(0.3), tone(0.3, 30.0), silence(0.1))
+    got = cut_tail_phrase(data, "네, 예약하려고 전화드렸어요. 이번 주 금요일이요.")
+    expected = seconds(pcm(tone(1.0))) + 1.3 + 1.0 + 0.09 + 0.12
+    assert got is not None and seconds(got[0]) == pytest.approx(expected, abs=0.02)
+
+
+def test_cut_tail_phrase_does_not_count_lead_silence_as_a_pause():
+    data = pcm(silence(2.5), tone(1.5), silence(0.3), tone(0.3, 30.0), silence(0.1))
+    got = cut_tail_phrase(data, "예약하려고 전화드렸어요.")
+    assert got is not None and seconds(got[0]) == pytest.approx(2.5 + 1.5 + 0.09 + 0.12, abs=0.02)
