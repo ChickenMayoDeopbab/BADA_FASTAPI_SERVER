@@ -8,8 +8,12 @@ import pytest
 
 from app.core.tts_voices import EXAMPLE_USER_VOICE_ID, VOICE_REGISTRY, pick_example_user_voice
 from app.services import example_service
+from app.services.example_audio import TAIL_PHRASE
 from app.services.example_service import ScenarioNotFoundError, get_example_conversation
 from app.services.qwen_tts import QwenTTSUnavailableError
+from tests.unit.test_example_audio import pcm as _pcm
+from tests.unit.test_example_audio import silence as _silence
+from tests.unit.test_example_audio import tone as _tone
 
 
 def test_user_voice_default_when_no_collision() -> None:
@@ -428,7 +432,7 @@ class _FakeQwenClient:
         enabled: bool = True,
         ready: bool = True,
         fail_at: int | None = None,
-        pcm: bytes = b"\x09\x09",
+        pcm: bytes | None = None,
     ) -> None:
         self.enabled = enabled
         self._ready = ready
@@ -448,7 +452,16 @@ class _FakeQwenClient:
         self.calls.append((voice, text))
         if self._fail_at is not None and index == self._fail_at:
             raise QwenTTSUnavailableError("boom")
-        return self._pcm
+        return self._out(text)
+
+    def _out(self, text: str) -> bytes:
+        return self._pcm if self._pcm is not None else _voice_pcm(text)
+
+
+def _voice_pcm(text: str, decay_ms: float = 40.0) -> bytes:
+    if text.endswith(TAIL_PHRASE):
+        return _pcm(_tone(2.0, decay_ms), _silence(0.3), _tone(0.3, 30.0), _silence(0.1))
+    return _pcm(_tone(2.0, decay_ms), _silence(0.1))
 
 
 def _wire_qwen(monkeypatch, client: _FakeQwenClient) -> _FakeQwenClient:
@@ -495,7 +508,7 @@ async def test_qwen_mid_turn_failure_refalls_back_whole_dialogue(monkeypatch) ->
     assert tts.open_calls == ["voice-default", pick_example_user_voice("voice-default")]
     key, pcm = storage.uploads[0]
     assert not key.endswith("-q.wav")
-    assert b"\x09" not in pcm
+    assert pcm == example_service._TURN_GAP_PCM.join([b"\x01\x02"] * 2)
 
 
 async def test_qwen_unhealthy_skips_synth_entirely(monkeypatch) -> None:
@@ -853,7 +866,7 @@ class _MissingQwen(_FakeQwenClient):
             from app.services.qwen_tts import QwenVoiceMissingError
 
             raise QwenVoiceMissingError(voice)
-        return self._pcm
+        return self._out(text)
 
 
 def _flag_on(monkeypatch, on: bool = True) -> None:
@@ -862,7 +875,11 @@ def _flag_on(monkeypatch, on: bool = True) -> None:
 
 
 def _qkey(ai: str) -> str:
-    return example_service._audio_key(1, _DIALOGUE, ai, "user", qwen=True)
+    return example_service._audio_key(1, _DIALOGUE, ai, "user", qwen=True, method=example_service._CLEAN_METHOD)
+
+
+def _old_qkey(scenario_id: int = 1) -> str:
+    return example_service._audio_key(scenario_id, _DIALOGUE, "ai", "user", qwen=True)
 
 
 def _capture(monkeypatch) -> list:
@@ -898,21 +915,42 @@ async def test_switch_off_keeps_ai_user_on_qwen_and_elevenlabs_gets_slot_id(monk
     assert tts.open_calls == [el, pick_example_user_voice(el)], "ElevenLabs 에는 칸 키가 아니라 EL id"
 
 
-async def test_existing_legacy_qwen_cache_is_reused_with_slot_voices(monkeypatch) -> None:
+async def test_custom_example_baked_with_old_qwen_key_is_kept_with_slot_voices(monkeypatch) -> None:
     _, storage = _wire(monkeypatch)
     _flag_on(monkeypatch)
     qwen = _wire_qwen(monkeypatch, _FakeQwenClient())
-    row = _preset_row(tts_voice_id="female_young_soft", example_audio_url=_qkey("ai"))
-    await get_example_conversation(_FakeDB(row), 1, user_id=7)
-    assert qwen.calls == [] and storage.uploads == [], "이미 구운 ai 예시는 다시 굽지 않는다"
+    row = _custom_row(tts_voice_id="female_young_soft", example_dialogue=_DIALOGUE, example_audio_url=_old_qkey(42))
+    await get_example_conversation(_FakeDB(row), 42, user_id=7)
+    assert qwen.calls == [] and storage.uploads == [], "이미 구운 커스텀 예시는 다시 굽지 않는다"
 
 
-async def test_preset_eleven_cache_from_before_casting_still_hits(monkeypatch) -> None:
+async def test_preset_request_serves_old_example_while_prebake_holds_the_lock(monkeypatch) -> None:
+    _, storage = _wire(monkeypatch)
+    _flag_on(monkeypatch)
+    qwen = _wire_qwen(monkeypatch, _FakeQwenClient())
+    row = _preset_row(tts_voice_id="female_young_soft", example_audio_url=_old_qkey())
+    lock = example_service._generation_locks.setdefault(1, asyncio.Lock())
+    async with lock:
+        resp = await asyncio.wait_for(get_example_conversation(_FakeDB(row), 1, user_id=7), timeout=1.0)
+    assert resp.audio_url and qwen.calls == [] and storage.uploads == []
+
+
+async def test_prebake_replaces_old_preset_example_with_the_slot_voice(monkeypatch) -> None:
+    _, storage = _wire(monkeypatch)
+    _flag_on(monkeypatch)
+    qwen = _wire_qwen(monkeypatch, _FakeQwenClient())
+    row = _preset_row(tts_voice_id="female_young_soft", example_audio_url=_old_qkey())
+    assert await _bake_qwen_only(row, storage) == _qkey("female_young_soft")
+    assert [v for v, _ in qwen.calls] == ["female_young_soft", "user"]
+
+
+async def test_preset_eleven_example_from_before_casting_is_served_then_prebaked(monkeypatch) -> None:
     _, storage = _wire(monkeypatch)
     qwen = _wire_qwen(monkeypatch, _FakeQwenClient())
     row = _preset_row(tts_voice_id="female_young_soft", example_audio_url=_eleven_key())
     await get_example_conversation(_FakeDB(row), 1, user_id=7)
     assert qwen.calls == [] and storage.uploads == []
+    assert await _bake_qwen_only(row, storage) == _qkey("ai")
 
 
 async def test_custom_legacy_eleven_id_cache_still_hits(monkeypatch) -> None:
@@ -925,7 +963,7 @@ async def test_custom_legacy_eleven_id_cache_still_hits(monkeypatch) -> None:
     assert qwen.calls == [] and storage.uploads == []
 
 
-async def test_missing_slot_voice_rebakes_with_ai_and_stores_legacy_qwen_key(monkeypatch) -> None:
+async def test_missing_slot_voice_rebakes_with_ai_and_stores_clean_ai_key(monkeypatch) -> None:
     tts, storage = _wire(monkeypatch)
     _flag_on(monkeypatch)
     qwen = _wire_qwen(monkeypatch, _MissingQwen({"male_middle_soft"}))
@@ -1010,3 +1048,324 @@ async def test_eleven_example_uses_the_low_slot_el_voice(monkeypatch) -> None:
     _wire_qwen(monkeypatch, _FakeQwenClient(enabled=False, ready=False))
     await get_example_conversation(_FakeDB(_preset_row(tts_voice_id="male_young_rough")), 1, user_id=7)
     assert tts.open_calls[0] == "yUhh6u2RvOjeCsWPEaEg", "거친 칸 저장이어도 예시는 하 칸 EL 보이스"
+
+
+class _AbruptOnceQwen(_FakeQwenClient):
+    def __init__(self, abrupt_voice: str) -> None:
+        super().__init__()
+        self._abrupt_voice = abrupt_voice
+
+    def _out(self, text: str) -> bytes:
+        if [v for v, _ in self.calls].count(self._abrupt_voice) == 1:
+            return _voice_pcm(text, decay_ms=0.0)
+        return _voice_pcm(text)
+
+
+async def test_qwen_bake_sends_tail_phrase_and_records_clean_stats(monkeypatch) -> None:
+    _, storage = _wire(monkeypatch)
+    qwen = _wire_qwen(monkeypatch, _FakeQwenClient())
+    metrics = _capture(monkeypatch)
+    await get_example_conversation(_FakeDB(_preset_row()), 1, user_id=7)
+    assert [t for _, t in qwen.calls] == [turn["text"] + TAIL_PHRASE for turn in _DIALOGUE]
+    assert (metrics[0][1]["clean_attempts"], metrics[0][1]["clean_residual_cuts"]) == (2, 0)
+    assert len(storage.uploads[0][1]) < 2 * len(_voice_pcm("x" + TAIL_PHRASE)), "꼬리말은 잘려 나간다"
+
+
+async def test_qwen_bake_resynthesizes_only_the_turn_with_a_cut_end(monkeypatch) -> None:
+    _wire(monkeypatch)
+    qwen = _wire_qwen(monkeypatch, _AbruptOnceQwen("user"))
+    metrics = _capture(monkeypatch)
+    await get_example_conversation(_FakeDB(_preset_row()), 1, user_id=7)
+    assert [v for v, _ in qwen.calls] == ["ai", "user", "user"]
+    assert (metrics[0][1]["clean_attempts"], metrics[0][1]["clean_residual_cuts"]) == (3, 0)
+
+
+async def test_eleven_bake_has_no_clean_stats(monkeypatch) -> None:
+    _wire(monkeypatch)
+    _wire_qwen(monkeypatch, _FakeQwenClient(enabled=False, ready=False))
+    metrics = _capture(monkeypatch)
+    await get_example_conversation(_FakeDB(_preset_row()), 1, user_id=7)
+    assert metrics[0][1]["clean_attempts"] is None and metrics[0][1]["clean_residual_cuts"] is None
+
+
+def test_clean_method_changes_the_qwen_key() -> None:
+    assert _qkey("ai") != _old_qkey()
+    assert _qkey("ai").endswith("-q.wav")
+
+
+async def _bake_qwen_only(row, storage) -> str | None:
+    return await example_service._bake_locked(
+        _FakeDB(row), example_service.get_settings(), row, 1, _DIALOGUE, storage,
+        trigger="preset_prebake", qwen_only=True,
+    )
+
+
+async def test_qwen_only_rebakes_preset_that_was_baked_by_elevenlabs(monkeypatch) -> None:
+    tts, storage = _wire(monkeypatch)
+    _wire_qwen(monkeypatch, _FakeQwenClient())
+    row = _preset_row(example_audio_url=_eleven_key())
+    assert await _bake_qwen_only(row, storage) == _qkey("ai")
+    assert tts.open_calls == [] and row.example_audio_url == _qkey("ai")
+
+
+async def test_qwen_only_skips_when_already_baked_with_the_current_key(monkeypatch) -> None:
+    _, storage = _wire(monkeypatch)
+    qwen = _wire_qwen(monkeypatch, _FakeQwenClient())
+    assert await _bake_qwen_only(_preset_row(example_audio_url=_qkey("ai")), storage) == _qkey("ai")
+    assert qwen.calls == [] and storage.uploads == []
+
+
+@pytest.mark.parametrize("client", [_FakeQwenClient(ready=False), _FakeQwenClient(fail_at=1)], ids=["down", "fails"])
+async def test_qwen_only_never_falls_back_to_elevenlabs(monkeypatch, client) -> None:
+    tts, storage = _wire(monkeypatch)
+    _wire_qwen(monkeypatch, client)
+    metrics = _capture(monkeypatch)
+    row = _preset_row(example_audio_url=_eleven_key())
+    assert await _bake_qwen_only(row, storage) is None
+    assert tts.open_calls == [] and storage.uploads == [] and row.example_audio_url == _eleven_key()
+    assert metrics[0][0] == "example_tts_deferred"
+
+
+async def test_qwen_only_defers_when_realtime_calls_hold_every_worker(monkeypatch) -> None:
+    tts, storage = _wire(monkeypatch)
+    _wire_qwen(monkeypatch, _FakeQwenClient())
+    monkeypatch.setattr(example_service, "has_free_worker", lambda _s: False)
+    assert await _bake_qwen_only(_preset_row(), storage) is None and tts.open_calls == []
+
+
+def _wire_rounds(monkeypatch, healthy: list[bool] | None = None) -> None:
+    states = list(healthy or [])
+
+    class _Health:
+        def __init__(self, _settings) -> None:
+            pass
+
+        async def healthy(self) -> bool:
+            return states.pop(0) if states else True
+
+    monkeypatch.setattr(example_service, "get_settings", lambda: _settings(True))
+    monkeypatch.setattr(example_service, "worker_urls", lambda _s: ["http://w"])
+    monkeypatch.setattr(example_service, "QwenTTSClient", _Health)
+
+
+async def test_prebake_presets_retries_deferred_presets_then_stops(monkeypatch) -> None:
+    _wire_rounds(monkeypatch)
+    monkeypatch.setattr(example_service, "PRESET_MAP", {1: {}, 2: {}, 3: {}})
+    results = {1: [True], 2: [False, True], 3: [False, False, True]}
+    seen: list[int] = []
+    sleeps: list[float] = []
+
+    async def _one(_settings, sid):
+        seen.append(sid)
+        return results[sid].pop(0)
+
+    async def _sleep(sec):
+        sleeps.append(sec)
+
+    monkeypatch.setattr(example_service, "_prebake_preset", _one)
+    monkeypatch.setattr(example_service.asyncio, "sleep", _sleep)
+    await example_service.prebake_presets()
+    assert seen == [1, 2, 3, 2, 3, 3] and sleeps == [example_service._PRESET_RETRY_SEC] * 2
+
+
+async def test_prebake_presets_gives_up_after_the_round_limit(monkeypatch) -> None:
+    _wire_rounds(monkeypatch)
+    monkeypatch.setattr(example_service, "PRESET_MAP", {1: {}})
+    calls: list[int] = []
+
+    async def _never(_settings, sid):
+        calls.append(sid)
+        return False
+
+    async def _sleep(_sec):
+        return None
+
+    monkeypatch.setattr(example_service, "_prebake_preset", _never)
+    monkeypatch.setattr(example_service.asyncio, "sleep", _sleep)
+    await example_service.prebake_presets()
+    assert len(calls) == example_service._PRESET_PREBAKE_ROUNDS
+
+
+@pytest.mark.parametrize(
+    "settings",
+    [_settings(False), SimpleNamespace(**vars(_settings(True)), example_preset_prebake=False)],
+    ids=["no-s3", "switched-off"],
+)
+async def test_prebake_presets_does_nothing_without_s3_or_when_off(monkeypatch, settings) -> None:
+    monkeypatch.setattr(example_service, "get_settings", lambda: settings)
+    monkeypatch.setattr(example_service, "worker_urls", lambda _s: ["http://w"])
+
+    async def _boom(*_a):
+        raise AssertionError("굽지 않아야 한다")
+
+    monkeypatch.setattr(example_service, "_prebake_preset", _boom)
+    await example_service.prebake_presets()
+
+
+async def test_prebake_preset_bakes_with_qwen_only_and_reports_done(monkeypatch) -> None:
+    row = _preset_row(example_audio_url=_eleven_key())
+    _, storage, tts = _wire_prebake(monkeypatch, row, qwen=_FakeQwenClient())
+    monkeypatch.setattr(example_service, "has_free_worker", lambda _s: True)
+    monkeypatch.setattr(example_service, "PRESET_MAP", {1: {"example_dialogue": _DIALOGUE}})
+    assert await example_service._prebake_preset(example_service.get_settings(), 1) is True
+    assert row.example_audio_url == _qkey("ai") and tts.open_calls == []
+
+
+async def test_prebake_preset_reports_deferred_and_swallows_errors(monkeypatch) -> None:
+    row = _preset_row()
+    _wire_prebake(monkeypatch, row)
+    monkeypatch.setattr(example_service, "has_free_worker", lambda _s: True)
+    monkeypatch.setattr(example_service, "PRESET_MAP", {1: {"example_dialogue": _DIALOGUE}})
+    assert await example_service._prebake_preset(example_service.get_settings(), 1) is False
+
+    async def _boom(*_a, **_k):
+        raise RuntimeError("DB 끊김")
+
+    monkeypatch.setattr(example_service, "_resolve_and_bake", _boom)
+    assert await example_service._prebake_preset(example_service.get_settings(), 1) is False
+
+
+class _AlwaysAbruptQwen(_FakeQwenClient):
+    def _out(self, text: str) -> bytes:
+        voice = self.calls[-1][0]
+        return _voice_pcm(text, decay_ms=0.0 if voice == "user" else 40.0)
+
+
+async def test_turn_that_stays_cut_is_counted_in_the_metric(monkeypatch) -> None:
+    _wire(monkeypatch)
+    _wire_qwen(monkeypatch, _AlwaysAbruptQwen())
+    metrics = _capture(monkeypatch)
+    await get_example_conversation(_FakeDB(_preset_row()), 1, user_id=7)
+    assert (metrics[0][1]["clean_attempts"], metrics[0][1]["clean_residual_cuts"]) == (1 + 4, 1)
+
+
+async def test_preset_baked_with_ai_after_missing_slot_is_a_cache_hit(monkeypatch) -> None:
+    _, storage = _wire(monkeypatch)
+    _flag_on(monkeypatch)
+    qwen = _wire_qwen(monkeypatch, _FakeQwenClient())
+    row = _preset_row(tts_voice_id="male_middle_soft", example_audio_url=_qkey("ai"))
+    await get_example_conversation(_FakeDB(row), 1, user_id=7)
+    assert qwen.calls == [] and storage.uploads == [], "보이스가 없어 ai 로 구운 예시는 요청마다 다시 굽지 않는다"
+
+
+async def test_qwen_only_ignores_old_keys_even_for_custom_rows(monkeypatch) -> None:
+    _, storage = _wire(monkeypatch)
+    _wire_qwen(monkeypatch, _FakeQwenClient())
+    row = _custom_row(tts_voice_id=None, example_dialogue=_DIALOGUE, example_audio_url=_old_qkey())
+    assert await _bake_qwen_only(row, storage) == _qkey("ai")
+
+
+async def test_prebake_presets_skips_a_round_when_qwen_is_down(monkeypatch) -> None:
+    _wire_rounds(monkeypatch, healthy=[False, True])
+    monkeypatch.setattr(example_service, "PRESET_MAP", {1: {}, 2: {}})
+    seen: list[tuple[int, int]] = []
+    sleeps: list[float] = []
+
+    async def _one(_settings, sid):
+        seen.append((len(sleeps), sid))
+        return True
+
+    async def _sleep(sec):
+        sleeps.append(sec)
+
+    monkeypatch.setattr(example_service, "_prebake_preset", _one)
+    monkeypatch.setattr(example_service.asyncio, "sleep", _sleep)
+    await example_service.prebake_presets()
+    assert seen == [(1, 1), (1, 2)], "워커가 죽은 라운드는 프리셋마다 헬스체크하지 않고 통째로 넘긴다"
+
+
+async def test_prebake_presets_does_nothing_without_qwen_workers(monkeypatch) -> None:
+    monkeypatch.setattr(example_service, "get_settings", lambda: _settings(True))
+
+    async def _boom(*_a):
+        raise AssertionError("워커가 없으면 미리 굽기를 하지 않는다")
+
+    monkeypatch.setattr(example_service, "_prebake_preset", _boom)
+    await example_service.prebake_presets()
+
+
+class _VoicesQwen(_FakeQwenClient):
+    def __init__(self, voices) -> None:
+        super().__init__()
+        self.voices = None
+        self._advertised = voices
+
+    async def health_state(self) -> str:
+        self.voices = self._advertised
+        return "ready"
+
+
+async def test_qwen_only_keeps_ai_fallback_while_the_slot_voice_is_still_missing(monkeypatch) -> None:
+    _, storage = _wire(monkeypatch)
+    _flag_on(monkeypatch)
+    qwen = _wire_qwen(monkeypatch, _VoicesQwen(frozenset({"ai", "user"})))
+    row = _preset_row(tts_voice_id="male_middle_soft", example_audio_url=_qkey("ai"))
+    assert await _bake_qwen_only(row, storage) == _qkey("ai")
+    assert qwen.calls == [] and storage.uploads == [], "서버를 켤 때마다 다시 굽지 않는다"
+
+
+async def test_qwen_only_rebakes_ai_fallback_once_the_slot_voice_appears(monkeypatch) -> None:
+    _, storage = _wire(monkeypatch)
+    _flag_on(monkeypatch)
+    qwen = _wire_qwen(monkeypatch, _VoicesQwen(frozenset({"ai", "user", "male_middle_soft"})))
+    row = _preset_row(tts_voice_id="male_middle_soft", example_audio_url=_qkey("ai"))
+    assert await _bake_qwen_only(row, storage) == _qkey("male_middle_soft")
+    assert [v for v, _ in qwen.calls] == ["male_middle_soft", "user"]
+
+
+async def test_disabled_qwen_is_reported_as_disabled_not_busy(monkeypatch) -> None:
+    _wire(monkeypatch)
+    _wire_qwen(monkeypatch, _FakeQwenClient(enabled=False, ready=False))
+    monkeypatch.setattr(example_service, "has_free_worker", lambda _s: False)
+    metrics = _capture(monkeypatch)
+    await get_example_conversation(_FakeDB(_preset_row()), 1, user_id=7)
+    assert metrics[0][1]["fallback_reason"] == "disabled"
+
+
+async def test_qwen_example_joins_clean_turns_with_the_turn_gap(monkeypatch) -> None:
+    _, storage = _wire(monkeypatch)
+    _wire_qwen(monkeypatch, _FakeQwenClient())
+    await get_example_conversation(_FakeDB(_preset_row()), 1, user_id=7)
+    audio = storage.uploads[0][1]
+    assert example_service._TURN_GAP_PCM in audio
+    from app.services.example_audio import cut_tail_phrase, trim_lead
+
+    turns = [trim_lead(cut_tail_phrase(_voice_pcm(t["text"] + TAIL_PHRASE), t["text"])[0]) for t in _DIALOGUE]
+    assert audio == example_service._TURN_GAP_PCM.join(turns)
+
+
+async def test_prebake_preset_shares_the_prebake_queue_and_waits_outside_its_timeout(monkeypatch) -> None:
+    row = _preset_row(example_audio_url=_eleven_key())
+    _wire_prebake(monkeypatch, row, qwen=_FakeQwenClient())
+    monkeypatch.setattr(example_service, "has_free_worker", lambda _s: True)
+    monkeypatch.setattr(example_service, "PRESET_MAP", {1: {"example_dialogue": _DIALOGUE}})
+    monkeypatch.setattr(example_service, "_PRESET_PREBAKE_TIMEOUT_SEC", 0.2)
+    metrics = _capture(monkeypatch)
+
+    async with example_service._prebake_semaphore():
+        task = asyncio.create_task(example_service._prebake_preset(example_service.get_settings(), 1))
+        await asyncio.sleep(0.4)
+        assert not task.done(), "커스텀 미리 굽기가 큐를 잡고 있으면 기다린다"
+    assert await task is True, "큐 대기는 타임아웃에 들어가지 않는다"
+    assert metrics[0][1]["trigger"] == "preset_prebake"
+
+
+async def test_prebake_preset_gives_up_a_stuck_bake_at_its_timeout(monkeypatch) -> None:
+    class _Stuck(_FakeQwenClient):
+        async def synth(self, voice: str, text: str) -> bytes:
+            await asyncio.sleep(10)
+            return b""
+
+    _wire_prebake(monkeypatch, _preset_row(), qwen=_Stuck())
+    monkeypatch.setattr(example_service, "has_free_worker", lambda _s: True)
+    monkeypatch.setattr(example_service, "PRESET_MAP", {1: {"example_dialogue": _DIALOGUE}})
+    monkeypatch.setattr(example_service, "_PRESET_PREBAKE_TIMEOUT_SEC", 0.2)
+    assert await asyncio.wait_for(example_service._prebake_preset(example_service.get_settings(), 1), 2.0) is False
+
+
+async def test_qwen_only_rebakes_when_the_worker_does_not_report_voices(monkeypatch) -> None:
+    _, storage = _wire(monkeypatch)
+    _flag_on(monkeypatch)
+    qwen = _wire_qwen(monkeypatch, _VoicesQwen(None))
+    row = _preset_row(tts_voice_id="male_middle_soft", example_audio_url=_qkey("ai"))
+    assert await _bake_qwen_only(row, storage) == _qkey("male_middle_soft") and qwen.calls
