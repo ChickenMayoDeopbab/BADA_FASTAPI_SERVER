@@ -1369,3 +1369,46 @@ async def test_qwen_only_rebakes_when_the_worker_does_not_report_voices(monkeypa
     qwen = _wire_qwen(monkeypatch, _VoicesQwen(None))
     row = _preset_row(tts_voice_id="male_middle_soft", example_audio_url=_qkey("ai"))
     assert await _bake_qwen_only(row, storage) == _qkey("male_middle_soft") and qwen.calls
+
+
+class _CountingVoicesQwen(_VoicesQwen):
+    def __init__(self, voices, state: str = "ready") -> None:
+        super().__init__(voices)
+        self.health_calls = 0
+        self._state = state
+
+    async def health_state(self) -> str:
+        self.health_calls += 1
+        await super().health_state()
+        return self._state
+
+    async def healthy(self) -> bool:
+        self.health_calls += 1
+        return True
+
+
+async def test_qwen_only_checks_worker_health_once_when_reusing_the_slot_check(monkeypatch) -> None:
+    _, storage = _wire(monkeypatch)
+    _flag_on(monkeypatch)
+    qwen = _wire_qwen(monkeypatch, _CountingVoicesQwen(frozenset({"ai", "user", "male_middle_soft"})))
+    row = _preset_row(tts_voice_id="male_middle_soft", example_audio_url=_qkey("ai"))
+    assert await _bake_qwen_only(row, storage) == _qkey("male_middle_soft")
+    assert qwen.health_calls == 1, "/health 는 한 번만"
+
+
+@pytest.mark.parametrize("state", ["warming", "down", "unhealthy"])
+async def test_qwen_only_defers_when_the_reused_health_state_is_not_ready(monkeypatch, state) -> None:
+    tts, storage = _wire(monkeypatch)
+    _flag_on(monkeypatch)
+    qwen = _wire_qwen(monkeypatch, _CountingVoicesQwen(None, state=state))
+    row = _preset_row(tts_voice_id="male_middle_soft", example_audio_url=_qkey("ai"))
+    assert await _bake_qwen_only(row, storage) is None
+    assert qwen.calls == [] and tts.open_calls == [] and qwen.health_calls == 1
+
+
+async def test_qwen_only_still_bakes_when_the_reused_health_state_is_busy(monkeypatch) -> None:
+    _, storage = _wire(monkeypatch)
+    _flag_on(monkeypatch)
+    qwen = _wire_qwen(monkeypatch, _CountingVoicesQwen(None, state="busy"))
+    row = _preset_row(tts_voice_id="male_middle_soft", example_audio_url=_qkey("ai"))
+    assert await _bake_qwen_only(row, storage) == _qkey("male_middle_soft") and qwen.health_calls == 1

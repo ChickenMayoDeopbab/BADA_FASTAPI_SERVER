@@ -185,3 +185,18 @@ def test_cut_tail_phrase_keeps_a_short_real_sound_that_is_not_a_click():
 def test_empty_audio_is_handled():
     assert end_decay_ms(b"") is None and not is_cut(b"")
     assert trim_lead(b"") == b"" and cut_tail_phrase(b"", "네.") is None
+
+
+def test_speech_from_the_first_sample_still_reports_its_end():
+    assert end_decay_ms(pcm(tone(1.0, 40.0), silence(0.2))) == pytest.approx(40.0, abs=4.0)
+    assert is_cut(pcm(tone(1.0, 0.0), silence(0.2)))
+
+
+def test_a_quiet_breath_before_the_first_loud_sound_is_not_an_end():
+    from app.services.example_audio import _ends, _samples
+
+    breath = tone(0.2, 0.0, amp=0.3 * 10 ** (-30 / 20))
+    data = pcm(breath, silence(0.3), tone(1.5), silence(0.3), tone(0.3, 30.0), silence(0.1))
+    assert len(_ends(_samples(data))) == 2
+    got = cut_tail_phrase(data, "예약하려고 전화드렸어요.")
+    assert got is not None and seconds(got[0]) == pytest.approx(0.2 + 0.3 + 1.5 + 0.09 + 0.12, abs=0.02)
