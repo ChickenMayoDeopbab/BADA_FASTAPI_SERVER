@@ -337,12 +337,12 @@ async def _bake_locked(
         return hit
 
     qwen_client = QwenTTSClient(settings)
+    slot_busy = not has_free_worker(settings)
     state = None
-    if qwen_only and cached and cached.endswith(keys.qwen_fallback):
+    if qwen_only and not slot_busy and cached and cached.endswith(keys.qwen_fallback):
         state = await qwen_client.health_state()
         if qwen_client.voices is not None and qwen_ai not in qwen_client.voices:
             return keys.qwen_fallback
-    slot_busy = not has_free_worker(settings)
     if slot_busy:
         use_qwen = False
     elif state is not None:
