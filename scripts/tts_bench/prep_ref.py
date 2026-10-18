@@ -166,9 +166,10 @@ def source_wav(cands_path: pathlib.Path, ref_audio: str) -> pathlib.Path:
 
 
 def check_dest(dest_dir: str) -> str:
-    if not dest_dir.startswith("/") or "~" in dest_dir:
-        raise ValueError(f"--dest-dir 은 워커 쪽 절대경로여야 한다(상대경로·~ 불가): {dest_dir}")
-    return dest_dir.rstrip("/")
+    dest = dest_dir.rstrip("/")
+    if not dest.startswith("/") or "~" in dest or ".." in dest.split("/"):
+        raise ValueError(f"--dest-dir 은 워커 쪽 절대경로여야 한다(상대경로·~·..·/ 만 불가): {dest_dir}")
+    return dest
 
 
 def write_check_set(out: pathlib.Path, rows: dict[str, tuple[str, str]]) -> None:

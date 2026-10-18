@@ -109,11 +109,14 @@ def parse_slots(spec: str | None) -> list[str]:
 
 
 def parse_instructs(specs: list[str]) -> dict[str, str]:
-    out = dict(INSTRUCTS)
+    out, seen = dict(INSTRUCTS), set()
     for spec in specs:
         slot, _, text = spec.partition("=")
         if slot not in SLOTS or not text.strip():
             raise ValueError(f"--instruct 는 <칸>=<설명>: {spec}")
+        if slot in seen:
+            raise ValueError(f"--instruct 에 같은 칸이 두 번: {slot}")
+        seen.add(slot)
         out[slot] = text.strip()
     return out
 
@@ -126,6 +129,8 @@ def parse_refs(specs: list[str]) -> dict[str, tuple[str, str]]:
         slot_of(name)
         if not wav or not text.strip():
             raise ValueError(f"--ref 는 <칸>__<꼬리>=<wav>:<전사>: {spec}")
+        if name in refs:
+            raise ValueError(f"--ref 에 같은 이름이 두 번: {name}")
         refs[name] = (os.path.expanduser(wav), text.strip())
     return refs
 
@@ -196,9 +201,13 @@ def append_log(out: pathlib.Path, row: dict) -> None:
 
 
 def pending(out: pathlib.Path, slots: list[str], n: int, instructs: dict[str, str]) -> list[str]:
+    """아직 없는 후보 — 같은 이름이 다른 설명(꼬리표 충돌·--ref 이름 겹침)으로 있으면 덮어쓰지 않고 멈춘다"""
     done = load_log(out)
-    names = [name_for(s, instructs[s], i) for s in slots for i in range(1, n + 1)]
-    return [x for x in names if x not in done or not (out / f"{x}.wav").exists()]
+    names = [(name_for(s, instructs[s], i), instructs[s]) for s in slots for i in range(1, n + 1)]
+    for name, instruct in names:
+        if name in done and done[name]["instruct"] != instruct:
+            raise ValueError(f"{name} 은 이미 다른 설명으로 만든 후보다 — --out 폴더를 바꾸거나 설명을 고칠 것")
+    return [x for x, _ in names if x not in done or not (out / f"{x}.wav").exists()]
 
 
 def design(model, seed_fn, out: pathlib.Path, names: list[str], instructs: dict[str, str]) -> None:

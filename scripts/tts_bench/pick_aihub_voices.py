@@ -281,8 +281,8 @@ def read_stereo(b: bytes) -> np.ndarray | None:
         return np.frombuffer(w.readframes(w.getnframes()), dtype="<i2").reshape(-1, 2)
 
 
-def channel_of(x: np.ndarray, us: list, spk: str) -> tuple[int, float]:
-    """그 화자 소리가 큰 채널과 분리 dB — 상대와 겹치지 않는 발화만으로 잰다(tok_emo.channel_map)"""
+def channel_of(x: np.ndarray, us: list, spk: str) -> tuple[int, float | None]:
+    """그 화자 소리가 큰 채널과 분리 dB — 상대와 겹치지 않는 발화만으로 잰다(tok_emo.channel_map), 못 재면 분리 None"""
     e, n = np.zeros(2), 0
     for sp, s, t, _, _ in us:
         if sp != spk or any(o != spk and os_ < t and oe > s for o, os_, oe, _, _ in us):
@@ -292,7 +292,7 @@ def channel_of(x: np.ndarray, us: list, spk: str) -> tuple[int, float]:
             e += (x[a:b].astype(np.float64) ** 2).mean(0)
             n += 1
     if not n or not e.sum():
-        return CHANNEL[spk], 0.0
+        return CHANNEL[spk], None
     c = int(np.argmax(e))
     return c, round(float(10 * np.log10((e[c] + 1e-12) / (e[1 - c] + 1e-12))), 1)
 
@@ -305,7 +305,7 @@ def longest_run(mask: np.ndarray) -> int:
     return best
 
 
-def judge_clip(x: np.ndarray, w: dict, ch: int, sep: float) -> dict:
+def judge_clip(x: np.ndarray, w: dict, ch: int, sep: float | None) -> dict:
     """클립(구간 ±CUT_MARGIN_S 원본 + 디지털 무음 패딩)과 지표, 탈락 이유(없으면 None)"""
     a, b = int(round((w["start"] - PAD_S) * SR)), int(round((w["end"] + PAD_S) * SR))
     if a < 0 or b > len(x):
@@ -319,6 +319,8 @@ def judge_clip(x: np.ndarray, w: dict, ch: int, sep: float) -> dict:
     if level is None or floor is None:
         return dict(m, reason="말소리 없음")
     m["snr_db"] = round(level - floor, 1)
+    if sep is None:
+        return dict(m, reason="채널 판별 불가")
     if sep < MIN_SEP_DB:
         return dict(m, reason="채널 섞임")
     tight_db, tight_odb = db[f0:f1], odb[f0:f1]
