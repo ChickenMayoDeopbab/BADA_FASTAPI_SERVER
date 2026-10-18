@@ -233,3 +233,44 @@ def test_real_registry_never_changes_speaker_identity() -> None:
             picked = tts_voices.profile_for(resolved)
             assert picked is not None, f"{profile.voice_id} → 미등록 보이스 {resolved}"
             assert (picked.gender, picked.age) == (profile.gender, profile.age)
+
+
+def _pipeline_with(monkeypatch, session: dict, switch: bool) -> VoicePipeline:
+    monkeypatch.setattr(pipeline_module, "build_stt_client", lambda settings: object())
+    monkeypatch.setattr(pipeline_module, "LLMClient", lambda: object())
+    monkeypatch.setattr(pipeline_module, "RecordingStorageService", lambda s: object())
+    settings = get_settings().model_copy(update={"qwen_scenario_voices": switch})
+    return VoicePipeline(ws=object(), session_id="s-1", session=session, settings=settings, spring=object())
+
+
+def test_switch_on_sends_difficulty_slot_to_qwen_and_el_id_to_elevenlabs(monkeypatch) -> None:
+    p = _pipeline_with(monkeypatch, {"difficulty": "high", "scenario": {"ttsVoiceId": "female_old_soft"}}, True)
+    assert p._qwen_voice == "female_old_rough" and p._voice_id_override == "fNmw8sukfGuvWVOp33Ge"
+
+
+def test_switch_on_without_assigned_voice_uses_default_slot(monkeypatch) -> None:
+    p = _pipeline_with(monkeypatch, {"difficulty": "low", "scenario": {}}, True)
+    assert p._qwen_voice == "male_young_soft" and p._voice_id_override is None, "ElevenLabs 는 env 기본 보이스"
+
+
+def test_switch_off_keeps_qwen_on_ai(monkeypatch) -> None:
+    p = _pipeline_with(monkeypatch, {"difficulty": "high", "scenario": {"ttsVoiceId": "female_old_soft"}}, False)
+    assert p._qwen_voice is None and p._voice_id_override == "fNmw8sukfGuvWVOp33Ge"
+
+
+def test_legacy_male_id_without_difficulty_stays_male(monkeypatch) -> None:
+    p = _pipeline_with(monkeypatch, {"scenario": {"ttsVoiceId": "Ctl3Pjfp5c2p3ThSA8Hn"}}, True)
+    assert p._qwen_voice == "male_middle_soft"
+
+
+@pytest.mark.parametrize("scenario", [{}, {"ttsVoiceId": "hand-made-el-id"}])
+def test_switch_on_default_slot_follows_difficulty(monkeypatch, scenario) -> None:
+    p = _pipeline_with(monkeypatch, {"difficulty": "high", "scenario": scenario}, True)
+    assert p._qwen_voice == "male_young_rough"
+
+
+def test_legacy_neutral_male_keeps_elevenlabs_voice_and_soft_qwen_slot(monkeypatch) -> None:
+    p = _pipeline_with(monkeypatch, {"difficulty": "medium", "scenario": {"ttsVoiceId": "4JJwo477JUAx3HV0T7n7"}}, True)
+    assert p._voice_id_override == "4JJwo477JUAx3HV0T7n7" and p._qwen_voice == "male_young_soft"
+    p = _pipeline_with(monkeypatch, {"difficulty": "high", "scenario": {"ttsVoiceId": "yUhh6u2RvOjeCsWPEaEg"}}, True)
+    assert p._voice_id_override == "yUhh6u2RvOjeCsWPEaEg" and p._qwen_voice == "male_young_rough"

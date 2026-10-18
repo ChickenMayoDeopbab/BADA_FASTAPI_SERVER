@@ -271,3 +271,101 @@ async def test_run_reports_teardown_failure_and_releases_slot(monkeypatch) -> No
     assert p._ws.closed is True
     assert qwen.released is True
     assert p._qwen_tts is None
+
+
+class _RecordingQwen(_FakeQwenClient):
+    def __init__(self, voices=None) -> None:
+        super().__init__()
+        self.voices = voices
+        self.opened_with: list = []
+
+    async def open(self, voice_id=None):
+        self.opened_with.append(voice_id)
+        return await super().open(voice_id)
+
+
+async def test_open_tts_sends_the_scenario_qwen_voice() -> None:
+    qwen = _RecordingQwen()
+    p = _make_pipeline(_HappyLLM(), _FakeELClient(), qwen=qwen)
+    p._qwen_voice = "male_old_rough"
+    await p._open_tts()
+    p._qwen_voice = None
+    await p._open_tts()
+    assert qwen.opened_with == ["male_old_rough", None]
+
+
+async def test_init_drops_voice_missing_on_worker_and_records_it(monkeypatch) -> None:
+    records = _capture_metrics(monkeypatch)
+    qwen = _RecordingQwen(voices=frozenset({"ai", "user"}))
+
+    async def _acquire(_settings):
+        return qwen, None
+
+    monkeypatch.setattr(pipeline_mod, "try_acquire_realtime_tts", _acquire)
+    p = _make_pipeline(_HappyLLM(), _FakeELClient())
+    p._settings = SimpleNamespace()
+    p._qwen_voice = "male_old_rough"
+
+    await p._init_qwen_tts()
+
+    assert p._qwen_voice is None, "워커에 없는 보이스면 그 통화는 ai"
+    voice_metric = dict(records)["realtime_tts_voice"]
+    assert voice_metric == {"session_id": "sess-qwen", "voice": "male_old_rough", "missing": True}
+    engine_keys = set(dict(records)["realtime_tts_engine"])
+    assert engine_keys == {"session_id", "engine", "skip_reason", "csm_skip_reason", "speed"}
+
+
+async def test_init_keeps_voice_present_on_worker(monkeypatch) -> None:
+    records = _capture_metrics(monkeypatch)
+    qwen = _RecordingQwen(voices=frozenset({"ai", "male_old_rough"}))
+
+    async def _acquire(_settings):
+        return qwen, None
+
+    monkeypatch.setattr(pipeline_mod, "try_acquire_realtime_tts", _acquire)
+    p = _make_pipeline(_HappyLLM(), _FakeELClient())
+    p._settings = SimpleNamespace()
+    p._qwen_voice = "male_old_rough"
+    await p._init_qwen_tts()
+    assert p._qwen_voice == "male_old_rough" and dict(records)["realtime_tts_voice"]["missing"] is False
+
+
+async def test_init_without_scenario_voice_records_no_voice_metric(monkeypatch) -> None:
+    records = _capture_metrics(monkeypatch)
+
+    async def _acquire(_settings):
+        return _RecordingQwen(voices=frozenset({"ai"})), None
+
+    monkeypatch.setattr(pipeline_mod, "try_acquire_realtime_tts", _acquire)
+    p = _make_pipeline(_HappyLLM(), _FakeELClient())
+    p._settings = SimpleNamespace()
+    await p._init_qwen_tts()
+    assert "realtime_tts_voice" not in dict(records)
+
+
+async def test_init_treats_worker_without_voice_list_as_missing(monkeypatch) -> None:
+    records = _capture_metrics(monkeypatch)
+
+    async def _acquire(_settings):
+        return _RecordingQwen(voices=None), None
+
+    monkeypatch.setattr(pipeline_mod, "try_acquire_realtime_tts", _acquire)
+    p = _make_pipeline(_HappyLLM(), _FakeELClient())
+    p._settings = SimpleNamespace()
+    p._qwen_voice = "male_old_rough"
+    await p._init_qwen_tts()
+    assert p._qwen_voice is None and dict(records)["realtime_tts_voice"]["missing"] is True
+
+
+async def test_init_without_worker_records_no_voice_metric(monkeypatch) -> None:
+    records = _capture_metrics(monkeypatch)
+
+    async def _acquire(_settings):
+        return None, "busy"
+
+    monkeypatch.setattr(pipeline_mod, "try_acquire_realtime_tts", _acquire)
+    p = _make_pipeline(_HappyLLM(), _FakeELClient())
+    p._settings = SimpleNamespace()
+    p._qwen_voice = "male_old_rough"
+    await p._init_qwen_tts()
+    assert "realtime_tts_voice" not in dict(records), "ElevenLabs 통화를 칸 보이스로 집계하지 않는다"
