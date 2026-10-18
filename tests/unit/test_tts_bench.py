@@ -1102,3 +1102,103 @@ def test_prep_dest_rejects_parent_and_root_only_paths(dest):
 def test_prep_dest_keeps_normal_absolute_paths():
     assert prep_ref.check_dest("/home/u/bada-qwen3-tts/refs/") == "/home/u/bada-qwen3-tts/refs"
     assert prep_ref.check_dest("/data/a..b/refs") == "/data/a..b/refs"
+
+
+# ───────── bake_presets (계획 0070) ─────────
+bake_presets = _load("tts_bench_bake_presets", _BENCH / "bake_presets.py")
+
+
+def _bp_presets() -> list[dict]:
+    return [{"id": 1, "title": "음식점 예약", "voice": "female_young_soft",
+             "dialogue": [{"speaker": "ai", "text": "네, 바다레스토랑입니다."},
+                          {"speaker": "user", "text": "예약하려고 전화드렸어요."}]}]
+
+
+def _bp_synth(calls: list):
+    from app.services.example_audio import TAIL_PHRASE
+    from tests.unit.test_example_audio import pcm, silence, tone
+
+    async def synth(voice: str, text: str) -> bytes:
+        calls.append((voice, text))
+        if text.endswith(TAIL_PHRASE):
+            return pcm(tone(2.0), silence(0.3), tone(0.3, 30.0), silence(0.1))
+        return pcm(tone(2.0, 0.0), silence(0.1))
+
+    return synth
+
+
+def test_bake_presets_export_matches_repo_presets(tmp_path):
+    from app.core.preset_scenarios import PRESET_SCENARIOS
+
+    rows = bake_presets.export(tmp_path / "presets.json")
+    saved = json.loads((tmp_path / "presets.json").read_text(encoding="utf-8"))
+    assert rows == saved and len(saved) == len(PRESET_SCENARIOS)
+    assert [(r["id"], r["voice"], r["dialogue"]) for r in saved] == [
+        (p["scenario_id"], p["tts_voice_id"], p["example_dialogue"]) for p in PRESET_SCENARIOS]
+
+
+def test_bake_presets_checks_voices_before_loading_the_model(tmp_path):
+    a, b = tmp_path / "a.json", tmp_path / "b.json"
+    a.write_text(json.dumps({"ai": {"ref_audio": "/x/ai.wav", "ref_text": "가"},
+                             "user": {"ref_audio": "/x/u.wav", "ref_text": "나"}}), encoding="utf-8")
+    b.write_text(json.dumps({"ai": {"ref_audio": "/y/ai.wav", "ref_text": "다"}}), encoding="utf-8")
+    voices = bake_presets.load_voices([str(a), str(b)])
+    assert voices["ai"] == ("/y/ai.wav", "다") and voices["user"] == ("/x/u.wav", "나")
+    bake_presets.check_voices(_bp_presets(), voices, "ai")
+    with pytest.raises(ValueError, match="female_young_soft"):
+        bake_presets.check_voices(_bp_presets(), voices, "slot")
+
+
+def test_bake_presets_bakes_both_methods_and_writes_reports(tmp_path):
+    calls: list = []
+    rows = asyncio.run(bake_presets.bake(_bp_presets(), _bp_synth(calls), tmp_path, "slot", log=lambda s: None))
+    assert [c[0] for c in calls] == ["female_young_soft", "user", "female_young_soft", "user"]
+    assert calls[0][1] == "네, 바다레스토랑입니다." and calls[2][1].endswith(" ... 네.")
+    s = bake_presets.summarize(rows)
+    assert (s["plain"]["cut"], s["clean"]["cut"], s["clean"]["attempts_mean"]) == (2, 0, 1.0)
+    for method in ("plain", "clean"):
+        assert (tmp_path / method / "1.wav").exists()
+        assert (tmp_path / "turns" / method / "p1_t02.wav").exists()
+    turn_bytes = sum((tmp_path / "turns" / "clean" / f"p1_t0{n}.wav").stat().st_size - 44 for n in (1, 2))
+    assert (tmp_path / "clean" / "1.wav").stat().st_size - 44 == turn_bytes + _SR * 400 // 1000 * 2
+    assert len((tmp_path / "gen.jsonl").read_text(encoding="utf-8").splitlines()) == 4
+
+    md = bake_presets.report(rows, tmp_path)
+    assert "| plain | 2 | 2 (100%)" in md and "| clean | 2 | 0 (0%)" in md and "female_young_soft" in md
+    bake_presets.page(_bp_presets(), rows, tmp_path)
+    page = (tmp_path / "index.html").read_text(encoding="utf-8")
+    assert "src='plain/1.wav'" in page and "src='clean/1.wav'" in page
+    cmd = bake_presets.check_set(rows, tmp_path)
+    assert (tmp_path / "set" / "meta.lst").read_text(encoding="utf-8").splitlines() == [
+        "p1_t01|네, 바다레스토랑입니다.|p1_t01.wav|네, 바다레스토랑입니다.",
+        "p1_t02|예약하려고 전화드렸어요.|p1_t02.wav|예약하려고 전화드렸어요."]
+    assert "--set $OUT/set --cond plain=$OUT/turns/plain --cond clean=$OUT/turns/clean" in cmd
+
+
+def test_bake_presets_ai_mode_uses_the_current_ai_voice(tmp_path):
+    calls: list = []
+    asyncio.run(bake_presets.bake(_bp_presets(), _bp_synth(calls), tmp_path, "ai", ("clean",), log=lambda s: None))
+    assert [c[0] for c in calls] == ["ai", "user"]
+
+
+def test_bake_presets_check_set_refuses_text_that_breaks_meta(tmp_path):
+    presets = _bp_presets()
+    presets[0]["dialogue"][0]["text"] = "네|바다"
+    rows = asyncio.run(bake_presets.bake(presets, _bp_synth([]), tmp_path, "slot", ("plain",), log=lambda s: None))
+    with pytest.raises(ValueError, match="p1_t01"):
+        bake_presets.check_set(rows, tmp_path)
+
+
+def test_bake_presets_check_set_uses_the_only_method_baked(tmp_path):
+    baking = bake_presets.bake(_bp_presets(), _bp_synth([]), tmp_path, "slot", ("clean",), log=lambda s: None)
+    cmd = bake_presets.check_set(asyncio.run(baking), tmp_path)
+    assert len((tmp_path / "set" / "meta.lst").read_text(encoding="utf-8").splitlines()) == 2
+    assert (tmp_path / "set" / "p1_t01.wav").exists() and "--cond clean=$OUT/turns/clean" in cmd
+
+
+def test_bake_presets_summary_counts_lead_and_plain_fallbacks():
+    mx = bake_presets.ea.MAX_ATTEMPTS
+    rows = [{"method": "clean", "voice": "ai", "cut": False, "attempts": a, "lead_s": lead, "sec": 1.0}
+            for a, lead in ((1, 0.1), (mx, 0.25), (mx + 1, None))]
+    s = bake_presets.summarize(rows)["clean"]
+    assert (s["lead_max"], s["plain_fallback"], s["attempts_max"], s["turns"]) == (0.25, 1, mx + 1, 3)
