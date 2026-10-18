@@ -8,7 +8,7 @@ import pytest
 
 from app.core.tts_voices import EXAMPLE_USER_VOICE_ID, VOICE_REGISTRY, pick_example_user_voice
 from app.services import example_service
-from app.services.example_audio import TAIL_PHRASE
+from app.services.example_audio import MAX_ATTEMPTS, TAIL_PHRASE
 from app.services.example_service import ScenarioNotFoundError, get_example_conversation
 from app.services.qwen_tts import QwenTTSUnavailableError
 from tests.unit.test_example_audio import pcm as _pcm
@@ -1236,7 +1236,7 @@ async def test_turn_that_stays_cut_is_counted_in_the_metric(monkeypatch) -> None
     _wire_qwen(monkeypatch, _AlwaysAbruptQwen())
     metrics = _capture(monkeypatch)
     await get_example_conversation(_FakeDB(_preset_row()), 1, user_id=7)
-    assert (metrics[0][1]["clean_attempts"], metrics[0][1]["clean_residual_cuts"]) == (1 + 4, 1)
+    assert (metrics[0][1]["clean_attempts"], metrics[0][1]["clean_residual_cuts"]) == (1 + MAX_ATTEMPTS, 1)
 
 
 async def test_preset_baked_with_ai_after_missing_slot_is_a_cache_hit(monkeypatch) -> None:

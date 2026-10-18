@@ -100,7 +100,8 @@ def test_clean_turn_retries_only_until_the_end_is_clean():
 
 
 def test_clean_turn_keeps_the_least_abrupt_render_when_every_end_is_cut():
-    renders = [with_tail(1.2, 2.0), with_tail(1.3, 8.0), with_tail(1.4, 4.0), with_tail(1.5, 0.0)]
+    renders = [with_tail(1.2, 2.0), with_tail(1.3, 8.0), with_tail(1.4, 4.0)]
+    renders += [with_tail(1.5, 0.0)] * (MAX_ATTEMPTS - 3)
     got = asyncio.run(clean_turn(_Synth(renders), "네, 바다레스토랑입니다."))
     assert (got.attempts, got.cut) == (MAX_ATTEMPTS, True)
     assert seconds(got.pcm) == pytest.approx(1.3 + 0.018 + 0.12, abs=0.02)
@@ -219,3 +220,7 @@ def test_cut_tail_phrase_does_not_count_lead_silence_as_a_pause():
     data = pcm(silence(2.5), tone(1.5), silence(0.3), tone(0.3, 30.0), silence(0.1))
     got = cut_tail_phrase(data, "예약하려고 전화드렸어요.")
     assert got is not None and seconds(got[0]) == pytest.approx(2.5 + 1.5 + 0.09 + 0.12, abs=0.02)
+
+
+def test_clean_turn_tries_eight_times_before_giving_up():
+    assert MAX_ATTEMPTS == 8, "user 참조는 시도당 성공 ~34%(10/19 벤치) — 4번이면 19% 가 잘린 채 남는다"
