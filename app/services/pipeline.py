@@ -15,7 +15,7 @@ from app.core.audio_stats import BYTES_PER_MS, TurnAudioStats
 from app.core.config import Settings
 from app.core.enums import SessionType
 from app.core.metrics import log_metric, now_ms
-from app.core.tts_voices import resolve_voice
+from app.core.tts_voices import el_voice_for_call, qwen_voice_for, resolve_voice
 from app.core.usage import SessionUsage, emit
 from app.schemas.frames import (
     EndReason,
@@ -303,7 +303,12 @@ class VoicePipeline:
         assigned_voice = (
             raw_voice if isinstance(raw_voice, str) and raw_voice.strip() else None
         )
-        self._voice_id_override = resolve_voice(assigned_voice, self._difficulty)
+        self._voice_id_override = el_voice_for_call(assigned_voice, self._difficulty)
+        self._qwen_voice = (
+            qwen_voice_for(resolve_voice(assigned_voice, self._difficulty), self._difficulty)
+            if getattr(settings, "qwen_scenario_voices", False)
+            else None
+        )
 
     async def run(self) -> None:
         """진입점"""
@@ -873,6 +878,13 @@ class VoicePipeline:
             csm_skip_reason=csm_skip_reason,
             speed=getattr(client, "speed", None),
         )
+        voice = getattr(self, "_qwen_voice", None)
+        if voice is not None and self._current_tts_engine() == "qwen":
+            voices = getattr(client, "voices", None)
+            missing = voices is None or voice not in voices
+            if missing:
+                self._qwen_voice = None
+            log_metric("realtime_tts_voice", session_id=self._session_id, voice=voice, missing=missing)
 
     async def _begin_tts(self, session, emotion: AiEmotion, user_text: str) -> None:
         """CSM 엔진이 문맥을 받으면 이번 사용자 발화를 같이 넘긴다."""
@@ -912,7 +924,7 @@ class VoicePipeline:
         qwen = getattr(self, "_qwen_tts", None)
         if qwen is not None:
             try:
-                return await qwen.open()
+                return await qwen.open(getattr(self, "_qwen_voice", None))
             except QwenTTSUnavailableError:
                 logger.warning(
                     "Qwen TTS 세션 열기 실패 — ElevenLabs 로 전환",
