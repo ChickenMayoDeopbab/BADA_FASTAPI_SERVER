@@ -20,6 +20,8 @@ _WORD_GAP_S = 0.06  # 꼬리 안에 이만큼 쉬면 두 낱말
 _CLICK_MAX_S = 0.012  # 쉼 속 이보다 짧은 소리는 딸깍
 _MAX_INNER_PAUSE_S = 1.8  # 남길 말 안에 이보다 긴 쉼은 '...' 망설임(실측 한 요청 최대 1.36초)
 _MERGED_GAP_S, _MERGED_WORD_S = 0.1, (0.1, 0.55)  # 남길 말 끝이 이 틈 뒤 '네' 길이 조각이면 붙은 꼬리말
+_MERGED_PHRASE_MIN, _MERGED_SYLLABLES = 4, 2.5  # 대사 마지막 토막이 이만큼 길고 조각이 이 음절 길이 이하일 때만
+_PHRASE_BREAK = re.compile(r"[,.?!…]+")
 _SYLLABLE = re.compile(r"[가-힣0-9]")
 
 
@@ -126,6 +128,12 @@ def syllables(text: str) -> int:
     return len(_SYLLABLE.findall(text))
 
 
+def _final_phrase_syllables(text: str) -> int:
+    """마지막 문장부호 뒤 토막의 음절 수"""
+    parts = [p for p in _PHRASE_BREAK.split(text) if p.strip()]
+    return syllables(parts[-1]) if parts else 0
+
+
 def trim_lead(pcm: bytes) -> bytes:
     """앞 무음을 100ms 로 맞춘다"""
     onset = _onset(_samples(pcm))
@@ -149,10 +157,14 @@ def cut_tail_phrase(pcm: bytes, text: str) -> tuple[bytes, float] | None:
     spoken_s = (pause_start - onset) / SR
     if spoken_s <= 0 or _longest_quiet_s(w, onset, pause_start) > _MAX_INNER_PAUSE_S:
         return None
-    last_word = _last_word_s(w, onset, pause_start, _MERGED_GAP_S)
-    if last_word is not None and _MERGED_WORD_S[0] <= last_word <= _MERGED_WORD_S[1]:
-        return None
     per_syllable_s = spoken_s / max(syllables(text), 1)
+    last_word = _last_word_s(w, onset, pause_start, _MERGED_GAP_S)
+    if (
+        last_word is not None
+        and _MERGED_WORD_S[0] <= last_word <= min(_MERGED_WORD_S[1], _MERGED_SYLLABLES * per_syllable_s)
+        and _final_phrase_syllables(text) >= _MERGED_PHRASE_MIN
+    ):
+        return None
     if not _TAIL_MIN_S <= tail_s <= min(_TAIL_MAX_S, _TAIL_MAX_SYLLABLES * per_syllable_s):
         return None
     if _longest_quiet_s(w, pause_end, tail_end) >= _WORD_GAP_S:
