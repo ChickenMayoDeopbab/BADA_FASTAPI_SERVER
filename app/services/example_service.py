@@ -316,11 +316,6 @@ def _cache_hit(keys: _Keys, cached: str | None, *, qwen_only: bool) -> str | Non
     return None
 
 
-async def _slot_still_missing(qwen_client: QwenTTSClient, voice: str) -> bool:
-    await qwen_client.health_state()
-    return qwen_client.voices is not None and voice not in qwen_client.voices
-
-
 async def _bake_locked(
     db: AsyncSession,
     settings: Settings,
@@ -342,15 +337,18 @@ async def _bake_locked(
         return hit
 
     qwen_client = QwenTTSClient(settings)
-    if (
-        qwen_only
-        and cached
-        and cached.endswith(keys.qwen_fallback)
-        and await _slot_still_missing(qwen_client, qwen_ai)
-    ):
-        return keys.qwen_fallback
+    state = None
+    if qwen_only and cached and cached.endswith(keys.qwen_fallback):
+        state = await qwen_client.health_state()
+        if qwen_client.voices is not None and qwen_ai not in qwen_client.voices:
+            return keys.qwen_fallback
     slot_busy = not has_free_worker(settings)
-    use_qwen = False if slot_busy else await qwen_client.healthy()
+    if slot_busy:
+        use_qwen = False
+    elif state is not None:
+        use_qwen = state in ("ready", "busy")
+    else:
+        use_qwen = await qwen_client.healthy()
 
     started = now_ms()
     engine, reason, pcm, turns = "eleven", None, None, []
