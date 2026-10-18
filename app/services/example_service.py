@@ -39,11 +39,11 @@ _SAMPLE_RATE = 16_000
 _TURN_GAP_MS = 400
 _TURN_GAP_PCM = b"\x00" * (_SAMPLE_RATE * _TURN_GAP_MS // 1000 * 2)
 _TTS_MAX_CONCURRENCY = 3
-# 대본 생성(LLM) + 12턴 clean 합성 최악(턴당 5회 × ~3초 ≈ 180초)에 여유를 둔 상한
+# 대본 생성(LLM) + 12턴 clean 합성(보통 턴당 1~3회, 최악 9회)에 여유를 둔 상한, plain 실측 ~60초
 _PREBAKE_TIMEOUT_SEC = 300.0
 _prebake_semaphore = loop_semaphore(1)
 _CLEAN_METHOD = "clean1"  # Qwen 키에 넣는 굽기 방식 표지
-_PRESET_PREBAKE_TIMEOUT_SEC = 600.0  # 10턴 clean 합성 최악(~150초)과 워커 대기에 여유
+_PRESET_PREBAKE_TIMEOUT_SEC = 600.0  # 10턴 clean 합성(집 PC 실측 42~88초, 최악 턴당 9회)과 워커 대기에 여유
 _PRESET_RETRY_SEC = 300.0
 _PRESET_PREBAKE_ROUNDS = 12  # 워커가 살아 있을 때 구워 본 라운드 상한, 죽은 라운드는 안 셈
 
