@@ -224,3 +224,31 @@ def test_cut_tail_phrase_does_not_count_lead_silence_as_a_pause():
 
 def test_clean_turn_tries_eight_times_before_giving_up():
     assert MAX_ATTEMPTS == 8, "user 참조는 시도당 성공 ~34%(10/19 벤치) — 4번이면 19% 가 잘린 채 남는다"
+
+
+def test_cut_tail_phrase_refuses_a_dummy_merged_into_the_speech():
+    data = pcm(tone(1.5, 0.0), silence(0.12), tone(0.29, 30.0), silence(0.3), tone(0.1, 30.0), silence(0.1))
+    assert cut_tail_phrase(data, "일요일 저녁 7시로 바꿀 수 있을까요?") is None
+
+
+def test_cut_tail_phrase_keeps_a_long_final_phrase_after_a_short_gap():
+    data = pcm(tone(1.0, 0.0), silence(0.12), tone(0.8), silence(0.3), tone(0.3, 30.0), silence(0.1))
+    got = cut_tail_phrase(data, "네, 예약하려고 전화드렸어요.")
+    assert got is not None and seconds(got[0]) == pytest.approx(1.0 + 0.12 + 0.8 + 0.09 + 0.12, abs=0.02)
+
+
+def test_cut_tail_phrase_judges_the_merged_dummy_by_the_last_gap():
+    data = pcm(tone(1.0, 0.0), silence(0.12), tone(0.8, 0.0), silence(0.12), tone(0.29, 30.0), silence(0.3),
+               tone(0.1, 30.0), silence(0.1))
+    assert cut_tail_phrase(data, "네, 예약하려고 전화드렸어요. 금요일이요.") is None
+
+
+def test_cut_tail_phrase_refuses_a_short_merged_dummy():
+    data = pcm(tone(1.5, 0.0), silence(0.12), tone(0.15, 0.0), silence(0.3), tone(0.1, 30.0), silence(0.1))
+    assert cut_tail_phrase(data, "일요일 저녁 7시로 바꿀 수 있을까요?") is None
+
+
+def test_cut_tail_phrase_does_not_count_lead_silence_as_a_gap_before_a_short_turn():
+    data = pcm(silence(0.3), tone(0.3), silence(0.3), tone(0.3, 30.0), silence(0.1))
+    got = cut_tail_phrase(data, "네.")
+    assert got is not None and seconds(got[0]) == pytest.approx(0.3 + 0.3 + 0.09 + 0.12, abs=0.02)
