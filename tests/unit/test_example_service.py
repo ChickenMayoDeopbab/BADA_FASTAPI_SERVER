@@ -1412,3 +1412,41 @@ async def test_qwen_only_still_bakes_when_the_reused_health_state_is_busy(monkey
     qwen = _wire_qwen(monkeypatch, _CountingVoicesQwen(None, state="busy"))
     row = _preset_row(tts_voice_id="male_middle_soft", example_audio_url=_qkey("ai"))
     assert await _bake_qwen_only(row, storage) == _qkey("male_middle_soft") and qwen.health_calls == 1
+
+
+async def test_prebake_presets_keeps_waiting_for_a_late_worker_without_using_the_budget(monkeypatch) -> None:
+    down = example_service._PRESET_PREBAKE_ROUNDS + 5
+    _wire_rounds(monkeypatch, healthy=[False] * down)
+    monkeypatch.setattr(example_service, "PRESET_MAP", {1: {}})
+    seen: list[int] = []
+    sleeps: list[float] = []
+    results = [False, True]
+
+    async def _one(_settings, sid):
+        seen.append(sid)
+        return results.pop(0)
+
+    async def _sleep(sec):
+        sleeps.append(sec)
+
+    monkeypatch.setattr(example_service, "_prebake_preset", _one)
+    monkeypatch.setattr(example_service.asyncio, "sleep", _sleep)
+    await example_service.prebake_presets()
+    assert seen == [1, 1] and len(sleeps) == down + 1, "워커가 늦게 떠도 재시도 예산이 남아 있다"
+
+
+async def test_prebake_presets_does_not_sleep_after_the_last_attempt(monkeypatch) -> None:
+    _wire_rounds(monkeypatch)
+    monkeypatch.setattr(example_service, "PRESET_MAP", {1: {}})
+    sleeps: list[float] = []
+
+    async def _never(_settings, _sid):
+        return False
+
+    async def _sleep(sec):
+        sleeps.append(sec)
+
+    monkeypatch.setattr(example_service, "_prebake_preset", _never)
+    monkeypatch.setattr(example_service.asyncio, "sleep", _sleep)
+    await example_service.prebake_presets()
+    assert len(sleeps) == example_service._PRESET_PREBAKE_ROUNDS - 1
