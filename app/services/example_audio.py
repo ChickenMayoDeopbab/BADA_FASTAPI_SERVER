@@ -18,6 +18,7 @@ _TAIL_MIN_S, _TAIL_MAX_S, _TAIL_MAX_SYLLABLES = 0.05, 0.8, 4.0
 _DUMMY_MAX_S = 0.55  # 네 렌더 길이 상한
 _WORD_GAP_S = 0.06  # 꼬리 안에 이만큼 쉬면 두 낱말
 _CLICK_MAX_S = 0.012  # 쉼 속 이보다 짧은 소리는 딸깍
+_MAX_INNER_PAUSE_S = 1.8  # 남길 말 안에 이보다 긴 쉼은 '...' 망설임(실측 한 요청 최대 1.36초)
 _SYLLABLE = re.compile(r"[가-힣0-9]")
 
 
@@ -131,8 +132,9 @@ def cut_tail_phrase(pcm: bytes, text: str) -> tuple[bytes, float] | None:
     pause_start, decay = ends[i][0], ends[i][2]
     pause_end, tail_end = ends[-2][1], ends[-1][0]
     tail_s = (tail_end - pause_end) / SR
-    spoken_s = (pause_start - (_onset(w) or 0)) / SR
-    if spoken_s <= 0:
+    onset = _onset(w) or 0
+    spoken_s = (pause_start - onset) / SR
+    if spoken_s <= 0 or _longest_quiet_s(w, onset, pause_start) > _MAX_INNER_PAUSE_S:
         return None
     per_syllable_s = spoken_s / max(syllables(text), 1)
     if not _TAIL_MIN_S <= tail_s <= min(_TAIL_MAX_S, _TAIL_MAX_SYLLABLES * per_syllable_s):
