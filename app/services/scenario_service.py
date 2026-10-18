@@ -21,6 +21,7 @@ from app.core.enums import (
     ALL_PERSONALITIES,
     AttachmentKind,
     ScenarioCategory,
+    SpeakerTone,
 )
 from app.core.preset_scenarios import PRESET_MAP, PRESET_SCENARIOS, scenario_to_info
 from app.core.prompt_matrix import PERSONALITY_BASE
@@ -614,7 +615,7 @@ async def create_custom_scenario(
         )
 
         gender, age, tone = parse_speaker(result.speaker)
-        voice_id = pick_voice_id(gender, age, tone)
+        voice_id = pick_voice_id(gender, age, SpeakerTone.ROUGH if tone is SpeakerTone.ROUGH else SpeakerTone.SOFT)
 
         script = [turn.model_dump() for turn in result.script]
         now = now_utc()

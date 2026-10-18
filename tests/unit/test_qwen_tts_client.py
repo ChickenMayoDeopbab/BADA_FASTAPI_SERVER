@@ -266,3 +266,33 @@ async def test_connect_holds_semaphore_for_whole_dialogue() -> None:
     await asyncio.gather(dialogue("A", 3), dialogue("B", 3))
     joined = "".join(order)
     assert joined in ("A0A1A2B0B1B2", "B0B1B2A0A1A2"), f"대화가 섞였다: {joined}"
+
+
+async def test_health_state_records_worker_voices_only_when_listed() -> None:
+    listed = _client(lambda r: httpx.Response(200, json={"ready": True, "voices": ["ai", "female_old_soft"]}))
+    assert await listed.health_state() == "ready" and listed.voices == frozenset({"ai", "female_old_soft"})
+    odd = _client(lambda r: httpx.Response(200, json={"ready": True, "voices": "ai"}))
+    assert await odd.health_state() == "ready" and odd.voices is None
+
+
+async def test_unknown_voice_404_is_voice_missing_and_not_retried() -> None:
+    from app.services.qwen_tts import QwenVoiceMissingError
+
+    calls: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        return httpx.Response(404, json={"detail": "unknown voice: male_old_rough"})
+
+    with pytest.raises(QwenVoiceMissingError) as err:
+        await _client(handler).synth("male_old_rough", "네.")
+    assert isinstance(err.value, QwenTTSUnavailableError) and len(calls) == 1
+    assert err.value.voice == "male_old_rough"
+
+
+async def test_other_4xx_is_not_voice_missing() -> None:
+    from app.services.qwen_tts import QwenVoiceMissingError
+
+    with pytest.raises(QwenTTSUnavailableError) as err:
+        await _client(lambda r: httpx.Response(422)).synth("ai", "네.")
+    assert not isinstance(err.value, QwenVoiceMissingError)

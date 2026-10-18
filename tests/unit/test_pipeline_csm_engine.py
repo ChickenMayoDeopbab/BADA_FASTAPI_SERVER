@@ -153,3 +153,17 @@ async def test_init_prefers_csm_then_qwen(monkeypatch) -> None:
     monkeypatch.setattr(pipeline_mod, "try_acquire_realtime_csm", acquire_csm)
     await p._init_qwen_tts()
     assert p._qwen_tts is qwen, "꺼져 있으면 CSM 은 묻지도 않는다"
+
+
+async def test_csm_call_records_no_scenario_voice_metric(monkeypatch) -> None:
+    records = _capture_metrics(monkeypatch)
+    p = _make_pipeline(_HappyLLM(), _FakeELClient())
+    p._settings = SimpleNamespace(csm_tts_realtime_enabled=True)
+    p._qwen_voice = "male_old_rough"
+
+    async def acquire_csm(settings):
+        return _FakeCsmClient(), None
+
+    monkeypatch.setattr(pipeline_mod, "try_acquire_realtime_csm", acquire_csm)
+    await p._init_qwen_tts()
+    assert p._current_tts_engine() == "csm" and "realtime_tts_voice" not in dict(records), "CSM 은 칸 보이스를 안 쓴다"

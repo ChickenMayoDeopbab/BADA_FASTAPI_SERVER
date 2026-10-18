@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
@@ -18,7 +19,7 @@ def test_user_voice_default_when_no_collision() -> None:
 def test_user_voice_avoids_collision_with_ai_voice() -> None:
     picked = pick_example_user_voice(EXAMPLE_USER_VOICE_ID)
     assert picked != EXAMPLE_USER_VOICE_ID
-    assert picked in {v.voice_id for v in VOICE_REGISTRY}
+    assert picked in {v.el_voice_id for v in VOICE_REGISTRY}
 
 
 
@@ -549,10 +550,13 @@ async def test_cache_hit_skips_health_check(monkeypatch) -> None:
     assert checked == [], "캐시 히트면 Qwen 헬스체크를 하지 않아야 한다"
 
 
-async def test_qwen_key_ignores_elevenlabs_voice_ids() -> None:
-    a = example_service._audio_key(1, _DIALOGUE, "voice-A", "user-A", qwen=True)
-    b = example_service._audio_key(1, _DIALOGUE, "voice-B", "user-B", qwen=True)
-    assert a == b, "voice_id 변경이 Qwen 캐시를 무효화하면 안 된다"
+async def test_qwen_key_depends_on_qwen_voice_names_and_keeps_legacy_digest() -> None:
+    a = example_service._audio_key(1, _DIALOGUE, "male_old_soft", "user", qwen=True)
+    b = example_service._audio_key(1, _DIALOGUE, "female_old_soft", "user", qwen=True)
+    assert a != b, "Qwen 보이스가 바뀌면 다시 굽는다"
+    payload = json.dumps([_DIALOGUE, "qwen-ai", "qwen-user"], ensure_ascii=False)
+    legacy = f"examples/1-{hashlib.sha1(payload.encode()).hexdigest()[:8]}-q.wav"
+    assert example_service._audio_key(1, _DIALOGUE, "ai", "user", qwen=True) == legacy, "옛 캐시 키와 같아야 한다"
 
     c = example_service._audio_key(1, _DIALOGUE, "voice-A", "user-A")
     d = example_service._audio_key(1, _DIALOGUE, "voice-B", "user-B")
@@ -836,3 +840,173 @@ async def test_custom_generation_prompt_writes_people_counter_in_hangul(monkeypa
     assert "In \"ai\" lines" in system
     assert "never digits like '4분'" in system
     assert "own party with 명" in system
+
+
+class _MissingQwen(_FakeQwenClient):
+    def __init__(self, missing: set[str]) -> None:
+        super().__init__()
+        self._missing = missing
+
+    async def synth(self, voice: str, text: str) -> bytes:
+        self.calls.append((voice, text))
+        if voice in self._missing:
+            from app.services.qwen_tts import QwenVoiceMissingError
+
+            raise QwenVoiceMissingError(voice)
+        return self._pcm
+
+
+def _flag_on(monkeypatch, on: bool = True) -> None:
+    monkeypatch.setattr(example_service, "get_settings", lambda: SimpleNamespace(**vars(_settings()),
+                                                                                 qwen_scenario_voices=on))
+
+
+def _qkey(ai: str) -> str:
+    return example_service._audio_key(1, _DIALOGUE, ai, "user", qwen=True)
+
+
+def _capture(monkeypatch) -> list:
+    metrics: list = []
+    monkeypatch.setattr(example_service, "log_metric", lambda n, **kw: metrics.append((n, kw)))
+    return metrics
+
+
+async def test_slot_voices_bake_new_example_with_low_slot_and_user(monkeypatch) -> None:
+    tts, storage = _wire(monkeypatch)
+    _flag_on(monkeypatch)
+    qwen = _wire_qwen(monkeypatch, _FakeQwenClient())
+    metrics = _capture(monkeypatch)
+
+    await get_example_conversation(_FakeDB(_preset_row(tts_voice_id="male_middle_rough")), 1, user_id=7)
+
+    assert [v for v, _ in qwen.calls] == ["male_middle_soft", "user"], "예시는 난이도 하 칸"
+    assert storage.uploads[0][0] == _qkey("male_middle_soft") and tts.open_calls == []
+    assert metrics[0][1]["voice"] == "male_middle_soft" and metrics[0][1]["fallback_reason"] is None
+
+
+async def test_switch_off_keeps_ai_user_on_qwen_and_elevenlabs_gets_slot_id(monkeypatch) -> None:
+    tts, storage = _wire(monkeypatch)
+    _flag_on(monkeypatch, on=False)
+    qwen = _wire_qwen(monkeypatch, _FakeQwenClient())
+    await get_example_conversation(_FakeDB(_preset_row(tts_voice_id="male_middle_soft")), 1, user_id=7)
+    assert [v for v, _ in qwen.calls] == ["ai", "user"] and storage.uploads[0][0] == _qkey("ai")
+
+    tts, storage = _wire(monkeypatch)
+    _wire_qwen(monkeypatch, _FakeQwenClient(enabled=False, ready=False))
+    await get_example_conversation(_FakeDB(_preset_row(tts_voice_id="male_middle_soft")), 1, user_id=7)
+    el = "Ctl3Pjfp5c2p3ThSA8Hn"
+    assert tts.open_calls == [el, pick_example_user_voice(el)], "ElevenLabs 에는 칸 키가 아니라 EL id"
+
+
+async def test_existing_legacy_qwen_cache_is_reused_with_slot_voices(monkeypatch) -> None:
+    _, storage = _wire(monkeypatch)
+    _flag_on(monkeypatch)
+    qwen = _wire_qwen(monkeypatch, _FakeQwenClient())
+    row = _preset_row(tts_voice_id="female_young_soft", example_audio_url=_qkey("ai"))
+    await get_example_conversation(_FakeDB(row), 1, user_id=7)
+    assert qwen.calls == [] and storage.uploads == [], "이미 구운 ai 예시는 다시 굽지 않는다"
+
+
+async def test_preset_eleven_cache_from_before_casting_still_hits(monkeypatch) -> None:
+    _, storage = _wire(monkeypatch)
+    qwen = _wire_qwen(monkeypatch, _FakeQwenClient())
+    row = _preset_row(tts_voice_id="female_young_soft", example_audio_url=_eleven_key())
+    await get_example_conversation(_FakeDB(row), 1, user_id=7)
+    assert qwen.calls == [] and storage.uploads == []
+
+
+async def test_custom_legacy_eleven_id_cache_still_hits(monkeypatch) -> None:
+    _, storage = _wire(monkeypatch)
+    qwen = _wire_qwen(monkeypatch, _FakeQwenClient())
+    legacy = "4JJwo477JUAx3HV0T7n7"
+    old_key = example_service._audio_key(42, _DIALOGUE, legacy, pick_example_user_voice(legacy))
+    row = _custom_row(tts_voice_id=legacy, example_dialogue=_DIALOGUE, example_audio_url=old_key)
+    await get_example_conversation(_FakeDB(row), 42, user_id=7)
+    assert qwen.calls == [] and storage.uploads == []
+
+
+async def test_missing_slot_voice_rebakes_with_ai_and_stores_legacy_qwen_key(monkeypatch) -> None:
+    tts, storage = _wire(monkeypatch)
+    _flag_on(monkeypatch)
+    qwen = _wire_qwen(monkeypatch, _MissingQwen({"male_middle_soft"}))
+    metrics = _capture(monkeypatch)
+    await get_example_conversation(_FakeDB(_preset_row(tts_voice_id="male_middle_soft")), 1, user_id=7)
+    assert [v for v, _ in qwen.calls] == ["male_middle_soft", "ai", "user"]
+    assert storage.uploads[0][0] == _qkey("ai") and tts.open_calls == [], "ElevenLabs 로 굳지 않는다"
+    assert (metrics[0][1]["engine"], metrics[0][1]["voice"], metrics[0][1]["fallback_reason"]) == (
+        "qwen", "ai", "voice_missing")
+
+
+async def test_missing_voice_and_failed_retry_falls_back_to_elevenlabs(monkeypatch) -> None:
+    tts, storage = _wire(monkeypatch)
+    _flag_on(monkeypatch)
+    _wire_qwen(monkeypatch, _MissingQwen({"male_middle_soft", "user"}))
+    metrics = _capture(monkeypatch)
+    await get_example_conversation(_FakeDB(_preset_row(tts_voice_id="male_middle_soft")), 1, user_id=7)
+    el = "Ctl3Pjfp5c2p3ThSA8Hn"
+    assert tts.open_calls == [el, pick_example_user_voice(el)] and not storage.uploads[0][0].endswith("-q.wav")
+    assert (metrics[0][1]["engine"], metrics[0][1]["voice"], metrics[0][1]["fallback_reason"]) == (
+        "eleven", el, "voice_missing")
+
+
+class _RetryFailsQwen(_MissingQwen):
+    async def synth(self, voice: str, text: str) -> bytes:
+        if voice == "ai":
+            self.calls.append((voice, text))
+            raise QwenTTSUnavailableError("HTTP 503")
+        return await super().synth(voice, text)
+
+
+async def test_retry_failing_for_another_reason_reports_synth_failed(monkeypatch) -> None:
+    tts, _ = _wire(monkeypatch)
+    _flag_on(monkeypatch)
+    _wire_qwen(monkeypatch, _RetryFailsQwen({"male_middle_soft"}))
+    metrics = _capture(monkeypatch)
+    await get_example_conversation(_FakeDB(_preset_row(tts_voice_id="male_middle_soft")), 1, user_id=7)
+    assert tts.open_calls and metrics[0][1]["fallback_reason"] == "synth_failed"
+
+
+async def test_missing_user_voice_does_not_retry_with_ai(monkeypatch) -> None:
+    tts, _ = _wire(monkeypatch)
+    _flag_on(monkeypatch)
+    qwen = _wire_qwen(monkeypatch, _MissingQwen({"user"}))
+    metrics = _capture(monkeypatch)
+    await get_example_conversation(_FakeDB(_preset_row(tts_voice_id="male_middle_soft")), 1, user_id=7)
+    assert [v for v, _ in qwen.calls] == ["male_middle_soft", "user"], "칸이 아니라 user 가 없으면 다시 굽지 않는다"
+    assert tts.open_calls and metrics[0][1]["fallback_reason"] == "voice_missing"
+
+
+async def test_switch_off_missing_ai_goes_straight_to_elevenlabs(monkeypatch) -> None:
+    tts, _ = _wire(monkeypatch)
+    _flag_on(monkeypatch, on=False)
+    qwen = _wire_qwen(monkeypatch, _MissingQwen({"ai"}))
+    metrics = _capture(monkeypatch)
+    await get_example_conversation(_FakeDB(_preset_row(tts_voice_id="male_middle_soft")), 1, user_id=7)
+    assert [v for v, _ in qwen.calls] == ["ai"] and tts.open_calls
+    assert metrics[0][1]["fallback_reason"] == "voice_missing"
+
+
+async def test_example_baked_under_slot_qwen_key_is_a_cache_hit(monkeypatch) -> None:
+    _, storage = _wire(monkeypatch)
+    _flag_on(monkeypatch)
+    qwen = _wire_qwen(monkeypatch, _FakeQwenClient())
+    row = _preset_row(tts_voice_id="male_middle_rough", example_audio_url=_qkey("male_middle_soft"))
+    await get_example_conversation(_FakeDB(row), 1, user_id=7)
+    assert qwen.calls == [] and storage.uploads == []
+
+
+async def test_example_baked_under_slot_eleven_key_is_a_cache_hit(monkeypatch) -> None:
+    _, storage = _wire(monkeypatch)
+    qwen = _wire_qwen(monkeypatch, _FakeQwenClient())
+    el = "uyVNoMrnUku1dZyVEXwD"
+    row = _preset_row(tts_voice_id="female_young_soft",
+                      example_audio_url=example_service._audio_key(1, _DIALOGUE, el, pick_example_user_voice(el)))
+    await get_example_conversation(_FakeDB(row), 1, user_id=7)
+    assert qwen.calls == [] and storage.uploads == []
+
+
+async def test_eleven_example_uses_the_low_slot_el_voice(monkeypatch) -> None:
+    tts, _ = _wire(monkeypatch)
+    _wire_qwen(monkeypatch, _FakeQwenClient(enabled=False, ready=False))
+    await get_example_conversation(_FakeDB(_preset_row(tts_voice_id="male_young_rough")), 1, user_id=7)
+    assert tts.open_calls[0] == "yUhh6u2RvOjeCsWPEaEg", "거친 칸 저장이어도 예시는 하 칸 EL 보이스"

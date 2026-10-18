@@ -12,19 +12,40 @@ class VoiceProfile:
     age: SpeakerAge
     tone: SpeakerTone
     label: str             # 인간용 메모
+    el_voice_id: str | None = None  # ElevenLabs 폴백 보이스
 
 
-# 같은 gender나 age면 랜덤 선택
-# 괜찮은 보이스 찾으면 계속 업데이트 해줘야함
+_F, _M = SpeakerGender.FEMALE, SpeakerGender.MALE
+_Y, _MID, _O = SpeakerAge.YOUNG, SpeakerAge.MIDDLE, SpeakerAge.OLD
+_SOFT, _ROUGH = SpeakerTone.SOFT, SpeakerTone.ROUGH
+
+# voice_id = Qwen 워커, voices.json 키 = DB tts_voice_id
 VOICE_REGISTRY: list[VoiceProfile] = [
-    # VoiceProfile("<voice_id>", SpeakerGender.FEMALE, SpeakerAge.MIDDLE, SpeakerTone.SOFT, "차분한 중년 여성"),
-    VoiceProfile("uyVNoMrnUku1dZyVEXwD", SpeakerGender.FEMALE, SpeakerAge.YOUNG, SpeakerTone.SOFT, "차분한 젊은 여성"),
-    VoiceProfile("ETPP7D0aZVdEj12Aa7ho", SpeakerGender.FEMALE, SpeakerAge.MIDDLE, SpeakerTone.SOFT, "차분한 중년 여성"),
-    VoiceProfile("fNmw8sukfGuvWVOp33Ge", SpeakerGender.FEMALE, SpeakerAge.OLD, SpeakerTone.SOFT, "차분한 노년 여성"),
-    VoiceProfile("yUhh6u2RvOjeCsWPEaEg", SpeakerGender.MALE, SpeakerAge.YOUNG, SpeakerTone.SOFT, "차분한 젊은 남성"),
-    VoiceProfile("4JJwo477JUAx3HV0T7n7", SpeakerGender.MALE, SpeakerAge.YOUNG, SpeakerTone.NEUTRAL, "평범한 젊은 남성"),
-    VoiceProfile("Ctl3Pjfp5c2p3ThSA8Hn", SpeakerGender.MALE, SpeakerAge.MIDDLE, SpeakerTone.SOFT, "차분한 중년 남성"),
+    VoiceProfile("female_young_soft", _F, _Y, _SOFT, "부드러운 젊은 여성", "uyVNoMrnUku1dZyVEXwD"),
+    VoiceProfile("female_young_rough", _F, _Y, _ROUGH, "거친 젊은 여성", "uyVNoMrnUku1dZyVEXwD"),
+    VoiceProfile("female_middle_soft", _F, _MID, _SOFT, "부드러운 중년 여성", "ETPP7D0aZVdEj12Aa7ho"),
+    VoiceProfile("female_middle_rough", _F, _MID, _ROUGH, "거친 중년 여성", "ETPP7D0aZVdEj12Aa7ho"),
+    VoiceProfile("female_old_soft", _F, _O, _SOFT, "부드러운 노년 여성", "fNmw8sukfGuvWVOp33Ge"),
+    VoiceProfile("female_old_rough", _F, _O, _ROUGH, "거친 노년 여성", "fNmw8sukfGuvWVOp33Ge"),
+    VoiceProfile("male_young_soft", _M, _Y, _SOFT, "부드러운 젊은 남성", "yUhh6u2RvOjeCsWPEaEg"),
+    VoiceProfile("male_young_rough", _M, _Y, _ROUGH, "거친 젊은 남성", "4JJwo477JUAx3HV0T7n7"),
+    VoiceProfile("male_middle_soft", _M, _MID, _SOFT, "부드러운 중년 남성", "Ctl3Pjfp5c2p3ThSA8Hn"),
+    VoiceProfile("male_middle_rough", _M, _MID, _ROUGH, "거친 중년 남성", "Ctl3Pjfp5c2p3ThSA8Hn"),
+    VoiceProfile("male_old_soft", _M, _O, _SOFT, "부드러운 노년 남성", "Ctl3Pjfp5c2p3ThSA8Hn"),
+    VoiceProfile("male_old_rough", _M, _O, _ROUGH, "거친 노년 남성", "Ctl3Pjfp5c2p3ThSA8Hn"),
 ]
+
+_LEGACY_EL_SLOT: dict[str, str] = {
+    "uyVNoMrnUku1dZyVEXwD": "female_young_soft",
+    "ETPP7D0aZVdEj12Aa7ho": "female_middle_soft",
+    "fNmw8sukfGuvWVOp33Ge": "female_old_soft",
+    "yUhh6u2RvOjeCsWPEaEg": "male_young_soft",
+    "4JJwo477JUAx3HV0T7n7": "male_young_soft",
+    "Ctl3Pjfp5c2p3ThSA8Hn": "male_middle_soft",
+}
+
+# 화자 정보 없는 시나리오의 칸
+DEFAULT_VOICE = "male_young_soft"
 
 
 # 난이도따라서 톤 다르게
@@ -40,36 +61,35 @@ EXAMPLE_USER_VOICE_ID = "4JJwo477JUAx3HV0T7n7"  # 평범한 젊은 남성
 
 
 def pick_example_user_voice(ai_voice_id: str | None) -> str:
-    """예시 대화 user 턴 보이스"""
+    """예시 대화 user 턴 ElevenLabs 보이스"""
     if ai_voice_id != EXAMPLE_USER_VOICE_ID:
         return EXAMPLE_USER_VOICE_ID
     for profile in VOICE_REGISTRY:
-        if profile.voice_id != ai_voice_id:
-            return profile.voice_id
+        el = profile.el_voice_id or profile.voice_id
+        if el != ai_voice_id:
+            return el
     return EXAMPLE_USER_VOICE_ID
 
 
 def profile_for(voice_id: str | None) -> VoiceProfile | None:
-    """받은 voice_id가 VOICE_REGISTRY에 있으면 반환"""
+    """레지스트리 보이스, 옛 ElevenLabs id 면 그 칸"""
     if not voice_id:
         return None
-    for profile in VOICE_REGISTRY:
-        if profile.voice_id == voice_id:
-            return profile
+    for key in (voice_id, _LEGACY_EL_SLOT.get(voice_id)):
+        for profile in VOICE_REGISTRY:
+            if profile.voice_id == key:
+                return profile
     return None
 
 
 def resolve_voice(voice_id: str | None, difficulty: Difficulty | None) -> str | None:
-    """난이도에 맞는 톤으로 보이스 바꾸기"""
-    if difficulty is None:
-        return voice_id
-    target_tone = _DIFFICULTY_TONE.get(difficulty)
-    if target_tone is None:
-        return voice_id
-
+    """난이도에 맞는 톤으로 보이스 바꾸기, 옛 id 는 칸으로"""
     profile = profile_for(voice_id)
     if profile is None:
         return voice_id
+    target_tone = _DIFFICULTY_TONE.get(difficulty) if difficulty is not None else None
+    if target_tone is None:
+        return profile.voice_id
 
     candidates = [
         v
@@ -77,8 +97,31 @@ def resolve_voice(voice_id: str | None, difficulty: Difficulty | None) -> str | 
         if v.gender == profile.gender and v.age == profile.age and v.tone == target_tone
     ]
     if not candidates:
-        return voice_id
+        return profile.voice_id
     return min(c.voice_id for c in candidates)
+
+
+def qwen_voice_for(voice_id: str | None, difficulty: Difficulty | None) -> str:
+    """Qwen 워커 보이스 이름, 모르는 보이스면 기본 칸"""
+    profile = profile_for(voice_id)
+    if profile is not None:
+        return profile.voice_id
+    return resolve_voice(DEFAULT_VOICE, difficulty) or DEFAULT_VOICE
+
+
+def el_voice_for(voice_id: str | None) -> str | None:
+    """ElevenLabs 보이스 id, 모르는 값은 그대로"""
+    profile = profile_for(voice_id)
+    if profile is None:
+        return voice_id
+    return profile.el_voice_id or profile.voice_id
+
+
+def el_voice_for_call(stored: str | None, difficulty: Difficulty | None) -> str | None:
+    """통화 ElevenLabs 보이스, 옛 EL id 는 하 난이도 말고는 저장값 그대로"""
+    if stored in _LEGACY_EL_SLOT and difficulty is not Difficulty.LOW:
+        return stored
+    return el_voice_for(resolve_voice(stored, difficulty))
 
 
 def parse_speaker(

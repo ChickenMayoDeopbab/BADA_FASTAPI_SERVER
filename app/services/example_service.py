@@ -13,9 +13,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.concurrency import loop_semaphore
 from app.core.config import Settings, get_settings
+from app.core.enums import Difficulty
 from app.core.metrics import log_metric, now_ms
 from app.core.preset_scenarios import PRESET_MAP
-from app.core.tts_voices import pick_example_user_voice
+from app.core.tts_voices import el_voice_for, pick_example_user_voice, profile_for, qwen_voice_for, resolve_voice
 from app.core.usage import log_llm_usage, log_tts_usage
 from app.db.base import AsyncSessionLocal
 from app.db.models import ScenarioORM, is_deleted
@@ -23,6 +24,7 @@ from app.schemas.scenario import ExampleConversationResponse, ExampleTurn
 from app.services.qwen_tts import (
     QwenTTSClient,
     QwenTTSUnavailableError,
+    QwenVoiceMissingError,
     has_free_worker,
 )
 from app.services.recording_storage import RecordingStorageService
@@ -159,12 +161,12 @@ async def _synthesize(
     return _TURN_GAP_PCM.join(parts)
 
 
-async def _synthesize_qwen(qwen_client: QwenTTSClient, dialogue: list[dict]) -> bytes:
+async def _synthesize_qwen(qwen_client: QwenTTSClient, dialogue: list[dict], ai_voice: str = "ai") -> bytes:
     """GPU 서버로 합성"""
     parts: list[bytes] = []
     async with qwen_client.connect() as session:  # 턴마다 TCP 재연결하지 않게
         for turn in dialogue:
-            voice = "ai" if turn["speaker"] == "ai" else "user"
+            voice = ai_voice if turn["speaker"] == "ai" else "user"
             parts.append(await session.synth(voice, turn["text"]))
     return _TURN_GAP_PCM.join(parts)
 
@@ -178,7 +180,7 @@ def _audio_key(
     qwen: bool = False,
 ) -> str:
     """대본이나 보이스가 바뀌면 키가 달라져 캐시가 자동 무효화"""
-    voices = ["qwen-ai", "qwen-user"] if qwen else [ai_voice, user_voice]
+    voices = [f"qwen-{ai_voice}", f"qwen-{user_voice}"] if qwen else [ai_voice, user_voice]
     payload = json.dumps([dialogue, *voices], ensure_ascii=False)
     digest = hashlib.sha1(payload.encode()).hexdigest()[:8]
     suffix = "-q" if qwen else ""
@@ -265,13 +267,20 @@ async def _bake_locked(
     trigger: str,
 ) -> str | None:
     """캐시에 없으면 합성해 저장하고 S3 키를 반환"""
-    ai_voice = (row.tts_voice_id if row is not None else None) or settings.elevenlabs_voice_id
+    stored = row.tts_voice_id if row is not None else None
+    voice = resolve_voice(stored, Difficulty.LOW)
+    ai_voice = el_voice_for(voice) or settings.elevenlabs_voice_id
     user_voice = pick_example_user_voice(ai_voice)
-    key_qwen = _audio_key(scenario_id, dialogue, ai_voice, user_voice, qwen=True)
+    qwen_ai = qwen_voice_for(voice, Difficulty.LOW) if getattr(settings, "qwen_scenario_voices", False) else "ai"
+    key_qwen = _audio_key(scenario_id, dialogue, qwen_ai, "user", qwen=True)
     key_eleven = _audio_key(scenario_id, dialogue, ai_voice, user_voice)
+    slot = profile_for(stored)
+    legacy_ai = (None if slot is not None and slot.voice_id == stored else stored) or settings.elevenlabs_voice_id
+    key_qwen_legacy = _audio_key(scenario_id, dialogue, "ai", "user", qwen=True)
+    key_eleven_legacy = _audio_key(scenario_id, dialogue, legacy_ai, pick_example_user_voice(legacy_ai))
 
     cached = row.example_audio_url if row is not None else None
-    for candidate in (key_qwen, key_eleven):
+    for candidate in dict.fromkeys((key_qwen, key_eleven, key_qwen_legacy, key_eleven_legacy)):
         if cached and cached.endswith(candidate):
             return candidate
 
@@ -283,8 +292,20 @@ async def _bake_locked(
     engine, reason, pcm = "eleven", None, None
     if use_qwen:
         try:
-            pcm = await _synthesize_qwen(qwen_client, dialogue)
+            pcm = await _synthesize_qwen(qwen_client, dialogue, qwen_ai)
             engine = "qwen"
+        except QwenVoiceMissingError as exc:
+            reason = "voice_missing"
+            logger.warning("Qwen 워커에 보이스 없음: %s", exc)
+            if exc.voice == qwen_ai != "ai":
+                try:
+                    pcm = await _synthesize_qwen(qwen_client, dialogue)
+                    engine, qwen_ai, key_qwen = "qwen", "ai", key_qwen_legacy
+                except QwenVoiceMissingError as exc2:
+                    logger.warning("Qwen 워커에 보이스 없음: %s", exc2)
+                except QwenTTSUnavailableError as exc2:
+                    reason = "synth_failed"
+                    logger.warning("Qwen TTS 합성 실패 — ElevenLabs로 전체 재합성: %s", exc2)
         except QwenTTSUnavailableError as exc:
             reason = "synth_failed"
             logger.warning("Qwen TTS 합성 실패 — ElevenLabs로 전체 재합성: %s", exc)
@@ -307,6 +328,7 @@ async def _bake_locked(
         trigger=trigger,
         engine=engine,
         fallback_reason=reason,
+        voice=qwen_ai if engine == "qwen" else ai_voice,
         turns=len(dialogue),
         duration_ms=round(now_ms() - started, 1),
     )
