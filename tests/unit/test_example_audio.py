@@ -227,7 +227,7 @@ def test_clean_turn_tries_eight_times_before_giving_up():
 
 
 def test_cut_tail_phrase_refuses_a_dummy_merged_into_the_speech():
-    data = pcm(tone(1.5, 0.0), silence(0.12), tone(0.29, 30.0), silence(0.3), tone(0.1, 30.0), silence(0.1))
+    data = pcm(tone(2.4, 0.0), silence(0.12), tone(0.29, 30.0), silence(0.3), tone(0.1, 30.0), silence(0.1))
     assert cut_tail_phrase(data, "일요일 저녁 7시로 바꿀 수 있을까요?") is None
 
 
@@ -238,7 +238,7 @@ def test_cut_tail_phrase_keeps_a_long_final_phrase_after_a_short_gap():
 
 
 def test_cut_tail_phrase_judges_the_merged_dummy_by_the_last_gap():
-    data = pcm(tone(1.0, 0.0), silence(0.12), tone(0.8, 0.0), silence(0.12), tone(0.29, 30.0), silence(0.3),
+    data = pcm(tone(1.2, 0.0), silence(0.12), tone(1.4, 0.0), silence(0.12), tone(0.29, 30.0), silence(0.3),
                tone(0.1, 30.0), silence(0.1))
     assert cut_tail_phrase(data, "네, 예약하려고 전화드렸어요. 금요일이요.") is None
 
@@ -252,3 +252,20 @@ def test_cut_tail_phrase_does_not_count_lead_silence_as_a_gap_before_a_short_tur
     data = pcm(silence(0.3), tone(0.3), silence(0.3), tone(0.3, 30.0), silence(0.1))
     got = cut_tail_phrase(data, "네.")
     assert got is not None and seconds(got[0]) == pytest.approx(0.3 + 0.3 + 0.09 + 0.12, abs=0.02)
+
+
+@pytest.mark.parametrize("text", ["확인했습니다, 네요.", "그럼 그날로 하죠, 맞아요."])
+def test_cut_tail_phrase_keeps_a_short_final_word_after_a_comma(text):
+    data = pcm(tone(1.5, 0.0), silence(0.12), tone(0.3), silence(0.3), tone(0.3, 30.0), silence(0.1))
+    got = cut_tail_phrase(data, text)
+    assert got is not None and seconds(got[0]) == pytest.approx(1.5 + 0.12 + 0.3 + 0.09 + 0.12, abs=0.02)
+
+
+def test_cut_tail_phrase_keeps_a_final_word_longer_than_a_dummy():
+    data = pcm(tone(1.5, 0.0), silence(0.12), tone(0.5), silence(0.3), tone(0.3, 30.0), silence(0.1))
+    assert cut_tail_phrase(data, "일요일 저녁 7시로 바꿀 수 있을까요?") is not None
+
+
+def test_cut_tail_phrase_keeps_a_final_word_longer_than_two_and_a_half_syllables():
+    data = pcm(tone(1.8, 0.0), silence(0.12), tone(0.52, 0.0), silence(0.3), tone(0.3, 30.0), silence(0.1))
+    assert cut_tail_phrase(data, "일요일 저녁 7시로 바꿀 수 있을까요?") is not None
