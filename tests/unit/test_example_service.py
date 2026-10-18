@@ -1450,3 +1450,13 @@ async def test_prebake_presets_does_not_sleep_after_the_last_attempt(monkeypatch
     monkeypatch.setattr(example_service.asyncio, "sleep", _sleep)
     await example_service.prebake_presets()
     assert len(sleeps) == example_service._PRESET_PREBAKE_ROUNDS - 1
+
+
+async def test_qwen_only_skips_the_health_check_when_every_worker_is_busy(monkeypatch) -> None:
+    tts, storage = _wire(monkeypatch)
+    _flag_on(monkeypatch)
+    qwen = _wire_qwen(monkeypatch, _CountingVoicesQwen(frozenset({"ai", "user"})))
+    monkeypatch.setattr(example_service, "has_free_worker", lambda _s: False)
+    row = _preset_row(tts_voice_id="male_middle_soft", example_audio_url=_qkey("ai"))
+    assert await _bake_qwen_only(row, storage) is None, "이번 라운드는 미루고 다음에 칸을 다시 확인"
+    assert qwen.health_calls == 0 and qwen.calls == [] and tts.open_calls == []
