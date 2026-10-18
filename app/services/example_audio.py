@@ -8,7 +8,7 @@ import numpy as np
 
 SR = 16_000
 TAIL_PHRASE = " ... 네."
-MAX_ATTEMPTS = 4
+MAX_ATTEMPTS = 8
 ABRUPT_MS = 10.0
 _MAX_CHARS = 300  # 워커 요청 글자 상한
 _BLOCK_S, _LOUD_DB, _QUIET_DB, _MIN_SIL_S = 0.002, -25.0, -45.0, 0.15 # scripts/tts_bench/post.py의 끊김 판정과 같은 값
