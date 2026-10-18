@@ -1056,4 +1056,49 @@ def test_aihub_speaker_counts_are_distinct_ids(tmp_path):
     loaded = pick_aihub.label_index(labels, pick_aihub.wav_sessions(wavs))
     assert set(loaded) == set("ABCDEFGH")
     counts = pick_aihub.speaker_counts(loaded)
-    assert counts["female_young"] == 2 and counts["male_old"] == 2  # F1 은 두 세션이어도 한 명
+    assert counts["female_young"] == 2 and counts["male_old"] == 2
+
+
+def test_design_duplicate_ref_and_instruct_specs_are_rejected():
+    with pytest.raises(ValueError):
+        design_voices.parse_refs(["female_young_soft__ai=/a.wav:가", "female_young_soft__ai=/b.wav:나"])
+    with pytest.raises(ValueError):
+        design_voices.parse_instructs(["male_old_rough=old one", "male_old_rough=old two"])
+
+
+def test_design_tag_collision_or_ref_name_clash_stops_instead_of_overwriting(tmp_path, monkeypatch):
+    monkeypatch.setattr(design_voices, "instruct_tag", lambda slot, instruct: "" if instruct ==
+                        design_voices.INSTRUCTS[slot] else "abcd")
+    first = design_voices.parse_instructs(["male_old_rough=first description"])
+    _run_design(tmp_path, _DesignModel(), ["male_old_rough"], 1, first)
+    before = (tmp_path / "male_old_rough__abcdc1.wav").read_bytes()
+    second = design_voices.parse_instructs(["male_old_rough=second description"])
+    with pytest.raises(ValueError):
+        design_voices.pending(tmp_path, ["male_old_rough"], 1, second)
+    assert (tmp_path / "male_old_rough__abcdc1.wav").read_bytes() == before
+    ai = tmp_path / "ai.wav"
+    _wav_sr(ai, _tone_sr(11.0, 24000), 24000)
+    design_voices.add_refs(tmp_path, {"female_young_soft__c1": (str(ai), "운영 ai 전사")})
+    with pytest.raises(ValueError):
+        design_voices.pending(tmp_path, ["female_young_soft"], 1, design_voices.INSTRUCTS)
+
+
+def test_aihub_undeterminable_channel_is_its_own_reject_reason():
+    us = pick_aihub.utterances({"Conversation": [_u(1, 1.0, 3.0), _u(2, 2.0, 4.0), _u(1, 5.0, 6.0), _u(2, 5.5, 7.0)]})
+    x = np.zeros((10 * 16000, 2), dtype="<i2")
+    assert pick_aihub.channel_of(x, us, "Speaker1") == (0, None)
+    w = {"start": 1.0, "end": 6.0}
+    x[16000:6 * 16000, 0] = (0.3 * np.sin(np.arange(5 * 16000) / 5) * 32767).astype("<i2")
+    assert pick_aihub.judge_clip(x, w, 0, None)["reason"] == "채널 판별 불가"
+    assert pick_aihub.judge_clip(x, w, 0, 0.5)["reason"] == "채널 섞임"
+
+
+@pytest.mark.parametrize("dest", ["/", "//", "/home/u/../etc", "/home/u/refs/..", "refs", "~/refs"])
+def test_prep_dest_rejects_parent_and_root_only_paths(dest):
+    with pytest.raises(ValueError):
+        prep_ref.check_dest(dest)
+
+
+def test_prep_dest_keeps_normal_absolute_paths():
+    assert prep_ref.check_dest("/home/u/bada-qwen3-tts/refs/") == "/home/u/bada-qwen3-tts/refs"
+    assert prep_ref.check_dest("/data/a..b/refs") == "/data/a..b/refs"
