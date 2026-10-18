@@ -388,13 +388,11 @@ async def test_context_custom_includes_tts_voice_id() -> None:
     assert body["ttsVoiceId"] == "v-custom"
 
 
-async def test_context_preset_tts_voice_id_null() -> None:
+async def test_context_preset_tts_voice_id_is_cast_slot() -> None:
     resp = await _get_internal(_make_app_internal(db_row=None), "/internal/v1/scenarios/1/context")
 
     assert resp.status_code == 200
-    body = resp.json()
-    assert "ttsVoiceId" in body
-    assert body["ttsVoiceId"] is None
+    assert resp.json()["ttsVoiceId"] == "female_young_soft"
 
 
 def _fake_tts_settings() -> SimpleNamespace:
@@ -556,3 +554,25 @@ async def test_pipeline_falls_back_to_default_on_open_failure() -> None:
 
     assert tts.open_calls == ["v-abc", None]
     assert p._history[-1] == {"role": "assistant", "text": "네"}
+
+
+@pytest.mark.parametrize(("tone", "expected"), [("neutral", "male_old_soft"), (None, "male_old_soft"),
+                                                ("soft", "male_old_soft"), ("rough", "male_old_rough")])
+async def test_custom_scenario_stores_one_of_the_twelve_slots(monkeypatch, tone, expected) -> None:
+    _apply_settings(monkeypatch)
+    monkeypatch.setattr(tts_voices, "random", SimpleNamespace(choice=lambda pool: pool[-1]))
+    speaker = {"gender": "male", "age": "old"} | ({"tone": tone} if tone else {})
+    payload = {
+        "content": "테스트 시나리오",
+        "ai_prompt": "You are a clerk.",
+        "script": [
+            {"step": 1, "ai_goal": "인사", "hint": "인사하세요"},
+            {"step": 2, "ai_goal": "용건 확인", "hint": "용건을 말하세요"},
+            {"step": 3, "ai_goal": "마무리", "hint": "감사 인사를 하세요"},
+        ],
+        "speaker": speaker,
+    }
+    monkeypatch.setattr(scenario_service, "AsyncAnthropic", _make_fake_anthropic_client(payload))
+    db = _FakeWriteDB()
+    await create_custom_scenario(db, _request(), user_id=1)
+    assert db.added.tts_voice_id == expected, "neutral·없음은 부드러움, 남성 노년도 칸이 있다"
