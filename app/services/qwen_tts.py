@@ -37,6 +37,14 @@ class QwenTTSUnavailableError(Exception):
     """합성 실패"""
 
 
+class QwenVoiceMissingError(QwenTTSUnavailableError):
+    """워커에 그 보이스가 없음(404)"""
+
+    def __init__(self, voice: str) -> None:
+        super().__init__(f"HTTP 404 voice={voice}")
+        self.voice = voice
+
+
 class QwenTTSRunawayError(QwenTTSUnavailableError):
     """문장 길이에 비해 오디오가 너무 길다"""
 
@@ -122,6 +130,7 @@ class QwenTTSClient:
         self._transport = transport
         self._session: httpx.AsyncClient | None = None
         self._session_url: str | None = None
+        self.voices: frozenset[str] | None = None
 
     @property
     def enabled(self) -> bool:
@@ -182,6 +191,8 @@ class QwenTTSClient:
             return "unhealthy"
         if not isinstance(body, dict):
             return "unhealthy"
+        voices = body.get("voices")
+        self.voices = frozenset(v for v in voices if isinstance(v, str)) if isinstance(voices, list) else None
         if not body.get("ready"):
             return "warming"
         return "busy" if body.get("busy") else "ready"
@@ -211,6 +222,8 @@ class QwenTTSClient:
             except httpx.TimeoutException as exc:
                 raise QwenTTSUnavailableError(f"{type(exc).__name__}: {exc}") from exc
             except httpx.HTTPStatusError as exc:
+                if exc.response.status_code == 404:
+                    raise QwenVoiceMissingError(voice) from exc
                 if exc.response.status_code < 500:
                     raise QwenTTSUnavailableError(f"HTTP {exc.response.status_code}") from exc
                 last = exc
@@ -238,10 +251,13 @@ class QwenTTSClient:
 class QwenRealtimeTTSSession:
     """실시간 한 턴"""
 
-    def __init__(self, client: httpx.AsyncClient, base_url: str, speed: float = 1.0) -> None:
+    def __init__(
+        self, client: httpx.AsyncClient, base_url: str, speed: float = 1.0, voice: str = _REALTIME_VOICE
+    ) -> None:
         self._client = client
         self._base_url = base_url
         self._speed = speed
+        self._voice = voice
         self._audio_started = False
         self._inited = False
         self._closed = False
@@ -279,7 +295,7 @@ class QwenRealtimeTTSSession:
             async with self._client.stream(
                 "POST",
                 f"{self._base_url}/v1/tts/stream",
-                json={"voice": _REALTIME_VOICE, "text": text},
+                json={"voice": self._voice, "text": text},
             ) as response:
                 response.raise_for_status()
                 async for chunk in response.aiter_bytes():
@@ -334,6 +350,7 @@ class QwenRealtimeTTSClient:
         self._transport = transport
         self._worker_url: str | None = None
         self.speed = clamp_speed(getattr(settings, "qwen_tts_speed", 1.0))
+        self.voices: frozenset[str] | None = None
 
     async def open(self, voice_id: str | None = None) -> QwenRealtimeTTSSession:
         """턴마다 호출"""
@@ -343,7 +360,7 @@ class QwenRealtimeTTSClient:
             ),
             transport=self._transport,
         )
-        return QwenRealtimeTTSSession(client, self._base_url, self.speed)
+        return QwenRealtimeTTSSession(client, self._base_url, self.speed, voice_id or _REALTIME_VOICE)
 
     def release_slot(self) -> None:
         """통화 종료, 잡고 있던 워커를 풀에 되돌림"""
@@ -369,14 +386,16 @@ async def try_acquire_realtime_tts(
                 url = pool.get_nowait()
             except asyncio.QueueEmpty:
                 break
+            checker = QwenTTSClient(settings, transport, base_url=url)
             try:
-                state = await QwenTTSClient(settings, transport, base_url=url).health_state()
+                state = await checker.health_state()
             except BaseException:
                 pool.put_nowait(url)
                 raise
             if state == "ready":
                 client = QwenRealtimeTTSClient(settings, transport, base_url=url)
                 client._worker_url = url
+                client.voices = checker.voices
                 return client, None
             if state == "unhealthy":
                 pool.put_nowait(url)
