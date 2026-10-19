@@ -694,6 +694,49 @@ async def test_prebake_generates_dialogue_via_llm_when_absent(monkeypatch) -> No
     assert row.example_audio_url == storage.uploads[0][0]
 
 
+def _counting_anthropic(payload: object, calls: list) -> object:
+    client = _fake_anthropic(payload)
+
+    def _make(**kw):
+        calls.append(kw)
+        return client(**kw)
+
+    return _make
+
+
+async def test_prebake_skips_warmup(monkeypatch) -> None:
+    row = _custom_row(is_warmup=True, example_dialogue=None, example_audio_url=None)
+    _, storage, tts = _wire_prebake(monkeypatch, row)
+    llm_calls: list = []
+    monkeypatch.setattr(example_service, "AsyncAnthropic", _counting_anthropic(_DIALOGUE, llm_calls))
+
+    await example_service.bake_example_audio(42)
+
+    assert llm_calls == []
+    assert storage.uploads == []
+    assert tts.open_calls == []
+    assert row.example_dialogue is None
+    assert row.example_audio_url is None
+
+
+async def test_prebake_bakes_non_warmup(monkeypatch) -> None:
+    payload = [
+        {"speaker": "ai", "text": "네, 안녕하세요."},
+        {"speaker": "user", "text": "예약하려고요."},
+    ]
+    row = _custom_row(is_warmup=False, example_dialogue=None, example_audio_url=None)
+    _, storage, _ = _wire_prebake(monkeypatch, row)
+    llm_calls: list = []
+    monkeypatch.setattr(example_service, "AsyncAnthropic", _counting_anthropic(payload, llm_calls))
+
+    await example_service.bake_example_audio(42)
+
+    assert len(llm_calls) == 1
+    assert row.example_dialogue == payload
+    assert len(storage.uploads) == 1
+    assert row.example_audio_url == storage.uploads[0][0]
+
+
 async def test_dialogue_generated_once_when_prebake_and_request_race(monkeypatch) -> None:
     payload = [
         {"speaker": "ai", "text": "네, 안녕하세요."},
