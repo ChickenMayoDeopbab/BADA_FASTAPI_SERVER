@@ -358,7 +358,7 @@ async def bake_example_audio(scenario_id: int) -> None:
     try:
         async with _prebake_semaphore(), asyncio.timeout(_PREBAKE_TIMEOUT_SEC), AsyncSessionLocal() as db:
             row = await db.get(ScenarioORM, scenario_id)
-            if row is None or is_deleted(row) or row.example_audio_url:
+            if row is None or is_deleted(row) or row.example_audio_url or getattr(row, "is_warmup", False):
                 return
             await _resolve_and_bake(db, settings, row, None, scenario_id,
                                     RecordingStorageService(settings), trigger="prebake")
