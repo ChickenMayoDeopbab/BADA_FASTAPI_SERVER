@@ -369,3 +369,78 @@ async def test_init_without_worker_records_no_voice_metric(monkeypatch) -> None:
     p._qwen_voice = "male_old_rough"
     await p._init_qwen_tts()
     assert "realtime_tts_voice" not in dict(records), "ElevenLabs 통화를 칸 보이스로 집계하지 않는다"
+
+
+class _MeteredQwenSession(_FakeQwenSession):
+    def __init__(self, metrics_fail: bool = False) -> None:
+        super().__init__(fail=False)
+        self.request_log = [{"outcome": "eos", "raw_ms": 100.0}, {"outcome": "eos", "raw_ms": 200.0}]
+        self._metrics_fail = metrics_fail
+
+    def turn_metrics(self) -> dict:
+        if self._metrics_fail:
+            raise RuntimeError("boom")
+        return {"tts_req": 2, "tts_req_cut": 1}
+
+
+class _MeteredQwenClient(_FakeQwenClient):
+    def __init__(self, metrics_fail: bool = False) -> None:
+        super().__init__()
+        self._metrics_fail = metrics_fail
+
+    async def open(self, voice_id=None) -> _MeteredQwenSession:
+        self.open_calls += 1
+        return _MeteredQwenSession(self._metrics_fail)
+
+
+async def test_request_lines_come_before_voice_turn(monkeypatch) -> None:
+    records = _capture_metrics(monkeypatch)
+    p = _make_pipeline(_HappyLLM(), _FakeELClient(), qwen=_MeteredQwenClient())
+
+    await asyncio.wait_for(p._run_turn("여보세요", _TurnTimings(final_at=0.0)), timeout=2.0)
+
+    names = [name for name, _ in records]
+    reqs = [kw for name, kw in records if name == "realtime_tts_req"]
+    assert len(reqs) == 2 and names.index("voice_turn") > max(i for i, n in enumerate(names) if n == "realtime_tts_req")
+    assert [(r["i"], r["last"], r["raw_ms"]) for r in reqs] == [(0, False, 100.0), (1, True, 200.0)]
+    assert all(r["session_id"] == "sess-qwen" and r["step"] == 1 for r in reqs)
+    turn = dict(records)["voice_turn"]
+    assert (turn["tts_req"], turn["tts_req_cut"]) == (2, 1)
+
+
+async def test_turn_metrics_failure_keeps_voice_turn_and_audio(monkeypatch) -> None:
+    records = _capture_metrics(monkeypatch)
+    p = _make_pipeline(_HappyLLM(), _FakeELClient(), qwen=_MeteredQwenClient(metrics_fail=True))
+
+    await asyncio.wait_for(p._run_turn("여보세요", _TurnTimings(final_at=0.0)), timeout=2.0)
+
+    assert p._ws.pcm == [b"\x0a\x0b"]
+    turn = dict(records)["voice_turn"]
+    assert "tts_req" not in turn
+
+
+async def test_sessions_without_request_log_add_no_fields(monkeypatch) -> None:
+    records = _capture_metrics(monkeypatch)
+    p = _make_pipeline(_HappyLLM(), _FakeELClient())
+
+    await asyncio.wait_for(p._run_turn("여보세요", _TurnTimings(final_at=0.0)), timeout=2.0)
+
+    assert all(name != "realtime_tts_req" for name, _ in records)
+    assert "tts_req" not in dict(records)["voice_turn"]
+
+
+async def test_engine_metric_records_worker_when_known(monkeypatch) -> None:
+    records = _capture_metrics(monkeypatch)
+    qwen = _FakeQwenClient()
+    qwen._worker_url = "http://w2.test"
+
+    async def _acquire(_settings):
+        return qwen, None
+
+    monkeypatch.setattr(pipeline_mod, "try_acquire_realtime_tts", _acquire)
+    p = _make_pipeline(_HappyLLM(), _FakeELClient())
+    p._settings = SimpleNamespace()
+
+    await p._init_qwen_tts()
+
+    assert dict(records)["realtime_tts_engine"]["worker"] == "http://w2.test"

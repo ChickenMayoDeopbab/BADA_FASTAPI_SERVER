@@ -621,3 +621,144 @@ async def test_acquire_copies_worker_voices_to_client() -> None:
         assert reason is None and client.voices == frozenset({"ai", "user", "male_old_rough"})
     finally:
         client.release_slot()
+
+
+async def _speak_session(settings, transport, sentences=("안녕하세요. 반갑", "습니다.")):
+    session = await QwenRealtimeTTSClient(settings, transport=transport).open()
+    await session.begin()
+    try:
+        async def source():
+            for s in sentences:
+                yield s
+
+        out = [chunk async for chunk in session.stream(source())]
+    finally:
+        await session.aclose()
+    return out, session
+
+
+@pytest.mark.parametrize("speed", [1.0, 1.1])
+async def test_request_metric_does_not_change_yielded_bytes(speed) -> None:
+    chunks = _pcm_chunks(1.0)
+    on = _settings(speed=speed)
+    off = _settings(speed=speed)
+    off.qwen_tts_req_metric = False
+    got_on, s_on = await _speak_session(on, _chunk_transport(chunks))
+    got_off, s_off = await _speak_session(off, _chunk_transport(chunks))
+    assert got_on == got_off
+    assert len(s_on.request_log) == 2 and s_off.request_log == []
+    assert s_off.turn_metrics() == {}
+
+
+async def test_request_log_per_request_with_raw_ms() -> None:
+    chunks = _pcm_chunks(1.0)
+    _, session = await _speak_session(_settings(), _chunk_transport(chunks))
+    log = session.request_log
+    assert [r["outcome"] for r in log] == ["eos", "eos"]
+    assert all(r["raw_ms"] == round(sum(map(len, chunks)) / 32, 1) for r in log)
+    assert [r["chars"] for r in log] == [len("안녕하세요."), len("반갑습니다.")]
+    assert all(r["voice"] == "ai" and r["ns"] is None for r in log)
+    assert {"decay_ms", "cut", "hard", "trail_ms", "lead_ms", "inner_ends", "inner_cuts", "pause_max_ms"} <= set(log[0])
+
+
+async def test_request_log_reads_ns_header() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"".join(_pcm_chunks(0.3)), headers={"X-Non-Streaming": "1"})
+
+    _, session = await _speak_session(_settings(), httpx.MockTransport(handler), ("네.",))
+    assert session.request_log[0]["ns"] == 1
+
+
+async def test_request_log_outcome_on_transport_error() -> None:
+    session = await QwenRealtimeTTSClient(
+        _settings(), transport=_chunk_transport(_pcm_chunks(1.0)[:3], httpx.ReadError("boom"))
+    ).open()
+    await session.begin()
+
+    async def source():
+        yield "안녕하세요."
+
+    with pytest.raises(QwenTTSUnavailableError):
+        async for _ in session.stream(source()):
+            pass
+    await session.aclose()
+    assert [r["outcome"] for r in session.request_log] == ["error"]
+
+
+async def test_request_log_outcome_on_runaway() -> None:
+    from app.services.qwen_tts import QwenTTSRunawayError
+
+    session = await QwenRealtimeTTSClient(_settings(), transport=_chunk_transport(_pcm_chunks(8.0))).open()
+    await session.begin()
+
+    async def source():
+        yield "네."
+
+    with pytest.raises(QwenTTSRunawayError):
+        async for _ in session.stream(source()):
+            pass
+    await session.aclose()
+    assert [r["outcome"] for r in session.request_log] == ["runaway"]
+
+
+async def test_request_log_outcome_when_consumer_stops_early() -> None:
+    session = await QwenRealtimeTTSClient(_settings(), transport=_chunk_transport(_pcm_chunks(1.0))).open()
+    await session.begin()
+
+    async def source():
+        yield "안녕하세요."
+
+    stream = session.stream(source())
+    await stream.__anext__()
+    await stream.aclose()
+    await session.aclose()
+    assert [r["outcome"] for r in session.request_log] == ["aborted"]
+
+
+async def test_request_log_times_with_injected_clock() -> None:
+    ticks = iter([0.0, 0.2, 0.25, 0.9, 1.0])
+    client = httpx.AsyncClient(transport=_chunk_transport([b"\x01\x00" * 160] * 3))
+    session = qwen_mod.QwenRealtimeTTSSession(client, "http://tts.test", clock=lambda: next(ticks))
+    await session.begin()
+
+    async def source():
+        yield "네."
+
+    _ = [c async for c in session.stream(source())]
+    await session.aclose()
+    rec = session.request_log[0]
+    assert (rec["ttfb_ms"], rec["stall_max_ms"], rec["wall_ms"]) == (200.0, 650.0, 1000.0)
+
+
+def test_turn_metrics_aggregate_requests() -> None:
+    log = [
+        {"raw_ms": 1000.0, "ttfb_ms": 100.0, "wall_ms": 600.0, "stall_max_ms": 30.0, "decay_ms": 8.0,
+         "cut": True, "hard": False, "trail_ms": 50.0, "lead_ms": 100.0},
+        {"raw_ms": 1000.0, "ttfb_ms": 300.0, "wall_ms": 800.0, "stall_max_ms": 80.0, "decay_ms": 20.0,
+         "cut": False, "hard": False, "trail_ms": 900.0, "lead_ms": 700.0},
+    ]
+    got = qwen_mod._turn_metrics(log, 1.0)
+    assert got == {
+        "tts_req": 2, "tts_req_cut": 1, "tts_req_hard": 0, "tts_last_cut": False, "tts_tail_short": 1,
+        "tts_raw_ms": 2000.0, "tts_gen_rtf": 0.5, "tts_ttfb_max_ms": 300.0, "tts_stall_max_ms": 80.0,
+        "tts_gap_max_ms": 750.0, "tts_gap_over700": 1,
+    }
+    assert qwen_mod._turn_metrics(log, 1.5)["tts_gap_max_ms"] == 500.0
+    assert qwen_mod._turn_metrics([], 1.0) == {}
+
+
+async def test_request_raw_ms_counts_worker_bytes_before_speed_change() -> None:
+    chunks = _pcm_chunks(1.0)
+    out, session = await _speak_session(_settings(speed=1.1), _chunk_transport(chunks))
+    assert sum(map(len, out)) < 2 * sum(map(len, chunks))
+    assert all(r["raw_ms"] == round(sum(map(len, chunks)) / 32, 1) for r in session.request_log)
+
+
+async def test_recorder_failure_does_not_break_the_stream(monkeypatch) -> None:
+    def _boom(self, text, voice, outcome):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(qwen_mod._RequestRecorder, "finish", _boom)
+    chunks = _pcm_chunks(1.0)
+    out, session = await _speak_session(_settings(), _chunk_transport(chunks))
+    assert out == chunks + chunks and session.request_log == []
