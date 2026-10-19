@@ -269,3 +269,17 @@ def test_cut_tail_phrase_keeps_a_final_word_longer_than_a_dummy():
 def test_cut_tail_phrase_keeps_a_final_word_longer_than_two_and_a_half_syllables():
     data = pcm(tone(1.8, 0.0), silence(0.12), tone(0.52, 0.0), silence(0.3), tone(0.3, 30.0), silence(0.1))
     assert cut_tail_phrase(data, "일요일 저녁 7시로 바꿀 수 있을까요?") is not None
+
+
+def test_cut_tail_phrase_refuses_a_dummy_followed_by_breaths():
+    breath = tone(0.05, 0.0, amp=0.3 * 10 ** (-40 / 20))
+    data = pcm(tone(1.2, 0.0), silence(0.65), tone(0.45, 0.0), silence(0.06), breath, silence(0.06), breath,
+               silence(0.3), tone(0.06, 0.0), silence(0.1))
+    assert cut_tail_phrase(data, "네, 인원은 그대로예요.") is None
+
+
+def test_cut_tail_phrase_ignores_gaps_between_breaths_after_the_dummy():
+    breath = tone(0.05, 0.0, amp=0.3 * 10 ** (-40 / 20))
+    data = pcm(tone(1.2, 0.0), silence(0.65), tone(0.45, 0.0), silence(0.12), breath, silence(0.12), breath,
+               silence(0.3), tone(0.06, 0.0), silence(0.1))
+    assert cut_tail_phrase(data, "네, 인원은 그대로예요.") is None
