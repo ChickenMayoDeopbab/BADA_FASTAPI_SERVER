@@ -366,6 +366,9 @@ async def test_synth_ns_classifies_failures() -> None:
         await _client(_raise(httpx.ReadTimeout)).synth_ns("ai", "네.")
     with pytest.raises(QwenUnreachableError):
         await _client(_raise(httpx.ConnectError)).synth_ns("ai", "네.")
+    with pytest.raises(QwenUnreachableError) as unreachable:
+        await _client(_raise(httpx.ConnectTimeout)).synth_ns("ai", "네.")
+    assert unreachable.value.worker == "http://tts.test"
     with pytest.raises(QwenVoiceMissingError):
         await _client(lambda _r: httpx.Response(404)).synth_ns("ai", "네.")
     with pytest.raises(QwenTTSUnavailableError) as err:

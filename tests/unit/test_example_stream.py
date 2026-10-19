@@ -10,6 +10,7 @@ from app.services.qwen_tts import QwenUnreachableError
 from tests.unit.test_example_jobs import (
     _DB,
     _EL,
+    _bake,
     _clean,  # noqa: F401
     _Qwen,
     _row,
@@ -162,7 +163,7 @@ async def test_synthesis_starts_before_the_stream_ends(monkeypatch) -> None:
     llm = _FakeLLM(_text(), delay=0.003)
     env, rows = _wire_stream(monkeypatch, llm)
     usage = _llm_usage(monkeypatch)
-    await asyncio.wait_for(es.bake_example_audio(42), 5)
+    await _bake(42, 5)
     assert env.qwen.first_call_at < llm.stream_ended_at
     assert rows[42].example_dialogue == _TURNS and rows[42].example_audio_url.endswith("-qn.wav")
     assert rows[42].example_audio_url.split("-")[1] == es._ns_d8(_TURNS)
@@ -177,7 +178,7 @@ async def test_failed_end_check_retries_without_streaming(monkeypatch, kw, text)
     llm = _FakeLLM(text, retry_turns=retry, **kw)
     env, rows = _wire_stream(monkeypatch, llm)
     usage = _llm_usage(monkeypatch)
-    await asyncio.wait_for(es.bake_example_audio(42), 5)
+    await _bake(42, 5)
     assert llm.streams == 1 and len(llm.creates) == 1
     assert rows[42].example_dialogue == retry
     assert rows[42].example_audio_url.split("-")[1] == es._ns_d8(retry)
@@ -189,7 +190,7 @@ async def test_consumer_failure_falls_back_with_the_committed_dialogue(monkeypat
     qwen = _TimedQwen(script={first: [QwenUnreachableError("x", worker="http://w1.test")]})
     llm = _FakeLLM(_text(), delay=0.002)
     env, rows = _wire_stream(monkeypatch, llm, qwen=qwen)
-    await asyncio.wait_for(es.bake_example_audio(42), 5)
+    await _bake(42, 5)
     assert llm.streams == 1 and llm.creates == []
     assert rows[42].example_dialogue == _TURNS
     plain = es._plain_keys(env.settings, rows[42], 42, _TURNS)
@@ -201,7 +202,7 @@ async def test_broken_stream_releases_the_worker_before_the_retry(monkeypatch) -
     llm = _FakeLLM(_text(), fail_after=40, delay=0.002)
     env, rows = _wire_stream(monkeypatch, llm)
     usage = _llm_usage(monkeypatch)
-    await asyncio.wait_for(es.bake_example_audio(42), 5)
+    await _bake(42, 5)
     assert llm.creates == [{"active_connects": 0}]
     assert rows[42].example_dialogue == _TURNS and rows[42].example_audio_url.endswith("-qn.wav")
     assert [u.get("ok", True) for u in usage] == [False, True] and usage[-1]["attempt"] == 2
@@ -211,7 +212,7 @@ async def test_consumer_budget_expiry_still_commits_the_dialogue(monkeypatch) ->
     llm = _FakeLLM(_text())
     env, rows = _wire_stream(monkeypatch, llm, qwen=_TimedQwen(delay=0.2))
     monkeypatch.setattr(es, "_CUSTOM_NS_BUDGET_SEC", 0.05)
-    await asyncio.wait_for(es.bake_example_audio(42), 5)
+    await _bake(42, 5)
     assert rows[42].example_dialogue == _TURNS
     assert "-qn" not in rows[42].example_audio_url and env.el.opens == len(_TURNS)
 
@@ -220,18 +221,18 @@ async def test_stalled_stream_hits_the_llm_limit_and_retries(monkeypatch) -> Non
     llm = _FakeLLM(_text(), stall_after=30)
     env, rows = _wire_stream(monkeypatch, llm)
     monkeypatch.setattr(es, "_LLM_TIMEOUT_SEC", 0.1)
-    await asyncio.wait_for(es.bake_example_audio(42), 5)
+    await _bake(42, 5)
     assert len(llm.creates) == 1 and rows[42].example_audio_url.endswith("-qn.wav")
 
 
 async def test_streamed_result_equals_the_non_streaming_result(monkeypatch) -> None:
     llm = _FakeLLM(_text())
     env_a, rows_a = _wire_stream(monkeypatch, llm)
-    await asyncio.wait_for(es.bake_example_audio(42), 5)
+    await _bake(42, 5)
 
     rows_b = {42: _row(42, custom=True, dialogue=list(_TURNS))}
     env_b = _wire(monkeypatch, rows_b, qwen=_Qwen())
-    await asyncio.wait_for(es.bake_example_audio(42), 5)
+    await _bake(42, 5)
 
     key_a, key_b = rows_a[42].example_audio_url, rows_b[42].example_audio_url
     assert key_a == key_b and env_a.storage.objects[key_a] == env_b.storage.objects[key_b]
@@ -257,7 +258,7 @@ async def test_streamed_turns_are_normalized_like_the_batch_parser(monkeypatch) 
            {"speaker": "narrator", "text": "무시"}, {"speaker": "ai", "text": "네."}]
     llm = _FakeLLM(json.dumps(raw, ensure_ascii=False))
     env, rows = _wire_stream(monkeypatch, llm)
-    await asyncio.wait_for(es.bake_example_audio(42), 5)
+    await _bake(42, 5)
     assert llm.creates == []
     assert rows[42].example_dialogue == [
         {"speaker": "ai", "text": "네, 바다집입니다."},
@@ -269,7 +270,7 @@ async def test_streamed_turns_are_normalized_like_the_batch_parser(monkeypatch) 
 async def test_request_while_baking_but_dialogue_still_streaming_returns_at_once(monkeypatch) -> None:
     llm = _FakeLLM(_text(), delay=0.02)
     env, rows = _wire_stream(monkeypatch, llm)
-    baker = asyncio.ensure_future(es.bake_example_audio(42))
+    baker = asyncio.ensure_future(_bake(42, 5))
     while es._loop_jobs().get(42) is None or es._loop_jobs()[42].phase != "baking":
         await asyncio.sleep(0.005)
     assert not es._loop_jobs()[42].dialogue.done()

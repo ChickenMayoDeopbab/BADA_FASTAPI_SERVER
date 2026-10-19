@@ -762,3 +762,39 @@ async def test_recorder_failure_does_not_break_the_stream(monkeypatch) -> None:
     chunks = _pcm_chunks(1.0)
     out, session = await _speak_session(_settings(), _chunk_transport(chunks))
     assert out == chunks + chunks and session.request_log == []
+
+
+async def test_excluded_worker_stays_available_while_a_bake_waits() -> None:
+    settings = _settings(urls="http://w1.test,http://w2.test")
+    call, _ = await try_acquire_realtime_tts(settings, transport=_ready_transport())
+    mine = call._worker_url
+    other = ({"http://w1.test", "http://w2.test"} - {mine}).pop()
+    batch = QwenTTSClient(settings, transport=_ready_transport())
+
+    async def _bake():
+        async with batch.connect(exclude={other}) as session:
+            return session._session_url
+
+    waiter = asyncio.ensure_future(_bake())
+    await asyncio.sleep(0.05)
+    assert has_free_worker(settings)
+    second, reason = await try_acquire_realtime_tts(settings, transport=_ready_transport())
+    assert second is not None and second._worker_url == other
+    call.release_slot()
+    assert await asyncio.wait_for(waiter, 2) == mine
+    second.release_slot()
+
+
+async def test_excluded_wait_still_times_out(monkeypatch) -> None:
+    monkeypatch.setattr(qwen_mod, "_SLOT_WAIT_TIMEOUT", 0.3)
+    settings = _settings(urls="http://w1.test,http://w2.test")
+    call, _ = await try_acquire_realtime_tts(settings, transport=_ready_transport())
+    other = ({"http://w1.test", "http://w2.test"} - {call._worker_url}).pop()
+    loop = asyncio.get_running_loop()
+    t0 = loop.time()
+    with pytest.raises(QwenTTSUnavailableError):
+        async with QwenTTSClient(settings, transport=_ready_transport()).connect(exclude={other}):
+            pass
+    assert 0.25 < loop.time() - t0 < 1.0
+    assert has_free_worker(settings)
+    call.release_slot()
