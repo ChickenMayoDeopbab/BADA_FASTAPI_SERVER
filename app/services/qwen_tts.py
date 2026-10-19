@@ -315,7 +315,7 @@ class QwenTTSClient:
             response = await client.post(
                 f"{base_url}/v1/tts",
                 json={"voice": voice, "text": text, "non_streaming_mode": True},
-                timeout=timeout,
+                timeout=httpx.Timeout(self._synth_timeout, read=timeout),
             )
         except httpx.TimeoutException as exc:
             raise QwenStalledError(f"{type(exc).__name__}: {exc}") from exc

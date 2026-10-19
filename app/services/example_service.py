@@ -11,6 +11,7 @@ from dataclasses import dataclass
 
 from anthropic import AsyncAnthropic
 from anthropic.types import MessageParam
+from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.exc import StaleDataError
 
@@ -306,6 +307,8 @@ async def _synthesize_qwen_ns(
             )
             parts.append(pcm)
             gains.append(gain)
+    if not parts:
+        raise QwenTTSUnavailableError("굽을 턴 없음")
     info["gain_db_min"] = round(min(gains), 2) if gains else None
     info["gain_db_max"] = round(max(gains), 2) if gains else None
     return example_audio.join_turns(parts), info, refs
@@ -447,8 +450,14 @@ async def _store_example(
 ) -> tuple[str | None, str | None]:
     """삭제된 행이면 올리지 않고, 저장하면 (키, 이전 키)"""
     if row is not None:
-        await db.refresh(row, ["deleted_at"])
-        if is_deleted(row):
+        try:
+            await db.refresh(row, ["deleted_at"])
+            gone = is_deleted(row)
+        except InvalidRequestError:
+            gone = True
+        if gone:
+            if after_upload is not None:
+                after_upload(None)
             return None, None
     stored_key = storage.upload_wav(key, pcm)
     if after_upload is not None:
