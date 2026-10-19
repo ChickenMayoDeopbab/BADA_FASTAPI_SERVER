@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 import weakref
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 
 import httpx
 
@@ -43,6 +45,50 @@ class QwenVoiceMissingError(QwenTTSUnavailableError):
     def __init__(self, voice: str) -> None:
         super().__init__(f"HTTP 404 voice={voice}")
         self.voice = voice
+
+
+class QwenCapHitError(QwenTTSUnavailableError):
+    """워커 생성 상한(502)"""
+
+
+class QwenStalledError(QwenTTSUnavailableError):
+    """요청 시간 초과"""
+
+
+class QwenUnreachableError(QwenTTSUnavailableError):
+    """워커 연결 실패"""
+
+
+NS_HEADER = "x-non-streaming"
+VOICE_REF_HEADER = "x-voice-ref"
+_REF_RE = re.compile(r"[0-9a-f]{8}")
+_UNREACHABLE = object()
+_CAP_BASE_S, _CAP_PER_CHAR_S = 5.0, 0.4  # 워커 max_frames_for 와 같은 값
+
+
+@dataclass(frozen=True)
+class NsResult:
+    pcm: bytes
+    ns: bool
+    ref: str | None
+    worker: str
+
+
+@dataclass(frozen=True)
+class RefsState:
+    state: str  # ok / down / no_refs / rolling / missing
+    refs: dict[str, str]
+    unreachable: tuple[str, ...] = ()
+    missing: tuple[str, ...] = ()
+
+
+def is_voice_ref(value: object) -> bool:
+    return isinstance(value, str) and _REF_RE.fullmatch(value) is not None
+
+
+def ns_timeout(base: float, text: str) -> float:
+    """워커 상한 502 가 클라이언트 타임아웃보다 먼저 오도록 하는 read 타임아웃"""
+    return max(base, (_CAP_BASE_S + _CAP_PER_CHAR_S * len(text)) * 0.8 + 10)
 
 
 class QwenTTSRunawayError(QwenTTSUnavailableError):
@@ -246,6 +292,92 @@ class QwenTTSClient:
             self._client(self._synth_timeout) as client,
         ):
             return await self._attempt(client, url, voice, text)
+
+    async def synth_ns(self, voice: str, text: str) -> NsResult:
+        """non_streaming_mode 로 한 번만 합성, 재시도는 부르는 쪽이 한다"""
+        if not self.enabled:
+            raise QwenTTSUnavailableError("qwen_tts_url 미설정")
+        timeout = ns_timeout(self._synth_timeout, text)
+        if self._session is not None:
+            return await self._post_ns(self._session, self._session_url or self._base_url, voice, text, timeout)
+        async with (
+            _hold_worker(self._settings) as url,
+            self._client(self._synth_timeout) as client,
+        ):
+            return await self._post_ns(client, url, voice, text, timeout)
+
+    async def _post_ns(
+        self, client: httpx.AsyncClient, base_url: str, voice: str, text: str, timeout: float
+    ) -> NsResult:
+        try:
+            response = await client.post(
+                f"{base_url}/v1/tts",
+                json={"voice": voice, "text": text, "non_streaming_mode": True},
+                timeout=timeout,
+            )
+        except httpx.TimeoutException as exc:
+            raise QwenStalledError(f"{type(exc).__name__}: {exc}") from exc
+        except httpx.ConnectError as exc:
+            raise QwenUnreachableError(f"{type(exc).__name__}: {exc}") from exc
+        except httpx.HTTPError as exc:
+            raise QwenTTSUnavailableError(f"{type(exc).__name__}: {exc}") from exc
+        status = response.status_code
+        if status == 404:
+            raise QwenVoiceMissingError(voice)
+        if status == 502:
+            raise QwenCapHitError(f"HTTP 502 voice={voice}")
+        if status >= 400:
+            raise QwenTTSUnavailableError(f"HTTP {status}")
+        if not response.content:
+            raise QwenTTSUnavailableError("빈 응답")
+        return NsResult(
+            pcm=response.content,
+            ns=response.headers.get(NS_HEADER) == "1",
+            ref=response.headers.get(VOICE_REF_HEADER),
+            worker=base_url,
+        )
+
+    async def health_refs(self, needed: Iterable[str]) -> RefsState:
+        """모든 워커의 ref 지문을 모아 판정"""
+        urls = worker_urls(self._settings)
+        found = await asyncio.gather(*(self._refs_of(url) for url in urls))
+        reachable = [(url, refs) for url, refs in zip(urls, found, strict=True) if refs is not _UNREACHABLE]
+        unreachable = tuple(url for url, refs in zip(urls, found, strict=True) if refs is _UNREACHABLE)
+        if not reachable:
+            return RefsState("down", {}, unreachable)
+        if any(refs is None for _, refs in reachable):
+            return RefsState("no_refs", {}, unreachable)
+        merged: dict[str, str] = {}
+        missing: list[str] = []
+        rolling = False
+        for voice in dict.fromkeys(needed):
+            values = {refs.get(voice) for _, refs in reachable}
+            if None in values:
+                missing.append(voice)
+            values.discard(None)
+            if len(values) > 1:
+                rolling = True
+            elif values:
+                merged[voice] = values.pop()
+        if rolling:
+            return RefsState("rolling", merged, unreachable)
+        if missing:
+            return RefsState("missing", merged, unreachable, tuple(missing))
+        return RefsState("ok", merged, unreachable)
+
+    async def _refs_of(self, url: str) -> dict[str, str] | None | object:
+        try:
+            async with self._client(self._health_timeout) as client:
+                response = await client.get(f"{url}/health")
+                response.raise_for_status()
+                body = response.json()
+        except Exception:
+            logger.info("Qwen TTS refs 조회 실패 %s", url, exc_info=True)
+            return _UNREACHABLE
+        refs = body.get("refs") if isinstance(body, dict) else None
+        if not isinstance(refs, dict):
+            return None
+        return {k: v for k, v in refs.items() if isinstance(k, str) and is_voice_ref(v)}
 
 
 class QwenRealtimeTTSSession:
