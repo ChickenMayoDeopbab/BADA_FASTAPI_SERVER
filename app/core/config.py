@@ -78,6 +78,7 @@ class Settings(BaseSettings):
     qwen_tts_realtime_enabled: bool = False
     qwen_tts_speed: float = 1.0 # 실시간 말 속도(0.8~1.25)
     qwen_scenario_voices: bool = False  # Qwen에 시나리오, 난이도 칸 보이스를 보낼지
+    example_preset_prebake: bool = True  # 서버 시작 때 프리셋 예시 미리 굽기
     csm_tts_urls: str | None = None
     csm_tts_realtime_enabled: bool = False
     csm_tts_voice: str = "ai"

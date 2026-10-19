@@ -6,6 +6,7 @@ import json
 import logging
 import weakref
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 
 from anthropic import AsyncAnthropic
 from anthropic.types import MessageParam
@@ -21,11 +22,13 @@ from app.core.usage import log_llm_usage, log_tts_usage
 from app.db.base import AsyncSessionLocal
 from app.db.models import ScenarioORM, is_deleted
 from app.schemas.scenario import ExampleConversationResponse, ExampleTurn
+from app.services.example_audio import CleanTurn, clean_turn
 from app.services.qwen_tts import (
     QwenTTSClient,
     QwenTTSUnavailableError,
     QwenVoiceMissingError,
     has_free_worker,
+    worker_urls,
 )
 from app.services.recording_storage import RecordingStorageService
 from app.services.tts import ElevenLabsTTSClient
@@ -36,9 +39,13 @@ _SAMPLE_RATE = 16_000
 _TURN_GAP_MS = 400
 _TURN_GAP_PCM = b"\x00" * (_SAMPLE_RATE * _TURN_GAP_MS // 1000 * 2)
 _TTS_MAX_CONCURRENCY = 3
-# 대본 생성(LLM) + 12턴 합성(실측 ~60초)에 여유를 둔 상한
-_PREBAKE_TIMEOUT_SEC = 180.0
+# 대본 생성(LLM) + 12턴 clean 합성(보통 턴당 1~3회, 최악 9회)에 여유를 둔 상한, plain 실측 ~60초
+_PREBAKE_TIMEOUT_SEC = 300.0
 _prebake_semaphore = loop_semaphore(1)
+_CLEAN_METHOD = "clean1"  # Qwen 키에 넣는 굽기 방식 표지
+_PRESET_PREBAKE_TIMEOUT_SEC = 600.0  # 10턴 clean 합성(집 PC 실측 42~88초, 최악 턴당 9회)과 워커 대기에 여유
+_PRESET_RETRY_SEC = 300.0
+_PRESET_PREBAKE_ROUNDS = 12  # 워커가 살아 있을 때 구워 본 라운드 상한, 죽은 라운드는 안 셈
 
 # 사용 중인 요청(지역변수)만 락을 강참조 → 요청이 끝나면 GC가 엔트리를 자동 제거
 _generation_locks: weakref.WeakValueDictionary[int, asyncio.Lock] = weakref.WeakValueDictionary()
@@ -161,14 +168,16 @@ async def _synthesize(
     return _TURN_GAP_PCM.join(parts)
 
 
-async def _synthesize_qwen(qwen_client: QwenTTSClient, dialogue: list[dict], ai_voice: str = "ai") -> bytes:
-    """GPU 서버로 합성"""
-    parts: list[bytes] = []
-    async with qwen_client.connect() as session:  # 턴마다 TCP 재연결하지 않게
+async def _synthesize_qwen(
+    qwen_client: QwenTTSClient, dialogue: list[dict], ai_voice: str = "ai"
+) -> tuple[bytes, list[CleanTurn]]:
+    """GPU 서버로 턴마다 끝 잘림 없이 합성"""
+    turns: list[CleanTurn] = []
+    async with qwen_client.connect() as session:
         for turn in dialogue:
             voice = ai_voice if turn["speaker"] == "ai" else "user"
-            parts.append(await session.synth(voice, turn["text"]))
-    return _TURN_GAP_PCM.join(parts)
+            turns.append(await clean_turn(lambda text, v=voice: session.synth(v, text), turn["text"]))
+    return _TURN_GAP_PCM.join(t.pcm for t in turns), turns
 
 
 def _audio_key(
@@ -178,10 +187,11 @@ def _audio_key(
     user_voice: str,
     *,
     qwen: bool = False,
+    method: str | None = None,
 ) -> str:
-    """대본이나 보이스가 바뀌면 키가 달라져 캐시가 자동 무효화"""
+    """대본, 보이스, 굽기 방식이 바뀌면 키가 달라져 캐시가 자동 무효화"""
     voices = [f"qwen-{ai_voice}", f"qwen-{user_voice}"] if qwen else [ai_voice, user_voice]
-    payload = json.dumps([dialogue, *voices], ensure_ascii=False)
+    payload = json.dumps([dialogue, *voices, *([method] if method else [])], ensure_ascii=False)
     digest = hashlib.sha1(payload.encode()).hexdigest()[:8]
     suffix = "-q" if qwen else ""
     return f"examples/{scenario_id}-{digest}{suffix}.wav"
@@ -239,8 +249,15 @@ async def _resolve_and_bake(
     storage: RecordingStorageService | None,
     *,
     trigger: str,
+    qwen_only: bool = False,
 ) -> tuple[list[dict], str | None]:
     """시나리오 생성 직후 오디오도 만들어 지도록"""
+    if not qwen_only and storage is not None and row is not None and row.example_audio_url:
+        dialogue = seed["example_dialogue"] if seed is not None else row.example_dialogue
+        if dialogue:
+            hit = _cache_hit(_keys(settings, row, scenario_id, dialogue), row.example_audio_url, qwen_only=False)
+            if hit:
+                return dialogue, hit
     lock = _generation_locks.setdefault(scenario_id, asyncio.Lock())
     async with lock:
         if row is not None:
@@ -251,9 +268,52 @@ async def _resolve_and_bake(
         if storage is None:
             return dialogue, None
         key = await _bake_locked(
-            db, settings, row, scenario_id, dialogue, storage, trigger=trigger
+            db, settings, row, scenario_id, dialogue, storage, trigger=trigger, qwen_only=qwen_only
         )
         return dialogue, key
+
+
+@dataclass(frozen=True)
+class _Keys:
+    qwen_ai: str
+    ai_voice: str
+    user_voice: str
+    qwen: str
+    qwen_fallback: str
+    eleven: str
+    legacy: tuple[str, str]
+
+
+def _keys(settings: Settings, row: ScenarioORM | None, scenario_id: int, dialogue: list[dict]) -> _Keys:
+    """설정 목소리 후 ai clean, EL, 이전 공식 키"""
+    stored = row.tts_voice_id if row is not None else None
+    voice = resolve_voice(stored, Difficulty.LOW)
+    ai_voice = el_voice_for(voice) or settings.elevenlabs_voice_id
+    user_voice = pick_example_user_voice(ai_voice)
+    qwen_ai = qwen_voice_for(voice, Difficulty.LOW) if getattr(settings, "qwen_scenario_voices", False) else "ai"
+    slot = profile_for(stored)
+    legacy_ai = (None if slot is not None and slot.voice_id == stored else stored) or settings.elevenlabs_voice_id
+    return _Keys(
+        qwen_ai=qwen_ai,
+        ai_voice=ai_voice,
+        user_voice=user_voice,
+        qwen=_audio_key(scenario_id, dialogue, qwen_ai, "user", qwen=True, method=_CLEAN_METHOD),
+        qwen_fallback=_audio_key(scenario_id, dialogue, "ai", "user", qwen=True, method=_CLEAN_METHOD),
+        eleven=_audio_key(scenario_id, dialogue, ai_voice, user_voice),
+        legacy=(
+            _audio_key(scenario_id, dialogue, "ai", "user", qwen=True),
+            _audio_key(scenario_id, dialogue, legacy_ai, pick_example_user_voice(legacy_ai)),
+        ),
+    )
+
+
+def _cache_hit(keys: _Keys, cached: str | None, *, qwen_only: bool) -> str | None:
+    """요청은 옛 예시도 바로 주고, 미리 굽기는 설정 목소리 clean 만 인정"""
+    candidates = [keys.qwen] if qwen_only else [keys.qwen, keys.qwen_fallback, keys.eleven, *keys.legacy]
+    for candidate in dict.fromkeys(candidates):
+        if cached and cached.endswith(candidate):
+            return candidate
+    return None
 
 
 async def _bake_locked(
@@ -265,42 +325,44 @@ async def _bake_locked(
     storage: RecordingStorageService,
     *,
     trigger: str,
+    qwen_only: bool = False,
 ) -> str | None:
-    """캐시에 없으면 합성해 저장하고 S3 키를 반환"""
-    stored = row.tts_voice_id if row is not None else None
-    voice = resolve_voice(stored, Difficulty.LOW)
-    ai_voice = el_voice_for(voice) or settings.elevenlabs_voice_id
-    user_voice = pick_example_user_voice(ai_voice)
-    qwen_ai = qwen_voice_for(voice, Difficulty.LOW) if getattr(settings, "qwen_scenario_voices", False) else "ai"
-    key_qwen = _audio_key(scenario_id, dialogue, qwen_ai, "user", qwen=True)
-    key_eleven = _audio_key(scenario_id, dialogue, ai_voice, user_voice)
-    slot = profile_for(stored)
-    legacy_ai = (None if slot is not None and slot.voice_id == stored else stored) or settings.elevenlabs_voice_id
-    key_qwen_legacy = _audio_key(scenario_id, dialogue, "ai", "user", qwen=True)
-    key_eleven_legacy = _audio_key(scenario_id, dialogue, legacy_ai, pick_example_user_voice(legacy_ai))
-
+    """캐시에 없으면 합성해 저장하고 S3 키를 반환, qwen_only 면 Qwen 으로 못 구울 때 None"""
+    keys = _keys(settings, row, scenario_id, dialogue)
+    qwen_ai, ai_voice, user_voice = keys.qwen_ai, keys.ai_voice, keys.user_voice
+    key_qwen, key_eleven = keys.qwen, keys.eleven
     cached = row.example_audio_url if row is not None else None
-    for candidate in dict.fromkeys((key_qwen, key_eleven, key_qwen_legacy, key_eleven_legacy)):
-        if cached and cached.endswith(candidate):
-            return candidate
+    hit = _cache_hit(keys, cached, qwen_only=qwen_only)
+    if hit:
+        return hit
 
     qwen_client = QwenTTSClient(settings)
     slot_busy = not has_free_worker(settings)
-    use_qwen = False if slot_busy else await qwen_client.healthy()
+    state = None
+    if qwen_only and not slot_busy and cached and cached.endswith(keys.qwen_fallback):
+        state = await qwen_client.health_state()
+        if qwen_client.voices is not None and qwen_ai not in qwen_client.voices:
+            return keys.qwen_fallback
+    if slot_busy:
+        use_qwen = False
+    elif state is not None:
+        use_qwen = state in ("ready", "busy")
+    else:
+        use_qwen = await qwen_client.healthy()
 
     started = now_ms()
-    engine, reason, pcm = "eleven", None, None
+    engine, reason, pcm, turns = "eleven", None, None, []
     if use_qwen:
         try:
-            pcm = await _synthesize_qwen(qwen_client, dialogue, qwen_ai)
+            pcm, turns = await _synthesize_qwen(qwen_client, dialogue, qwen_ai)
             engine = "qwen"
         except QwenVoiceMissingError as exc:
             reason = "voice_missing"
             logger.warning("Qwen 워커에 보이스 없음: %s", exc)
             if exc.voice == qwen_ai != "ai":
                 try:
-                    pcm = await _synthesize_qwen(qwen_client, dialogue)
-                    engine, qwen_ai, key_qwen = "qwen", "ai", key_qwen_legacy
+                    pcm, turns = await _synthesize_qwen(qwen_client, dialogue)
+                    engine, qwen_ai, key_qwen = "qwen", "ai", keys.qwen_fallback
                 except QwenVoiceMissingError as exc2:
                     logger.warning("Qwen 워커에 보이스 없음: %s", exc2)
                 except QwenTTSUnavailableError as exc2:
@@ -309,10 +371,16 @@ async def _bake_locked(
         except QwenTTSUnavailableError as exc:
             reason = "synth_failed"
             logger.warning("Qwen TTS 합성 실패 — ElevenLabs로 전체 재합성: %s", exc)
+    elif not qwen_client.enabled:
+        reason = "disabled"
     elif slot_busy:
         reason = "busy"
     else:
-        reason = "unhealthy" if qwen_client.enabled else "disabled"
+        reason = "unhealthy"
+
+    if pcm is None and qwen_only:
+        log_metric("example_tts_deferred", scenario_id=scenario_id, trigger=trigger, reason=reason)
+        return None
 
     eleven_chars: list[int] = []
     if pcm is None:
@@ -330,6 +398,8 @@ async def _bake_locked(
         fallback_reason=reason,
         voice=qwen_ai if engine == "qwen" else ai_voice,
         turns=len(dialogue),
+        clean_attempts=sum(t.attempts for t in turns) if engine == "qwen" else None,
+        clean_residual_cuts=sum(t.cut for t in turns) if engine == "qwen" else None,
         duration_ms=round(now_ms() - started, 1),
     )
     log_tts_usage(
@@ -364,3 +434,41 @@ async def bake_example_audio(scenario_id: int) -> None:
                                     RecordingStorageService(settings), trigger="prebake")
     except Exception:
         logger.exception("시나리오 %s 예시 오디오 미리 굽기 실패", scenario_id)
+
+
+async def prebake_presets() -> None:
+    """서버 시작 때 프리셋 예시를 지금 목소리,굽기 방식으로 맞춤"""
+    settings = get_settings()
+    if not settings.s3_bucket or not getattr(settings, "example_preset_prebake", True) or not worker_urls(settings):
+        return
+    pending = list(PRESET_MAP)
+    tried = 0
+    while True:
+        if await QwenTTSClient(settings).healthy():
+            tried += 1
+            pending = [sid for sid in pending if not await _prebake_preset(settings, sid)]
+            if not pending:
+                return
+            if tried >= _PRESET_PREBAKE_ROUNDS:
+                logger.warning("프리셋 예시 미리 굽기 못 끝냄: %s", pending)
+                return
+        await asyncio.sleep(_PRESET_RETRY_SEC)
+
+
+async def _prebake_preset(settings: Settings, scenario_id: int) -> bool:
+    """맞췄으면 True, Qwen 으로 못 구워 미뤘으면 False"""
+    try:
+        async with (
+            _prebake_semaphore(),
+            asyncio.timeout(_PRESET_PREBAKE_TIMEOUT_SEC),
+            AsyncSessionLocal() as db,
+        ):
+            row = await db.get(ScenarioORM, scenario_id)
+            _, key = await _resolve_and_bake(
+                db, settings, row, PRESET_MAP[scenario_id], scenario_id,
+                RecordingStorageService(settings), trigger="preset_prebake", qwen_only=True,
+            )
+            return key is not None
+    except Exception:
+        logger.exception("프리셋 %s 예시 미리 굽기 실패", scenario_id)
+        return False
