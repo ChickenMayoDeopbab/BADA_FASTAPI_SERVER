@@ -173,6 +173,7 @@ def log_tts_usage(
     scenario_id: object = None,
     trigger: object = None,
     ok: bool = True,
+    attempts: object = None,
 ) -> None:
     """tts_usage 지표"""
     with suppress(Exception):
@@ -188,4 +189,5 @@ def log_tts_usage(
             chars=_int(chars),
             audio_sec=round(_int(pcm_bytes) / PCM_BYTES_PER_SECOND, 3),
             turns=_int(turns),
+            **({"attempts": _int(attempts)} if attempts is not None else {}),
         )

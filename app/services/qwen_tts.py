@@ -60,6 +60,10 @@ class QwenStalledError(QwenTTSUnavailableError):
 class QwenUnreachableError(QwenTTSUnavailableError):
     """워커 연결 실패"""
 
+    def __init__(self, message: str, worker: str | None = None) -> None:
+        super().__init__(message)
+        self.worker = worker
+
 
 NS_HEADER = "x-non-streaming"
 VOICE_REF_HEADER = "x-voice-ref"
@@ -146,15 +150,28 @@ def has_free_worker(settings: Settings) -> bool:
 
 
 @asynccontextmanager
-async def _hold_worker(settings: Settings) -> AsyncIterator[str]:
-    """워커 하나를 잡고 그 URL을 반환"""
-    if not worker_urls(settings):
+async def _hold_worker(settings: Settings, exclude: Iterable[str] = ()) -> AsyncIterator[str]:
+    """워커 하나를 잡고 그 URL을 반환, exclude 에 든 워커는 건너뜀"""
+    urls = worker_urls(settings)
+    if not urls:
         raise QwenTTSUnavailableError("qwen_tts_url 미설정")
+    skip = set(exclude)
+    if skip and not set(urls) - skip:
+        raise QwenTTSUnavailableError("쓸 수 있는 워커 없음(모두 제외)")
     pool = _pool(settings)
+    skipped: list[str] = []
     try:
-        url = await asyncio.wait_for(pool.get(), timeout=_SLOT_WAIT_TIMEOUT)
-    except TimeoutError:
-        raise QwenTTSUnavailableError("GPU 워커 대기 시간 초과") from None
+        while True:
+            try:
+                url = await asyncio.wait_for(pool.get(), timeout=_SLOT_WAIT_TIMEOUT)
+            except TimeoutError:
+                raise QwenTTSUnavailableError("GPU 워커 대기 시간 초과") from None
+            if url not in skip:
+                break
+            skipped.append(url)
+    finally:
+        for other in skipped:
+            pool.put_nowait(other)
     try:
         yield url
     finally:
@@ -188,9 +205,9 @@ class QwenTTSClient:
         return httpx.AsyncClient(timeout=timeout, transport=self._transport)
 
     @asynccontextmanager
-    async def connect(self) -> AsyncIterator[QwenTTSClient]:
+    async def connect(self, exclude: Iterable[str] = ()) -> AsyncIterator[QwenTTSClient]:
         """여러 턴을 합성할 때 커넥션 재사용"""
-        async with _hold_worker(self._settings) as url:
+        async with _hold_worker(self._settings, exclude) as url:
             try:
                 client = self._client(self._synth_timeout)
                 await client.__aenter__()
@@ -320,7 +337,7 @@ class QwenTTSClient:
         except httpx.TimeoutException as exc:
             raise QwenStalledError(f"{type(exc).__name__}: {exc}") from exc
         except httpx.ConnectError as exc:
-            raise QwenUnreachableError(f"{type(exc).__name__}: {exc}") from exc
+            raise QwenUnreachableError(f"{type(exc).__name__}: {exc}", worker=base_url) from exc
         except httpx.HTTPError as exc:
             raise QwenTTSUnavailableError(f"{type(exc).__name__}: {exc}") from exc
         status = response.status_code

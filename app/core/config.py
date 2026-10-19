@@ -78,6 +78,12 @@ class Settings(BaseSettings):
     qwen_tts_realtime_enabled: bool = False
     qwen_tts_speed: float = 1.0 # 실시간 말 속도(0.8~1.25)
     qwen_tts_req_metric: bool = True  # 실시간 요청별 끝·쉼·시간 계측 줄
+    example_qwen_ns: bool = False  # 프리셋·새 커스텀 예시를 Qwen non_streaming_mode 로 굽기
+    example_request_wait_sec: float = 20.0  # 예시 요청이 굽기를 기다리는 상한(앱 30초 타임아웃 안)
+    example_turn_prior_sec: float = 6.0  # 남은 굽기 시간 추정용 턴당 사전값
+    example_level_ai_db: float = -16.94749568714168  # 예시 AI 말소리 크기 목표(청취본 중앙값)
+    example_level_user_db: float = -22.544892951720513  # 예시 user 말소리 크기 목표(청취본 중앙값)
+    example_ns_skip_presets: str = ""  # N 굽기에서 뺄 프리셋 id 콤마 목록(그 프리셋은 예전 굽기 그대로)
     qwen_scenario_voices: bool = False  # Qwen에 시나리오, 난이도 칸 보이스를 보낼지
     csm_tts_urls: str | None = None
     csm_tts_realtime_enabled: bool = False

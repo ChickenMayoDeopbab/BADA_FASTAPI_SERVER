@@ -98,6 +98,19 @@ class RecordingStorageService:
             return False
         return True
 
+    def copy(self, src: str, dst: str) -> bool:
+        """버킷 안 복사, 원본이 없으면 False"""
+        if not self._bucket or not src or not dst or self._client is None:
+            return False
+        try:
+            self._client.copy_object(Bucket=self._bucket, Key=dst, CopySource={"Bucket": self._bucket, "Key": src})
+        except Exception as exc:
+            code = getattr(exc, "response", {}).get("Error", {}).get("Code")
+            if code in ("NoSuchKey", "404", "NotFound"):
+                return False
+            raise
+        return True
+
     def delete(self, key: str) -> bool:
         if not self._bucket or not key or self._client is None:
             return False
