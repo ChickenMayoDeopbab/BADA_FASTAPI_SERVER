@@ -7,7 +7,7 @@ from pathlib import Path
 
 from app.services import example_audio, example_service
 
-PINS = {"ns1": "50abc930fcc3"}
+PINS = {"ns1": "85fc1e5ff8fd"}
 
 
 def _fingerprint(source: str) -> str:

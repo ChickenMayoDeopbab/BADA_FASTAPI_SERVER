@@ -1082,8 +1082,9 @@ class _FakeNsClient:
         self.connects = 0
 
     @asynccontextmanager
-    async def connect(self):
+    async def connect(self, exclude=()):
         self.connects += 1
+        self.excluded = set(exclude)
         yield self
 
     async def synth_ns(self, voice: str, text: str):
