@@ -377,15 +377,18 @@ async def test_synth_ns_read_timeout_grows_with_text() -> None:
     from app.services.qwen_tts import ns_timeout
 
     seen: list[float] = []
+    connects: list[float] = []
 
     def _handler(request: httpx.Request) -> httpx.Response:
         seen.append(request.extensions["timeout"]["read"])
+        connects.append(request.extensions["timeout"]["connect"])
         return httpx.Response(200, content=b"\x01\x02", headers={"X-Non-Streaming": "1"})
 
     client = _client(_handler)
     await client.synth_ns("ai", "네.")
     await client.synth_ns("ai", "가" * 300)
     assert seen == [ns_timeout(5.0, "네."), ns_timeout(5.0, "가" * 300)]
+    assert connects == [5.0, 5.0]
     assert ns_timeout(30.0, "가" * 47) == 30.0
     assert ns_timeout(30.0, "가" * 300) == pytest.approx(110.0)
 
@@ -399,8 +402,10 @@ async def test_synth_ns_inside_connect_uses_the_held_worker() -> None:
 
     client = _multi(_handler, "http://w1.test,http://w2.test")
     async with client.connect() as session:
+        held = session._session_url
         results = [await session.synth_ns("ai", "네.") for _ in range(3)]
-    assert len(set(hosts)) == 1 and {r.worker for r in results} == {f"http://{hosts[0]}"}
+    assert hosts == [httpx.URL(held).host] * 3
+    assert {r.worker for r in results} == {held}
 
 
 def _refs_handler(table: dict):

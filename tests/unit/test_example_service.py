@@ -1379,3 +1379,79 @@ async def test_store_example_skips_soft_deleted_row() -> None:
             await other.commit()
         stored, _ = await example_service._store_example(db, row, storage, "examples/42-k.wav", b"\x01\x02")
     assert stored is None and storage.uploads == []
+
+
+def _faded(fade_ms: float) -> bytes:
+    import numpy as np
+
+    sr = 16_000
+    t = np.arange(int(sr * 0.6)) / sr
+    x = (0.1 * np.sin(2 * np.pi * 220 * t)).astype(np.float32)
+    n = int(sr * fade_ms / 1000)
+    if n:
+        x[-n:] *= np.geomspace(1.0, 1e-3, n).astype(np.float32)
+    pad = np.zeros(int(sr * 0.3), dtype=np.float32)
+    return (np.concatenate([pad, x, pad]) * 32767).astype("<i2").tobytes()
+
+
+async def test_ns_bake_all_cut_picks_longest_decay_not_last() -> None:
+    from app.services import example_audio
+
+    text = "네, 알겠습니다."
+    renders = [_faded(ms) for ms in (0, 18, 6, 12, 0, 6, 24, 0)]
+    assert all(example_audio.is_cut(r) for r in renders)
+    client = _FakeNsClient({text: list(renders)})
+    pcm, info, _ = await _ns(client, [{"speaker": "ai", "text": text}])
+    evaluated = [example_audio.evaluate(r, text) for r in renders]
+    assert pcm == example_audio.finish(evaluated, _NS_LEVELS["ai"])[0]
+    assert pcm != example_audio.finish(evaluated[-1:], _NS_LEVELS["ai"])[0]
+    assert info["residual_cuts"] == 1
+
+
+async def test_ns_bake_all_long_picks_shortest_and_reports_tail() -> None:
+    from app.services import example_audio
+
+    text = "네."
+    long_a = _speech_pcm(sec=4.0)
+    long_b = _speech_pcm(sec=3.0)
+    client = _FakeNsClient({text: [long_a] * 7 + [long_b]})
+    pcm, info, _ = await _ns(client, [{"speaker": "ai", "text": text}])
+    assert pcm == example_audio.finish([example_audio.evaluate(long_b, text)], _NS_LEVELS["ai"])[0]
+    assert info["length_fails"] == 8
+    assert info["tail_after_rms_s_max"] == round(example_audio.tail_after_rms_s(long_b), 3)
+
+
+async def test_ns_bake_empty_dialogue_raises() -> None:
+    with pytest.raises(QwenTTSUnavailableError):
+        await _ns(_FakeNsClient(), [])
+
+
+async def test_store_example_logs_and_skips_hard_deleted_row() -> None:
+    from sqlalchemy import delete
+
+    from app.db.models import ScenarioORM
+
+    storage = _DeletingStorage()
+    logged: list = []
+    async with _scenario_db() as factory, factory() as db:
+        row = await db.get(ScenarioORM, 42)
+        async with factory() as other:
+            await other.execute(delete(ScenarioORM).where(ScenarioORM.scenario_id == 42))
+            await other.commit()
+        got = await example_service._store_example(
+            db, row, storage, "examples/42-k.wav", b"\x01\x02", logged.append
+        )
+    assert got == (None, None) and logged == [None]
+    assert storage.uploads == [] and storage.deleted == []
+
+
+async def test_ns_bake_residual_cut_follows_the_chosen_render() -> None:
+    from app.services import example_audio
+
+    text = "네."
+    short_clean = _speech_pcm(sec=3.0)
+    long_cut = _speech_pcm(sec=4.0, fade=False)
+    assert example_audio.is_cut(long_cut) and not example_audio.is_cut(short_clean)
+    client = _FakeNsClient({text: [short_clean] + [long_cut] * 7})
+    _, info, _ = await _ns(client, [{"speaker": "ai", "text": text}])
+    assert info["residual_cuts"] == 0 and info["length_fails"] == 8

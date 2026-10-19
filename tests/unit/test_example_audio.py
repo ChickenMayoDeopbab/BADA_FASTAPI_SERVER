@@ -60,15 +60,21 @@ def test_end_detection_matches_bench_oracle() -> None:
             parts.append(_tone(rng.uniform(0.2, 0.8), amp=rng.uniform(0.05, 0.6), fade_ms=rng.choice([0, 5, 15, 40])))
             parts.append(_silence(rng.uniform(0.05, 0.4)))
         w = np.concatenate(parts)
-        ours = [round(d, 6) for _, _, d in ea._ends(w)]
-        theirs = [round(d, 6) for _, d, _ in post.speech_ends(w)]
+        ours = [(round(s / _SR, 6), round(d, 6)) for s, _, d in ea._ends(w)]
+        theirs = [(round(t, 6), round(d, 6)) for t, d, _ in post.speech_ends(w)]
         assert ours == theirs
 
 
 def test_trim_keeps_100ms_lead_and_120ms_after_last_speech() -> None:
     pcm = _pcm(_silence(0.8), _tone(1.0, fade_ms=30), _silence(1.0))
-    out = ea.trim(pcm)
-    assert abs(_sec(out) - (0.1 + 1.0 + 0.12)) < 0.03
+    w = ea._samples(pcm)
+    onset, last_end = ea._onset(w), ea._ends(w)[-1][0]
+    assert ea.trim(pcm) == pcm[(onset - 1600) * 2 : (last_end + 1920) * 2]
+
+
+def test_onset_ignores_a_blip_shorter_than_three_frames() -> None:
+    pcm = _pcm(_silence(0.5), _tone(0.04), _silence(0.5), _tone(1.0, fade_ms=30), _silence(0.3))
+    assert ea._onset(ea._samples(pcm)) >= int(1.04 * _SR) - 320
 
 
 def test_trim_keeps_short_tail_as_is() -> None:
@@ -128,11 +134,12 @@ def test_match_level_leaves_silence_unchanged() -> None:
 
 
 def test_match_level_quantizes_like_the_listening_kit() -> None:
-    pcm = _pcm(_silence(0.1), _tone(0.8, amp=0.1, fade_ms=20))
+    pcm = _pcm(_silence(0.1), _tone(0.8, amp=0.1))
     x = np.frombuffer(pcm, dtype="<i2").astype(np.float32) / 32768
-    level = ea.speech_db(pcm)
-    y = x * 10 ** ((-16.94749568714168 - level) / 20)
-    expected = (np.clip(y, -1, 1) * 32767).astype("<i2").tobytes()
+    gain = 10 ** ((-16.94749568714168 - ea.speech_db(pcm)) / 20)
+    expected = (np.clip(x * gain, -1, 1) * 32767).astype("<i2").tobytes()
+    wide = (np.clip(x.astype(np.float64) * gain, -1, 1) * 32767).astype("<i2").tobytes()
+    assert wide != expected
     assert ea.match_level(pcm, -16.94749568714168)[0] == expected
 
 
@@ -156,6 +163,10 @@ def test_pick_all_cut_takes_longest_decay_among_fitting() -> None:
         _render(True, False, 8, 1.0, b"c"),
     ]
     assert ea.pick(renders).pcm == b"c"
+
+
+def test_pick_tie_keeps_the_earlier_render() -> None:
+    assert ea.pick([_render(True, False, 4, 1.0, b"a"), _render(True, False, 4, 1.0, b"b")]).pcm == b"a"
 
 
 def test_pick_all_long_takes_shortest_span() -> None:
