@@ -11,6 +11,7 @@ import weakref
 from collections.abc import AsyncIterator, Callable, Iterable
 from dataclasses import dataclass
 
+import httpx
 from anthropic import AsyncAnthropic
 from anthropic.types import MessageParam
 from sqlalchemy.exc import InvalidRequestError
@@ -87,37 +88,54 @@ never digits like '4분' — TTS reads '4분' as minutes. The "user" counts thei
 """
 
 
+def _normalize_turn(item: object) -> dict | None:
+    """대화 원소 하나를 {speaker, text} 로, 아니면 None"""
+    if not isinstance(item, dict):
+        return None
+    speaker = str(item.get("speaker", "")).strip().lower()
+    text = str(item.get("text", "")).strip()
+    if speaker not in ("ai", "user") or not text:
+        return None
+    return {"speaker": speaker, "text": text}
+
+
 def _normalize_dialogue(raw: object) -> list[dict]:
     """LLM이 생성한 예시 대화를 {speaker, text} 형태로 정규화"""
     if not isinstance(raw, list):
         raise ValueError("예시 대화 응답이 JSON 배열이 아닙니다.")
-    turns: list[dict] = []
-    for item in raw:
-        if not isinstance(item, dict):
-            continue
-        speaker = str(item.get("speaker", "")).strip().lower()
-        text = str(item.get("text", "")).strip()
-        if speaker not in ("ai", "user") or not text:
-            continue
-        turns.append({"speaker": speaker, "text": text})
+    turns = [turn for turn in (_normalize_turn(item) for item in raw) if turn is not None]
     if len(turns) < 2:
         raise ValueError("예시 대화 턴이 부족합니다.")
     return turns
 
 
-async def _generate_custom_dialogue(settings: Settings, row: ScenarioORM) -> list[dict]:
-    """커스텀 시나리오의 예시 대화를 LLM으로 생성"""
+def _parse_dialogue_text(raw: str) -> list[dict]:
+    """LLM 출력 글 전체를 대화로"""
+    raw = raw.strip()
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+    return _normalize_dialogue(json.loads(raw.strip()))
+
+
+def _dialogue_prompt(row: ScenarioORM) -> str:
     steps = "\n".join(
         f"{t.get('step')}. {t.get('ai_goal', '')} (힌트: {t.get('hint', '')})"
         for t in (row.script or [])
         if isinstance(t, dict)
     )
-    user_msg = (
+    return (
         f"Scenario title: {row.title}\n"
         f"Call purpose: {row.call_purpose}\n"
         f"Call target: {row.call_target}\n"
         f"Script steps:\n{steps}"
     )
+
+
+async def _generate_custom_dialogue(settings: Settings, row: ScenarioORM, attempt: int = 1) -> list[dict]:
+    """커스텀 시나리오의 예시 대화를 LLM으로 생성"""
+    user_msg = _dialogue_prompt(row)
     client = AsyncAnthropic(api_key=settings.anthropic_api_key)
     ai_response = await client.messages.create(
         model=settings.llm_analysis_model,
@@ -132,13 +150,9 @@ async def _generate_custom_dialogue(settings: Settings, row: ScenarioORM) -> lis
         usage=getattr(ai_response, "usage", None),
         user_id=getattr(row, "user_id", None),
         scenario_id=getattr(row, "scenario_id", None),
+        **({"attempt": attempt} if attempt != 1 else {}),
     )
-    raw = ai_response.content[0].text.strip()
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-    return _normalize_dialogue(json.loads(raw.strip()))
+    return _parse_dialogue_text(ai_response.content[0].text)
 
 
 async def _one_text(text: str) -> AsyncIterator[str]:
@@ -752,8 +766,13 @@ async def _bake_job(
         if row is None or is_deleted(row):
             _resolve_future(job.dialogue, [])
             return None
-        seed = None if row.is_custom else PRESET_MAP.get(scenario_id)
-        dialogue = await _resolve_dialogue(db, settings, row, seed)
+        stream = bool(row.is_custom and not row.example_dialogue)
+        if not stream:
+            seed = None if row.is_custom else PRESET_MAP.get(scenario_id)
+            dialogue = await _resolve_dialogue(db, settings, row, seed)
+    if stream:
+        return await _bake_streaming(settings, storage, scenario_id, trigger, job, expect_refs=expect_refs,
+                                     exclude=exclude)
     _resolve_future(job.dialogue, dialogue)
     job.turns_total = len(dialogue)
     job.phase = "queued"
@@ -834,6 +853,22 @@ async def _bake_ns(
             log_metric("example_tts_deferred", scenario_id=scenario_id, trigger=trigger, reason=reason)
             return None
         return await _fallback_plain(settings, storage, scenario_id, dialogue, trigger, reason)
+    return await _store_ns(settings, storage, scenario_id, dialogue, voices, levels, pcm, info, refs, trigger, started)
+
+
+async def _store_ns(
+    settings: Settings,
+    storage: RecordingStorageService,
+    scenario_id: int,
+    dialogue: list[dict],
+    voices: dict[str, str],
+    levels: dict[str, float],
+    pcm: bytes,
+    info: dict,
+    refs: dict[str, str],
+    trigger: str,
+    started: float,
+) -> str | None:
     key = _ns_key(scenario_id, dialogue, _ns_v8(voices, refs, levels))
     async with AsyncSessionLocal() as db:
         row = await db.get(ScenarioORM, scenario_id)
@@ -900,7 +935,7 @@ async def _fallback_plain(
 
 def _remaining_sec(job: _BakeJob, settings: Settings) -> float:
     """다 구워질 때까지 남은 시간 추정, 모르면 무한"""
-    if job.phase in ("dialogue", "queued"):
+    if job.phase in ("dialogue", "queued") or not job.dialogue.done():
         return float("inf")
     if job.phase == "done":
         return 0.0
@@ -1186,3 +1221,264 @@ async def reject_preset(scenario_id: int, restore_key: str) -> dict:
     storage.delete(current_ns)
     log_metric("example_tts", scenario_id=scenario_id, trigger="reject", prev_key=current, key=restore_key)
     return {"rejected": current_ns, "restored": restore_key}
+
+
+_LLM_TIMEOUT_SEC = 60.0
+_STREAM_END = object()
+
+
+class _StreamFailed:
+    def __init__(self, exc: BaseException) -> None:
+        self.exc = exc
+
+
+class _StreamAbortedError(Exception):
+    """대본 스트림이 끊겨 굽기를 멈춤"""
+
+
+class _ArrayStreamParser:
+    """JSON 배열 출력을 조금씩 받아 최상위 원소가 닫힐 때마다 돌려준다"""
+
+    def __init__(self) -> None:
+        self._depth = 0
+        self._in_string = False
+        self._escape = False
+        self._buf: list[str] = []
+        self._started = False
+        self.closed = False
+
+    def feed(self, text: str) -> list[object]:
+        out: list[object] = []
+        for ch in text:
+            if self.closed:
+                continue
+            if not self._started:
+                if ch == "[":
+                    self._started, self._depth = True, 1
+                continue
+            if self._depth >= 2:
+                self._buf.append(ch)
+            if self._in_string:
+                if self._escape:
+                    self._escape = False
+                elif ch == "\\":
+                    self._escape = True
+                elif ch == '"':
+                    self._in_string = False
+                continue
+            if ch == '"':
+                self._in_string = True
+            elif ch in "{[":
+                if self._depth == 1:
+                    self._buf = [ch]
+                self._depth += 1
+            elif ch in "}]":
+                self._depth -= 1
+                if self._depth == 1 and self._buf:
+                    with contextlib.suppress(ValueError):
+                        out.append(json.loads("".join(self._buf)))
+                    self._buf = []
+                elif self._depth == 0:
+                    self.closed = True
+        return out
+
+
+def _snapshot_usage(stream) -> object:
+    try:
+        return stream.current_message_snapshot.usage
+    except Exception:
+        return None
+
+
+async def _stream_dialogue(settings: Settings, row: ScenarioORM, queue: asyncio.Queue) -> list[dict]:
+    """대본을 스트리밍으로 받아 완성된 턴을 큐에 넣고, 끝나면 검증한다"""
+    client = AsyncAnthropic(api_key=settings.anthropic_api_key)
+    parser = _ArrayStreamParser()
+    turns: list[dict] = []
+    parts: list[str] = []
+    stream = None
+    try:
+        async with asyncio.timeout(_LLM_TIMEOUT_SEC), client.messages.stream(
+            model=settings.llm_analysis_model,
+            max_tokens=1500,
+            system=_EXAMPLE_GEN_SYSTEM,
+            messages=[MessageParam(role="user", content=_dialogue_prompt(row))],
+            timeout=httpx.Timeout(_LLM_TIMEOUT_SEC, connect=5.0),
+        ) as stream:
+            async for text in stream.text_stream:
+                parts.append(text)
+                for element in parser.feed(text):
+                    turn = _normalize_turn(element)
+                    if turn is not None:
+                        turns.append(turn)
+                        queue.put_nowait(turn)
+            final = await stream.get_final_message()
+    except BaseException:
+        log_llm_usage("anthropic", settings.llm_analysis_model, "example_dialogue",
+                      usage=_snapshot_usage(stream) if stream is not None else None,
+                      user_id=getattr(row, "user_id", None), scenario_id=getattr(row, "scenario_id", None), ok=False)
+        raise
+    log_llm_usage("anthropic", settings.llm_analysis_model, "example_dialogue", usage=getattr(final, "usage", None),
+                  user_id=getattr(row, "user_id", None), scenario_id=getattr(row, "scenario_id", None))
+    if getattr(final, "stop_reason", None) != "end_turn" or _parse_dialogue_text("".join(parts)) != turns:
+        raise ValueError("스트림 대본 검증 실패")
+    return turns
+
+
+async def _produce_dialogue(
+    settings: Settings,
+    scenario_id: int,
+    queue: asyncio.Queue,
+    committed: asyncio.Future,
+    job: _BakeJob,
+    released: asyncio.Event,
+) -> None:
+    """대본을 만들어 commit, 스트림이 실패하면 비스트리밍으로 한 번 더"""
+    signalled = False
+    try:
+        lock = _generation_locks.setdefault(scenario_id, asyncio.Lock())
+        async with lock, AsyncSessionLocal() as db:
+            row = await db.get(ScenarioORM, scenario_id)
+            if row is None or is_deleted(row):
+                raise ScenarioNotFoundError(f"시나리오 {scenario_id} 없음")
+            if row.example_dialogue:
+                dialogue = row.example_dialogue
+                for turn in dialogue:
+                    queue.put_nowait(turn)
+                queue.put_nowait(_STREAM_END)
+                signalled = True
+            else:
+                try:
+                    dialogue = await _stream_dialogue(settings, row, queue)
+                    queue.put_nowait(_STREAM_END)
+                    signalled = True
+                except Exception as exc:
+                    logger.warning("시나리오 %s 대본 스트림 실패, 비스트리밍으로 다시: %s", scenario_id, exc)
+                    queue.put_nowait(_StreamFailed(exc))
+                    signalled = True
+                    if job.phase == "baking":
+                        with contextlib.suppress(TimeoutError):
+                            await asyncio.wait_for(released.wait(), _LLM_TIMEOUT_SEC)
+                    dialogue = await _generate_custom_dialogue(settings, row, attempt=2)
+                row.example_dialogue = dialogue
+                await db.commit()
+        _resolve_future(committed, dialogue)
+    except BaseException as exc:
+        if not signalled:
+            queue.put_nowait(_StreamFailed(exc))
+        if not committed.done():
+            committed.set_exception(exc if isinstance(exc, Exception) else RuntimeError("대본 생성 취소"))
+        raise
+
+
+async def _consume_turns(
+    settings: Settings,
+    queue: asyncio.Queue,
+    job: _BakeJob,
+    voices: dict[str, str],
+    levels: dict[str, float],
+    expect_refs: dict[str, str] | None,
+    exclude: tuple[str, ...],
+    released: asyncio.Event,
+) -> tuple:
+    """첫 턴이 오면 굽기 시작, 결과는 예외 대신 값으로 돌려준다"""
+    try:
+        return await _consume(settings, queue, job, voices, levels, expect_refs, exclude)
+    finally:
+        released.set()
+
+
+async def _consume(
+    settings: Settings,
+    queue: asyncio.Queue,
+    job: _BakeJob,
+    voices: dict[str, str],
+    levels: dict[str, float],
+    expect_refs: dict[str, str] | None,
+    exclude: tuple[str, ...],
+) -> tuple:
+    first = await queue.get()
+    if first is _STREAM_END or isinstance(first, _StreamFailed):
+        return ("aborted",)
+    consumed: list[dict] = []
+
+    async def _turns():
+        item = first
+        while True:
+            if item is _STREAM_END:
+                return
+            if isinstance(item, _StreamFailed):
+                raise _StreamAbortedError()
+            consumed.append(item)
+            yield item
+            item = await queue.get()
+
+    job.phase = "queued"
+    async with _prebake_semaphore():
+        job.phase = "baking"
+        try:
+            async with asyncio.timeout(_CUSTOM_NS_BUDGET_SEC):
+                pcm, info, refs = await _synthesize_qwen_ns(
+                    QwenTTSClient(settings), _turns(), voices, levels=levels,
+                    expect_refs=expect_refs, on_turn=job.turn_done, exclude=exclude,
+                )
+        except _StreamAbortedError:
+            return ("aborted",)
+        except (QwenTTSUnavailableError, TimeoutError) as exc:
+            return ("fail", _ns_reason(exc))
+    return ("ok", pcm, info, refs, consumed)
+
+
+async def _bake_streaming(
+    settings: Settings,
+    storage: RecordingStorageService,
+    scenario_id: int,
+    trigger: str,
+    job: _BakeJob,
+    *,
+    expect_refs: dict[str, str] | None,
+    exclude: tuple[str, ...],
+) -> str | None:
+    """대본 스트림과 굽기를 겹쳐 돌린다"""
+    loop = asyncio.get_running_loop()
+    levels = _levels(settings)
+    async with AsyncSessionLocal() as db:
+        row = await db.get(ScenarioORM, scenario_id)
+        if row is None or is_deleted(row):
+            _resolve_future(job.dialogue, [])
+            return None
+        voices = _ns_voices(settings, row, scenario_id, [])
+        await db.commit()
+    queue: asyncio.Queue = asyncio.Queue()
+    committed: asyncio.Future = loop.create_future()
+    started = now_ms()
+    released = asyncio.Event()
+    producer = loop.create_task(_produce_dialogue(settings, scenario_id, queue, committed, job, released))
+    consumer = loop.create_task(_consume_turns(settings, queue, job, voices, levels, expect_refs, exclude, released))
+    try:
+        rendered = await consumer
+        dialogue = await committed
+    finally:
+        for task in (producer, consumer):
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(producer, consumer, return_exceptions=True)
+    _resolve_future(job.dialogue, dialogue)
+    job.turns_total = len(dialogue)
+    if rendered[0] == "ok" and rendered[4] == dialogue:
+        _, pcm, info, refs, _ = rendered
+        job.phase = "done"
+        return await _store_ns(settings, storage, scenario_id, dialogue, voices, levels, pcm, info, refs, trigger,
+                               started)
+    if rendered[0] == "fail":
+        job.fail_reason = rendered[1]
+        job.phase = "done"
+        return await _fallback_plain(settings, storage, scenario_id, dialogue, trigger, rendered[1])
+    job.phase = "queued"
+    async with _prebake_semaphore():
+        job.phase = "baking"
+        try:
+            return await _bake_ns(settings, storage, scenario_id, dialogue, trigger, job,
+                                  expect_refs=expect_refs, exclude=exclude, force=False)
+        finally:
+            job.phase = "done"
