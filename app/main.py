@@ -1,4 +1,3 @@
-import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -16,7 +15,6 @@ from app.core.metrics import log_metric, now_ms
 from app.db.base import init_db
 from app.deps.redis import close_redis, init_redis
 from app.services import usage_service
-from app.services.example_service import prebake_presets
 from app.workers.avti_worker import drain as drain_avti
 from app.workers.voice_morph_worker import drain as drain_morphs
 
@@ -32,13 +30,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     await init_db()
     usage_service.install()
-    prebake = asyncio.create_task(prebake_presets())
 
     try:
         yield
     finally:
-        prebake.cancel()
-        await asyncio.gather(prebake, return_exceptions=True)
         await usage_service.drain()
         await drain_avti()
         await drain_morphs()

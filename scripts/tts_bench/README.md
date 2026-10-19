@@ -85,24 +85,6 @@
 
 AIHub 원본은 이용 정책상 'AI 학습용' 이라 실제 사람 목소리를 서비스 클론 참조로 쓰는 것은 회색 지대다 — 쓰기 전에 AIHub 에 확인할 것(계획 0069 10절).
 
-## 프리셋 예시 굽기 비교 (계획 0070)
-
-프리셋 예시 대화를 지금 방식(plain, 턴마다 한 요청)과 운영 새 방식(clean — 꼬리말 ` ... 네.` 붙여 합성 → 마지막 쉼에서 잘라내기 → 끝 '뚝' 이면 그 턴만 다시, 앞 무음 100ms)으로 구워 비교한다. clean 은 운영 `app/services/example_audio.py` 를 그대로 쓴다. **배포 전에 듣고 승인하는 용도.**
-
-| 파일 | 어디서 | 하는 일 |
-|---|---|---|
-| `bake_presets.py export` | 맥, 레포 venv | 레포 프리셋 8개(대본·칸) → `presets.json` |
-| `bake_presets.py gen` | 집 PC, 포크 venv | 프리셋 × {plain, clean} 굽기 → `report.md`(방식·보이스별 끝 잘림·시도 수·앞 무음) · `index.html`(대화 단위 청취) · `set/`(g1_score 받아쓰기 — 꼬리말 '네' 가 남거나 말이 잘렸는지) |
-
-1. 맥: `.venv/bin/python scripts/tts_bench/bake_presets.py export --out /tmp/presets.json`
-2. 맥 → 집 PC: `scp -o ClearAllForwardings=yes scripts/tts_bench/bake_presets.py scripts/tts_bench/gen_qwen.py app/services/example_audio.py /tmp/presets.json homepc:C:/qwen-out/`
-3. 집 PC WSL(qwen-tts 를 내리고): `$PY /mnt/c/qwen-out/bake_presets.py gen --presets /mnt/c/qwen-out/presets.json --voices /mnt/c/qwen-out/voices.json --voices /mnt/c/qwen-out/aihub_voices2/refs_h3/voices.part.json --ai-voice slot --out /mnt/c/qwen-out/presets_slot`
-   — 지금 운영(ai 목소리)으로 보려면 `--ai-voice ai --out /mnt/c/qwen-out/presets_ai`. 한두 개만 먼저 보려면 `--only 1,7`.
-   — 'clean 의 꼬리말 포기(plain 대체)' 가 많으면 Qwen 이 '...' 에서 150ms 넘게 쉬지 않는다는 뜻이다. `--methods clean --tail-phrase ' ...... 네.'`(또는 `'. 네.'`) 로 꼬리말만 바꿔 다른 `--out` 에 굽고 비교한다.
-4. 맥으로 `scp -o ClearAllForwardings=yes -r homepc:C:/qwen-out/presets_slot ~/school/narsha/2026/qwen-tests/` 후 `presets_slot/index.html` 청취, `report.md` 확인.
-   받아쓰기: `OUT=~/school/narsha/2026/qwen-tests/presets_slot; source ~/School/narsha/2026/LLM-STT-멀티모달/labs/env.sh && python ~/School/narsha/2026/LLM-STT-멀티모달/labs/eval/g1_score.py --set $OUT/set --cond plain=$OUT/turns/plain --cond clean=$OUT/turns/clean --out $OUT/score --metrics wer`
-   승인 기준(제안): clean 끝 잘림 ≤ 1/80 · 앞 무음 최대 < 0.3초 · 받아쓰기에 꼬리말 '네' 가 남은 턴 0.
-
 ## 읽을 때
 - EL 은 프리셋 시나리오 보이스(`.env` `ELEVENLABS_VOICE_ID`)다. 커스텀 시나리오는 `pick_voice_id` 풀의 다른 보이스를 쓴다(`--voice-id`).
 - Qwen 은 운영처럼 문장마다 따로 부르고, EL 턴은 운영처럼 한 세션에 문장을 흘려 넣는다 → 턴 비교가 통화에서 실제로 듣는 소리다.
