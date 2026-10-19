@@ -9,6 +9,7 @@ import re
 import time
 import weakref
 from collections.abc import AsyncIterator, Callable, Iterable
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
 import httpx
@@ -509,6 +510,7 @@ async def _bake_locked(
     *,
     trigger: str,
     ns_fallback_reason: str | None = None,
+    ns_attempts_wasted: int = 0,
 ) -> str | None:
     """캐시에 없으면 합성해 저장하고 S3 키를 반환"""
     keys = _plain_keys(settings, row, scenario_id, dialogue)
@@ -567,6 +569,7 @@ async def _bake_locked(
             turns=len(dialogue),
             duration_ms=round(now_ms() - started, 1),
             **({"ns_fallback_reason": ns_fallback_reason} if ns_fallback_reason else {}),
+            **({"ns_attempts_wasted": ns_attempts_wasted} if ns_attempts_wasted else {}),
         )
         log_tts_usage(
             engine,
@@ -584,21 +587,21 @@ async def _bake_locked(
     return stored_key
 
 
-async def bake_example_audio(scenario_id: int, trigger: str = "prebake") -> None:
-    """커스텀 시나리오 생성 직후 예시 오디오를 미리 생성"""
+async def bake_example_audio(scenario_id: int, trigger: str = "prebake") -> asyncio.Task | None:
+    """커스텀 시나리오 생성 직후 예시 오디오를 미리 생성, N 작업이면 기다리지 않고 그 태스크를 돌려준다"""
     settings = get_settings()
     if not settings.s3_bucket:
-        return
+        return None
     if _ns_enabled(settings) and scenario_id not in _skip_presets(settings):
         try:
             async with AsyncSessionLocal() as db:
                 row = await db.get(ScenarioORM, scenario_id)
                 skip = row is None or is_deleted(row) or row.example_audio_url or getattr(row, "is_warmup", False)
             if not skip:
-                await asyncio.shield(_ensure_job(scenario_id, trigger).task)
+                return _ensure_job(scenario_id, trigger).task
         except Exception:
             logger.exception("시나리오 %s 예시 오디오 미리 굽기 실패", scenario_id)
-        return
+        return None
     try:
         async with _prebake_semaphore(), asyncio.timeout(_PREBAKE_TIMEOUT_SEC), AsyncSessionLocal() as db:
             row = await db.get(ScenarioORM, scenario_id)
@@ -608,6 +611,7 @@ async def bake_example_audio(scenario_id: int, trigger: str = "prebake") -> None
                                     RecordingStorageService(settings), trigger="prebake")
     except Exception:
         logger.exception("시나리오 %s 예시 오디오 미리 굽기 실패", scenario_id)
+    return None
 
 
 _CUSTOM_NS_BUDGET_SEC = 200.0
@@ -652,6 +656,7 @@ class _BakeJob:
     turns_done: int = 0
     turn_secs: list[float] | None = None
     fail_reason: str | None = None
+    attempts: int = 0
 
     def turn_done(self, seconds: float) -> None:
         self.turns_done += 1
@@ -685,6 +690,19 @@ def _loop_cooldown() -> dict[int, float]:
 def _cooling(scenario_id: int) -> bool:
     until = _loop_cooldown().get(scenario_id)
     return until is not None and time.monotonic() < until
+
+
+def _job_running(scenario_id: int) -> bool:
+    job = _loop_jobs().get(scenario_id)
+    return job is not None and job.task is not None and not job.task.done()
+
+
+def _check_op(settings: Settings, scenario_id: int, *, skip_ok: bool = False) -> None:
+    """운영 작업을 지금 해도 되는지, 안 되면 409"""
+    if not skip_ok and scenario_id in _skip_presets(settings):
+        raise ExampleOpError(409, "skip 목록 프리셋, 빼고 재생성한 뒤 다시")
+    if _job_running(scenario_id):
+        raise ExampleOpError(409, "굽는 중, 끝난 뒤 다시")
 
 
 def _resolve_future(future: asyncio.Future, value: object) -> None:
@@ -724,8 +742,12 @@ def _ensure_job(
 
 
 async def cancel_example_jobs() -> None:
-    """종료 때 남은 굽기 작업 정리"""
+    """종료 때 미리 굽기 드라이버와 남은 굽기 작업 정리"""
     loop = asyncio.get_running_loop()
+    driver = _drivers.get(loop)
+    if driver is not None and driver.task is not None and driver.task is not asyncio.current_task():
+        driver.task.cancel()
+        await asyncio.gather(driver.task, return_exceptions=True)
     tasks = [job.task for job in _jobs_by_loop.get(loop, {}).values() if job.task is not None]
     for task in tasks:
         task.cancel()
@@ -787,6 +809,34 @@ async def _bake_job(
             job.phase = "done"
 
 
+class _CountedSession:
+    def __init__(self, session: QwenTTSClient, job: _BakeJob) -> None:
+        self._session, self._job = session, job
+
+    async def synth_ns(self, voice: str, text: str):
+        self._job.attempts += 1
+        return await self._session.synth_ns(voice, text)
+
+
+class _Counted:
+    """굽기 작업의 합성 시도 수를 센다"""
+
+    def __init__(self, client: QwenTTSClient, job: _BakeJob) -> None:
+        self._client, self._job = client, job
+
+    @asynccontextmanager
+    async def connect(self, exclude: Iterable[str] = ()) -> AsyncIterator[_CountedSession]:
+        async with self._client.connect(exclude=exclude) as session:
+            yield _CountedSession(session, self._job)
+
+
+async def _not_ready(settings: Settings, skip: set[str]) -> set[str]:
+    """실시간처럼 ready 가 아닌 워커를 고른다"""
+    urls = [url for url in worker_urls(settings) if url not in skip]
+    states = await asyncio.gather(*(QwenTTSClient(settings, base_url=url).health_state() for url in urls))
+    return {url for url, state in zip(urls, states, strict=True) if state != "ready"}
+
+
 async def _render_ns(
     settings: Settings,
     dialogue: list[dict],
@@ -796,13 +846,15 @@ async def _render_ns(
     expect_refs: dict[str, str] | None,
     exclude: tuple[str, ...],
 ) -> tuple[bytes, dict, dict[str, str]]:
-    """연결이 안 되는 워커를 만나면 그 워커를 빼고 한 번 더"""
+    """ready 아닌 워커는 빼고, 연결이 안 되는 워커를 만나면 그 워커도 빼고 한 번 더"""
     skip = set(exclude)
+    if expect_refs is None:
+        skip |= await _not_ready(settings, skip)
     for attempt in range(2):
         job.turns_done, job.turn_secs = 0, None
         try:
             return await _synthesize_qwen_ns(
-                QwenTTSClient(settings), dialogue, voices, levels=levels,
+                _Counted(QwenTTSClient(settings), job), dialogue, voices, levels=levels,
                 expect_refs=expect_refs, on_turn=job.turn_done, exclude=skip,
             )
         except QwenUnreachableError as exc:
@@ -850,9 +902,11 @@ async def _bake_ns(
         reason = job.fail_reason = _ns_reason(exc)
         logger.warning("시나리오 %s N 굽기 실패(%s): %s", scenario_id, reason, exc)
         if preset:
-            log_metric("example_tts_deferred", scenario_id=scenario_id, trigger=trigger, reason=reason)
+            _loop_cooldown()[scenario_id] = time.monotonic() + _COOLDOWN_SEC
+            log_metric("example_tts_deferred", scenario_id=scenario_id, trigger=trigger, reason=reason,
+                       ns_attempts_wasted=job.attempts)
             return None
-        return await _fallback_plain(settings, storage, scenario_id, dialogue, trigger, reason)
+        return await _fallback_plain(settings, storage, scenario_id, dialogue, trigger, reason, job.attempts)
     return await _store_ns(settings, storage, scenario_id, dialogue, voices, levels, pcm, info, refs, trigger, started)
 
 
@@ -916,6 +970,7 @@ async def _fallback_plain(
     dialogue: list[dict],
     trigger: str,
     reason: str,
+    wasted: int = 0,
 ) -> str | None:
     """커스텀은 예전 굽기로, 그것도 실패하면 잠시 다시 굽지 않는다"""
     key = None
@@ -924,7 +979,8 @@ async def _fallback_plain(
             row = await db.get(ScenarioORM, scenario_id)
             if row is not None and not is_deleted(row):
                 key = await _bake_locked(
-                    db, settings, row, scenario_id, dialogue, storage, trigger=trigger, ns_fallback_reason=reason
+                    db, settings, row, scenario_id, dialogue, storage, trigger=trigger, ns_fallback_reason=reason,
+                    ns_attempts_wasted=wasted,
                 )
     except Exception:
         logger.exception("시나리오 %s 예전 굽기 폴백 실패", scenario_id)
@@ -993,6 +1049,7 @@ def _prebake_gate(settings: Settings) -> bool:
 class _Driver:
     wake: asyncio.Event
     running: bool = False
+    task: asyncio.Task | None = None
 
 
 _drivers: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, _Driver] = weakref.WeakKeyDictionary()
@@ -1030,7 +1087,8 @@ async def _prebake_round(settings: Settings, state: dict) -> str:
     voices = {sid: _ns_voices(settings, row, sid, dialogue) for sid, (row, dialogue) in rows.items()}
     needed = {name for vs in voices.values() for name in vs.values()}
     refs_state = await QwenTTSClient(settings).health_refs(sorted(needed))
-    summary = {"checked": len(rows), "hit": 0, "reused": 0, "baked": 0, "deferred": 0, "state": refs_state.state}
+    summary = {"checked": len(rows), "hit": 0, "reused": 0, "baked": 0, "deferred": 0, "rejected": 0,
+               "state": refs_state.state, "rounds": state.get("rounds")}
     if refs_state.state in ("down", "rolling"):
         log_metric("example_preset_prebake", waiting=refs_state.state, **summary)
         return "wait"
@@ -1048,6 +1106,9 @@ async def _prebake_round(settings: Settings, state: dict) -> str:
     else:
         state.pop("unreachable_since", None)
     stop_round = False
+    v8s: list[str] = []
+    mismatch: str | None = None
+    s3_errors: list[str] = []
     for sid, (row, dialogue) in rows.items():
         vs = voices[sid]
         if any(name in refs_state.missing for name in vs.values()):
@@ -1055,16 +1116,25 @@ async def _prebake_round(settings: Settings, state: dict) -> str:
             continue
         refs = {"ai": refs_state.refs[vs["ai"]], "user": refs_state.refs[vs["user"]]}
         want = _ns_key(sid, dialogue, _ns_v8(vs, refs, levels))
+        v8s.append(f"{sid}:{want.rsplit('-', 2)[-2]}")
         if row.example_audio_url and row.example_audio_url.endswith(want):
             summary["hit"] += 1
             continue
         if stop_round:
             summary["deferred"] += 1
             continue
-        if storage.exists(_rejected_key(want)):
+        try:
+            rejected = storage.strict_exists(_rejected_key(want))
+            present = not rejected and storage.strict_exists(want)
+        except Exception:
+            logger.warning("프리셋 %s S3 확인 실패, 미룸", sid, exc_info=True)
+            s3_errors.append(str(sid))
             summary["deferred"] += 1
             continue
-        if storage.exists(want):
+        if rejected:
+            summary["rejected"] += 1
+            continue
+        if present:
             await _point_row(sid, want, "preset_prebake")
             summary["reused"] += 1
             continue
@@ -1074,11 +1144,16 @@ async def _prebake_round(settings: Settings, state: dict) -> str:
             summary["baked"] += 1
         else:
             summary["deferred"] += 1
-            stop_round = job.fail_reason in ("no_ns", "voice_ref")
+            if job.fail_reason in ("no_ns", "voice_ref"):
+                stop_round = True
+                mismatch = f"{sid}:{job.fail_reason}"
     log_metric(
         "example_preset_prebake",
         refs=",".join(f"{k}:{v}" for k, v in sorted(refs_state.refs.items())),
         unreachable=",".join(refs_state.unreachable) or None,
+        v8=",".join(v8s) or None,
+        mismatch=mismatch,
+        s3_error=",".join(s3_errors) or None,
         **summary,
     )
     return "done" if summary["deferred"] == 0 else "counted"
@@ -1097,7 +1172,7 @@ async def _point_row(scenario_id: int, key: str, trigger: str) -> None:
                reused=True, prev_key=prev_key)
 
 
-async def prebake_presets() -> None:
+async def prebake_presets(max_rounds: int | None = None) -> None:
     """서버 시작 때 프리셋 예시를 지금 ref 지문으로 맞춘다"""
     settings = get_settings()
     if not _prebake_gate(settings):
@@ -1107,27 +1182,34 @@ async def prebake_presets() -> None:
         driver.wake.set()
         return
     driver.running = True
-    state: dict = {}
+    driver.task = asyncio.current_task()
+    limit = _NS_PRESET_ROUNDS if max_rounds is None else max_rounds
+    state: dict = {"rounds": 0}
     counted = 0
     began = time.monotonic()
     try:
         while True:
             driver.wake.clear()
+            state["rounds"] += 1
             try:
                 result = await _prebake_round(settings, state)
             except Exception:
                 logger.exception("프리셋 예시 미리 굽기 라운드 실패")
                 result = "counted"
-            if result in ("done", "end"):
+            woken = driver.wake.is_set()
+            if result in ("done", "end") and not woken:
                 return
             counted += result == "counted"
-            if counted >= _NS_PRESET_ROUNDS or time.monotonic() - began > _PREBAKE_WALL_SEC:
+            if not woken and (counted >= limit or time.monotonic() - began > _PREBAKE_WALL_SEC):
                 logger.warning("프리셋 예시 미리 굽기 못 끝냄(라운드 %s)", counted)
                 return
+            if woken:
+                continue
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(driver.wake.wait(), _NS_PRESET_RETRY_SEC)
     finally:
         driver.running = False
+        driver.task = None
 
 
 def trigger_prebake() -> bool:
@@ -1135,11 +1217,14 @@ def trigger_prebake() -> bool:
     settings = get_settings()
     if not _prebake_gate(settings):
         raise ExampleOpError(409, "예시 N 굽기가 꺼져 있다")
+    cooldown = _loop_cooldown()
+    for sid in PRESET_MAP:
+        cooldown.pop(sid, None)
     driver = _loop_driver()
     if driver.running:
         driver.wake.set()
         return True
-    asyncio.get_running_loop().create_task(prebake_presets())
+    driver.task = asyncio.get_running_loop().create_task(prebake_presets(max_rounds=1))
     return False
 
 
@@ -1168,13 +1253,16 @@ async def rebake_preset(scenario_id: int, *, stamp: str) -> dict:
     settings = get_settings()
     if not _prebake_gate(settings):
         raise ExampleOpError(409, "예시 N 굽기가 꺼져 있다")
+    _check_op(settings, scenario_id)
     want, refs, _ = await _expected_preset_key(settings, scenario_id)
+    _check_op(settings, scenario_id)
     storage = RecordingStorageService(settings)
     backup = _backup_path(want, stamp)
     try:
         backed_up = storage.copy(want, backup)
     except Exception as exc:
         raise ExampleOpError(503, f"백업 복사 실패: {exc}") from exc
+    _loop_cooldown().pop(scenario_id, None)
     _ensure_job(scenario_id, "rebake", expect_refs=refs, force=True)
     return {"key": want, "backup": backup if backed_up else None}
 
@@ -1184,14 +1272,22 @@ async def restore_preset(scenario_id: int, prev: str, *, stamp: str) -> dict:
     settings = get_settings()
     if not _ns_enabled(settings):
         raise ExampleOpError(409, "예시 N 굽기가 꺼져 있다")
+    _check_op(settings, scenario_id)
     want, _, _ = await _expected_preset_key(settings, scenario_id)
     if not prev.startswith(f"examples/prev/{want.rsplit('/', 1)[-1]}."):
         raise ExampleOpError(409, "prev 가 지금 기대 키의 백업이 아니다")
     storage = RecordingStorageService(settings)
-    backed_up = storage.copy(want, _backup_path(want, stamp))
-    if not storage.copy(prev, want):
-        raise ExampleOpError(404, f"prev 없음: {prev}")
-    await _point_row(scenario_id, want, "restore")
+    lock = _generation_locks.setdefault(scenario_id, asyncio.Lock())
+    async with lock:
+        _check_op(settings, scenario_id)
+        try:
+            backed_up = storage.copy(want, _backup_path(want, stamp))
+            restored = storage.copy(prev, want)
+        except Exception as exc:
+            raise ExampleOpError(503, f"복사 실패: {exc}") from exc
+        if not restored:
+            raise ExampleOpError(404, f"prev 없음: {prev}")
+        await _point_row(scenario_id, want, "restore")
     return {"key": want, "backup": _backup_path(want, stamp) if backed_up else None}
 
 
@@ -1208,6 +1304,7 @@ async def reject_preset(scenario_id: int, restore_key: str) -> dict:
         row = await db.get(ScenarioORM, scenario_id)
         if row is None or is_deleted(row):
             raise ExampleOpError(404, f"프리셋 행 없음: {scenario_id}")
+        _check_op(settings, scenario_id, skip_ok=True)
         current = row.example_audio_url
         dialogue = PRESET_MAP[scenario_id]["example_dialogue"]
         current_ns = _ns_cached(scenario_id, dialogue, current)
@@ -1215,7 +1312,8 @@ async def reject_preset(scenario_id: int, restore_key: str) -> dict:
             raise ExampleOpError(409, "지금 행이 ns 키가 아니다")
         if not storage.exists(restore_key):
             raise ExampleOpError(409, f"되돌릴 객체 없음: {restore_key}")
-        storage.copy(current_ns, _rejected_key(current_ns))
+        if not storage.copy(current_ns, _rejected_key(current_ns)):
+            storage.put_marker(_rejected_key(current_ns))
         row.example_audio_url = restore_key
         await db.commit()
     storage.delete(current_ns)
@@ -1418,9 +1516,12 @@ async def _consume(
         job.phase = "baking"
         try:
             async with asyncio.timeout(_CUSTOM_NS_BUDGET_SEC):
+                skip = set(exclude)
+                if expect_refs is None:
+                    skip |= await _not_ready(settings, skip)
                 pcm, info, refs = await _synthesize_qwen_ns(
-                    QwenTTSClient(settings), _turns(), voices, levels=levels,
-                    expect_refs=expect_refs, on_turn=job.turn_done, exclude=exclude,
+                    _Counted(QwenTTSClient(settings), job), _turns(), voices, levels=levels,
+                    expect_refs=expect_refs, on_turn=job.turn_done, exclude=skip,
                 )
         except _StreamAbortedError:
             return ("aborted",)
@@ -1473,7 +1574,7 @@ async def _bake_streaming(
     if rendered[0] == "fail":
         job.fail_reason = rendered[1]
         job.phase = "done"
-        return await _fallback_plain(settings, storage, scenario_id, dialogue, trigger, rendered[1])
+        return await _fallback_plain(settings, storage, scenario_id, dialogue, trigger, rendered[1], job.attempts)
     job.phase = "queued"
     async with _prebake_semaphore():
         job.phase = "baking"

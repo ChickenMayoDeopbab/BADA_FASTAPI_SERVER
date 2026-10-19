@@ -28,6 +28,7 @@ _RETRY_ATTEMPTS = 3
 _RETRY_BASE_DELAY = 0.5
 
 _SLOT_WAIT_TIMEOUT = 90.0
+_EXCLUDED_RETRY_SEC = 0.2
 
 # 실시간 경로 전용 — 첫 청크 실측 ~181ms 라 read 갭 10초면 행업 감지로 충분
 _REALTIME_VOICE = "ai"
@@ -162,19 +163,21 @@ async def _hold_worker(settings: Settings, exclude: Iterable[str] = ()) -> Async
     if skip and not set(urls) - skip:
         raise QwenTTSUnavailableError("쓸 수 있는 워커 없음(모두 제외)")
     pool = _pool(settings)
-    skipped: list[str] = []
-    try:
-        while True:
-            try:
-                url = await asyncio.wait_for(pool.get(), timeout=_SLOT_WAIT_TIMEOUT)
-            except TimeoutError:
-                raise QwenTTSUnavailableError("GPU 워커 대기 시간 초과") from None
-            if url not in skip:
-                break
-            skipped.append(url)
-    finally:
-        for other in skipped:
-            pool.put_nowait(other)
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + _SLOT_WAIT_TIMEOUT
+    streak = 0
+    while True:
+        try:
+            url = await asyncio.wait_for(pool.get(), timeout=max(0.0, deadline - loop.time()))
+        except TimeoutError:
+            raise QwenTTSUnavailableError("GPU 워커 대기 시간 초과") from None
+        if url not in skip:
+            break
+        pool.put_nowait(url)
+        streak += 1
+        if streak >= pool.qsize():
+            streak = 0
+            await asyncio.sleep(_EXCLUDED_RETRY_SEC)
     try:
         yield url
     finally:
@@ -337,10 +340,10 @@ class QwenTTSClient:
                 json={"voice": voice, "text": text, "non_streaming_mode": True},
                 timeout=httpx.Timeout(self._synth_timeout, read=timeout),
             )
+        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+            raise QwenUnreachableError(f"{type(exc).__name__}: {exc}", worker=base_url) from exc
         except httpx.TimeoutException as exc:
             raise QwenStalledError(f"{type(exc).__name__}: {exc}") from exc
-        except httpx.ConnectError as exc:
-            raise QwenUnreachableError(f"{type(exc).__name__}: {exc}", worker=base_url) from exc
         except httpx.HTTPError as exc:
             raise QwenTTSUnavailableError(f"{type(exc).__name__}: {exc}") from exc
         status = response.status_code
