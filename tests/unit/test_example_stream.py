@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.services import example_service as es
-from app.services.qwen_tts import QwenUnreachableError
+from app.services.qwen_tts import QwenTTSUnavailableError, QwenUnreachableError
 from tests.unit.test_example_jobs import (
     _DB,
     _EL,
@@ -77,12 +77,14 @@ class _FakeStream:
 
 
 class _FakeLLM:
-    def __init__(self, text: str, *, retry_turns=None, **stream_kw) -> None:
+    def __init__(self, text: str, *, retry_turns=None, create_delay: float = 0.0, **stream_kw) -> None:
         self.text = text
         self.retry_turns = retry_turns or _TURNS
+        self.create_delay = create_delay
         self.stream_kw = stream_kw
         self.streams = 0
         self.creates: list[dict] = []
+        self.create_kwargs: list[dict] = []
         self.stream_ended_at = None
         self.qwen = None
 
@@ -94,8 +96,11 @@ class _FakeLLM:
                 owner.streams += 1
                 return _FakeStream(owner, _chunks(owner.text), **owner.stream_kw)
 
-            async def create(self, **_kw):
+            async def create(self, **kw):
                 owner.creates.append({"active_connects": getattr(owner.qwen, "active", 0)})
+                owner.create_kwargs.append(kw)
+                if owner.create_delay:
+                    await asyncio.sleep(owner.create_delay)
                 payload = json.dumps(owner.retry_turns, ensure_ascii=False)
                 return SimpleNamespace(content=[SimpleNamespace(text=payload)], usage=None)
 
@@ -187,7 +192,7 @@ async def test_failed_end_check_retries_without_streaming(monkeypatch, kw, text)
 
 async def test_consumer_failure_falls_back_with_the_committed_dialogue(monkeypatch) -> None:
     first = _TURNS[0]["text"]
-    qwen = _TimedQwen(script={first: [QwenUnreachableError("x", worker="http://w1.test")]})
+    qwen = _TimedQwen(script={first: [QwenTTSUnavailableError("HTTP 500")]})
     llm = _FakeLLM(_text(), delay=0.002)
     env, rows = _wire_stream(monkeypatch, llm, qwen=qwen)
     await _bake(42, 5)
@@ -196,6 +201,89 @@ async def test_consumer_failure_falls_back_with_the_committed_dialogue(monkeypat
     plain = es._plain_keys(env.settings, rows[42], 42, _TURNS)
     assert rows[42].example_audio_url == plain.eleven and env.el.opens == len(_TURNS)
     assert not es._cooling(42)
+
+
+async def test_unreachable_worker_in_stream_rebakes_on_another_worker(monkeypatch) -> None:
+    first = _TURNS[0]["text"]
+    qwen = _TimedQwen(script={first: [QwenUnreachableError("x", worker="http://w1.test")]})
+    llm = _FakeLLM(_text(), delay=0.002)
+    env, rows = _wire_stream(monkeypatch, llm, qwen=qwen)
+    await _bake(42, 5)
+    assert rows[42].example_dialogue == _TURNS and rows[42].example_audio_url.endswith("-qn.wav")
+    assert env.qwen.connects == [set(), {"http://w1.test"}] and env.el.opens == 0
+
+
+async def test_unexpected_consumer_error_keeps_the_dialogue(monkeypatch) -> None:
+    first = _TURNS[0]["text"]
+    qwen = _TimedQwen(script={first: [RuntimeError("뜻밖")]})
+    llm = _FakeLLM(_text(), delay=0.002)
+    env, rows = _wire_stream(monkeypatch, llm, qwen=qwen)
+    usage = _llm_usage(monkeypatch)
+    await _bake(42, 5)
+    assert rows[42].example_dialogue == _TURNS and llm.stream_ended_at is not None
+    assert rows[42].example_audio_url == es._plain_keys(env.settings, rows[42], 42, _TURNS).eleven
+    assert [u.get("ok", True) for u in usage] == [True]
+
+
+async def test_request_after_commit_waits_for_the_last_turns(monkeypatch) -> None:
+    llm = _FakeLLM(_text())
+    qwen = _TimedQwen(delay=0.05)
+    env, rows = _wire_stream(monkeypatch, llm, qwen=qwen)
+    env.settings.example_request_wait_sec = 5.0
+    baker = asyncio.ensure_future(_bake(42, 5))
+    while rows[42].example_dialogue is None or es._loop_jobs()[42].turns_done < 2:
+        await asyncio.sleep(0.005)
+    resp = await asyncio.wait_for(es.get_example_conversation(_DB(rows), 42, user_id=7), 3)
+    assert resp.audio_url and resp.audio_url.endswith("-qn.wav")
+    wait = [kw for name, kw in env.metrics if name == "example_wait"][0]
+    assert wait["early_return"] is False and wait["served"] is True
+    await baker
+
+
+_LONG = [{"speaker": "ai" if i % 2 == 0 else "user", "text": f"긴 대본 {i}번째 줄입니다."} for i in range(12)]
+_RETRY = [{"speaker": "ai", "text": "다시 만든 대본."}, {"speaker": "user", "text": "네."}]
+
+
+async def test_failed_end_check_stops_baking_discarded_turns_at_once(monkeypatch) -> None:
+    llm = _FakeLLM(_text(_LONG), retry_turns=_RETRY, stop_reason="max_tokens")
+    qwen = _TimedQwen(delay=0.05)
+    env, rows = _wire_stream(monkeypatch, llm, qwen=qwen)
+    await _bake(42, 5)
+    old = {t["text"] for t in _LONG}
+    assert sum(text in old for _, text in qwen.calls) <= 1
+    assert rows[42].example_dialogue == _RETRY and rows[42].example_audio_url.endswith("-qn.wav")
+
+
+async def test_queued_consumer_never_bakes_discarded_turns(monkeypatch) -> None:
+    llm = _FakeLLM(_text(_LONG), retry_turns=_RETRY, stop_reason="max_tokens")
+    qwen = _TimedQwen()
+    env, rows = _wire_stream(monkeypatch, llm, qwen=qwen)
+
+    async def _hold():
+        async with es._prebake_semaphore():
+            while not llm.creates:
+                await asyncio.sleep(0.005)
+
+    holder = asyncio.ensure_future(_hold())
+    await asyncio.sleep(0)
+    await _bake(42, 5)
+    await holder
+    old = {t["text"] for t in _LONG}
+    assert not any(text in old for _, text in qwen.calls)
+    assert rows[42].example_dialogue == _RETRY and len(qwen.connects) == 1
+
+
+async def test_retry_call_has_a_time_limit(monkeypatch) -> None:
+    llm = _FakeLLM(_text(), stop_reason="max_tokens", create_delay=1.0)
+    env, rows = _wire_stream(monkeypatch, llm)
+    monkeypatch.setattr(es, "_LLM_TIMEOUT_SEC", 0.1)
+    loop = asyncio.get_running_loop()
+    t0 = loop.time()
+    with pytest.raises(TimeoutError):
+        await _bake(42, 5)
+    assert loop.time() - t0 < 0.8
+    assert llm.create_kwargs[0]["timeout"].read == 0.1 and llm.create_kwargs[0]["timeout"].connect == 5.0
+    assert rows[42].example_audio_url is None
 
 
 async def test_broken_stream_releases_the_worker_before_the_retry(monkeypatch) -> None:
@@ -278,3 +366,13 @@ async def test_request_while_baking_but_dialogue_still_streaming_returns_at_once
     assert resp.audio_url is None
     assert [kw for name, kw in env.metrics if name == "example_wait"][0]["early_return"] is True
     await asyncio.wait_for(baker, 5)
+
+
+async def test_failure_mid_bake_stops_after_the_turn_in_progress(monkeypatch) -> None:
+    llm = _FakeLLM(_text(_LONG), retry_turns=_RETRY, stop_reason="max_tokens", delay=0.001)
+    qwen = _TimedQwen(delay=0.05)
+    env, rows = _wire_stream(monkeypatch, llm, qwen=qwen)
+    await _bake(42, 5)
+    old = [text for _, text in qwen.calls if text in {t["text"] for t in _LONG}]
+    assert 1 <= len(old) <= 5
+    assert rows[42].example_dialogue == _RETRY and rows[42].example_audio_url.endswith("-qn.wav")

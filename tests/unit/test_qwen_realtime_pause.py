@@ -379,3 +379,49 @@ async def test_spare_is_converted_to_raw_time_by_speed(speed, extra) -> None:
     session = _session(worker, speed=speed)
     await _turn(session)
     assert session.request_log[0]["extra_ms"] == extra
+
+
+@pytest.mark.parametrize(("speed", "cap"), [(1.0, 330), (1.25, 270)])
+async def test_inner_cap_scales_with_speed(speed, cap) -> None:
+    body = pcm(np.concatenate([speech(500), np.zeros(ms(600)), speech(500), np.zeros(ms(900))]))
+    session = _session(_Worker(body, clock=_Clock()), speed=speed)
+    await _turn(session)
+    assert session.request_log[0]["cap_ms"] == pytest.approx(cap, abs=5)
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), -50.0, "abc"])
+async def test_unusable_pause_settings_fall_back_to_defaults(bad) -> None:
+    worker = _Worker()
+    settings = _settings(qwen_tts_pause_keep_ms=bad, qwen_tts_pause_cap_to_ms=bad)
+    client = QwenRealtimeTTSClient(settings, transport=worker.transport())
+    assert client._pause == qwen_mod._PauseConfig()
+    session = await client.open()
+    out = await _turn(session)
+    assert len(out) < ms(1000) * 2 and session.request_log[0]["e"] == "on"
+
+
+async def test_compressor_creation_error_passes_raw_without_switching(monkeypatch) -> None:
+    def _boom(self, **_kw):
+        raise ValueError("boom")
+
+    monkeypatch.setattr(pc_mod.PauseCompressor, "__init__", _boom)
+    worker = _Worker()
+    client = QwenRealtimeTTSClient(_settings(), transport=worker.transport())
+    first = await client.open()
+    assert await _turn(first) == RAW
+    second = await client.open()
+    await _turn(second)
+    assert first.request_log[0]["e"] == "comp_error" and "non_streaming_mode" not in worker.bodies[1]
+    assert second.turn_metrics()["tts_ns"] == "comp_error"
+
+
+async def test_error_before_the_header_is_not_labelled_no_header() -> None:
+    worker = _Worker()
+    client = QwenRealtimeTTSClient(
+        _settings(), transport=httpx.MockTransport(lambda r: httpx.Response(500))
+    )
+    session = await client.open()
+    with pytest.raises(QwenTTSUnavailableError):
+        await _turn(session)
+    assert "e" not in session.request_log[0] and session.ns_mode == "on"
+    assert worker.bodies == []

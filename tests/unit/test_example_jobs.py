@@ -125,6 +125,10 @@ class _Qwen:
     @asynccontextmanager
     async def connect(self, exclude=()):
         self.connects.append(set(exclude))
+        free = [u for u in ("http://w1.test", "http://w2.test") if u not in set(exclude)]
+        if not free:
+            raise es.QwenTTSUnavailableError("쓸 수 있는 워커 없음(모두 제외)")
+        self._session_url = free[0]
         yield self
 
     async def synth_ns(self, voice: str, text: str) -> NsResult:
@@ -155,7 +159,10 @@ class _Probe:
 
     async def health_state(self) -> str:
         self.qwen.probed.append(self.url)
-        return self.qwen.worker_states.get(self.url, "ready")
+        state = self.qwen.worker_states.get(self.url, "ready")
+        if isinstance(state, list):
+            return state.pop(0) if len(state) > 1 else state[0]
+        return state
 
 
 class _EL:
@@ -243,7 +250,9 @@ def _named(metrics, name):
 
 async def _job(sid: int):
     job = es._loop_jobs().get(sid)
-    return None if job is None else await asyncio.wait_for(asyncio.shield(job.task), 2)
+    key = None if job is None else await asyncio.wait_for(asyncio.shield(job.task), 2)
+    await asyncio.sleep(0)
+    return key
 
 
 async def _bake(sid: int, limit: float = 2):
@@ -714,37 +723,55 @@ async def test_creation_bake_returns_without_waiting_for_the_job(monkeypatch) ->
     assert (await asyncio.wait_for(task, 2)).endswith("-qn.wav")
 
 
-async def test_custom_skips_workers_that_are_not_ready(monkeypatch) -> None:
+async def test_custom_skips_a_taken_worker_that_is_not_ready(monkeypatch) -> None:
+    rows = {42: _row(42, custom=True, dialogue=_DC)}
+    qwen = _Qwen()
+    qwen.worker_states = {"http://w1.test": "warming"}
+    _wire(monkeypatch, rows, qwen=qwen)
+    assert (await _bake(42)).endswith("-qn.wav")
+    assert qwen.probed == ["http://w1.test", "http://w2.test"]
+    assert qwen.connects == [set(), {"http://w1.test"}]
+
+
+async def test_custom_waits_out_a_short_busy_on_the_taken_worker(monkeypatch) -> None:
+    rows = {42: _row(42, custom=True, dialogue=_DC)}
+    qwen = _Qwen()
+    qwen.worker_states = {"http://w1.test": ["busy", "busy", "ready"]}
+    _wire(monkeypatch, rows, qwen=qwen)
+    monkeypatch.setattr(es, "_BUSY_PROBE_SEC", 0.01)
+    assert (await _bake(42)).endswith("-qn.wav")
+    assert qwen.probed == ["http://w1.test"] * 3 and qwen.connects == [set()]
+
+
+async def test_custom_skips_a_worker_stuck_busy(monkeypatch) -> None:
     rows = {42: _row(42, custom=True, dialogue=_DC)}
     qwen = _Qwen()
     qwen.worker_states = {"http://w1.test": "busy"}
     _wire(monkeypatch, rows, qwen=qwen)
+    monkeypatch.setattr(es, "_BUSY_PROBE_SEC", 0.0)
     assert (await _bake(42)).endswith("-qn.wav")
-    assert sorted(qwen.probed) == ["http://w1.test", "http://w2.test"]
-    assert qwen.connects == [{"http://w1.test"}]
+    assert qwen.probed.count("http://w1.test") == es._BUSY_PROBES
+    assert qwen.connects == [set(), {"http://w1.test"}]
 
 
-async def test_custom_with_no_ready_worker_falls_back_at_once(monkeypatch) -> None:
+async def test_custom_with_no_ready_worker_falls_back(monkeypatch) -> None:
     rows = {42: _row(42, custom=True, dialogue=_DC)}
     qwen = _Qwen()
-    qwen.worker_states = {"http://w1.test": "warming", "http://w2.test": "busy"}
-
-    class _Pool(_Qwen):
-        pass
-
+    qwen.worker_states = {"http://w1.test": "warming", "http://w2.test": "down"}
     env = _wire(monkeypatch, rows, qwen=qwen)
-    real_connect = qwen.connect
-
-    @asynccontextmanager
-    async def connect(exclude=()):
-        if {"http://w1.test", "http://w2.test"} <= set(exclude):
-            raise es.QwenTTSUnavailableError("쓸 수 있는 워커 없음(모두 제외)")
-        async with real_connect(exclude) as session:
-            yield session
-
-    qwen.connect = connect
     key = await _bake(42)
     assert "-qn" not in key and qwen.calls == [] and env.el.opens == 2
+
+
+async def test_preset_request_without_any_synthesis_does_not_cool_down(monkeypatch) -> None:
+    rows = {1: _row(1)}
+    qwen = _Qwen()
+    qwen.worker_states = {"http://w1.test": "warming", "http://w2.test": "down"}
+    env = _wire(monkeypatch, rows, qwen=qwen)
+    await asyncio.wait_for(es.get_example_conversation(_DB(rows), 1, user_id=7), 2)
+    await _job(1)
+    assert _named(env.metrics, "example_tts_deferred")[0]["ns_attempts_wasted"] == 0
+    assert not es._cooling(1)
 
 
 async def test_preset_rounds_do_not_probe_worker_health(monkeypatch) -> None:
@@ -856,3 +883,31 @@ async def test_ops_recheck_for_a_job_started_while_reading_refs(monkeypatch, op)
     job = es._ensure_job(1, "request", force=True)
     assert await _status(asyncio.wait_for(pending, 2)) == 409 and env.storage.copies == []
     await asyncio.wait_for(asyncio.shield(job.task), 2)
+
+
+async def test_restore_refuses_a_rejection_marker(monkeypatch) -> None:
+    want = _expected(1, _D1)
+    marker = es._rejected_key(want)
+    rows = {1: _row(1, url="examples/1-old.wav")}
+    env = _wire(monkeypatch, rows, storage=_Storage({marker: b""}))
+    assert await _status(es.restore_preset(1, marker, stamp="T1")) == 409
+    assert want not in env.storage.objects and rows[1].example_audio_url == "examples/1-old.wav"
+
+
+async def test_reuse_rechecks_the_marker_under_the_scene_lock(monkeypatch) -> None:
+    want = _expected(1, _D1)
+
+    class _Racing(_Storage):
+        def strict_exists(self, key: str) -> bool:
+            found = super().strict_exists(key)
+            if key == want and found:
+                self.objects[es._rejected_key(want)] = b""
+            return found
+
+    rows = {1: _row(1, url="examples/1-old.wav")}
+    env = _wire(monkeypatch, rows, storage=_Racing({want: b"approved"}))
+    monkeypatch.setattr(es, "_NS_PRESET_ROUNDS", 1)
+    await asyncio.wait_for(es.prebake_presets(), 2)
+    assert rows[1].example_audio_url == "examples/1-old.wav" and env.qwen.calls == []
+    (summary,) = _named(env.metrics, "example_preset_prebake")
+    assert (summary["reused"], summary["rejected"]) == (0, 1)
