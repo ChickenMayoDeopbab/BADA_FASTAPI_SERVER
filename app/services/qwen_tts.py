@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import math
 import re
 import time
 import weakref
@@ -502,13 +503,26 @@ def _ns_voices(settings: Settings) -> frozenset[str]:
     return frozenset(v.strip() for v in str(raw).split(",") if v.strip())
 
 
+def _pause_ms(settings: Settings, name: str, default: float) -> float:
+    """유한하고 0 이상인 값만 받고 아니면 기본값"""
+    raw = getattr(settings, name, default)
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        value = math.nan
+    if math.isfinite(value) and value >= 0:
+        return value
+    logger.warning("%s=%r 은 쓸 수 없어 기본값 %s 를 씀", name, raw, default)
+    return default
+
+
 def _pause_config(settings: Settings) -> _PauseConfig:
     base = _PauseConfig()
     return _PauseConfig(
-        keep_ms=float(getattr(settings, "qwen_tts_pause_keep_ms", base.keep_ms)),
-        cap_over_ms=float(getattr(settings, "qwen_tts_pause_cap_over_ms", base.cap_over_ms)),
-        cap_to_ms=float(getattr(settings, "qwen_tts_pause_cap_to_ms", base.cap_to_ms)),
-        min_buffer_ms=float(getattr(settings, "qwen_tts_pause_min_buffer_ms", base.min_buffer_ms)),
+        keep_ms=_pause_ms(settings, "qwen_tts_pause_keep_ms", base.keep_ms),
+        cap_over_ms=_pause_ms(settings, "qwen_tts_pause_cap_over_ms", base.cap_over_ms),
+        cap_to_ms=_pause_ms(settings, "qwen_tts_pause_cap_to_ms", base.cap_to_ms),
+        min_buffer_ms=_pause_ms(settings, "qwen_tts_pause_min_buffer_ms", base.min_buffer_ms),
     )
 
 
@@ -648,12 +662,16 @@ class QwenRealtimeTTSSession:
         need = max(self._pause.min_buffer_ms, 2 * min(self._ttfb_max, _TTFB_CAP_MS))
         return max(0.0, need - self._buffer.ahead_ms(self._now_ms())) * self._speed
 
-    def _new_stage(self) -> _PauseStage:
+    def _new_stage(self) -> _PauseStage | None:
         k = self._speed
         cfg = self._pause
-        return _PauseStage(
-            PauseCompressor(keep_ms=cfg.keep_ms * k, cap_over_ms=cfg.cap_over_ms * k, cap_to_ms=cfg.cap_to_ms * k)
-        )
+        try:
+            return _PauseStage(
+                PauseCompressor(keep_ms=cfg.keep_ms * k, cap_over_ms=cfg.cap_over_ms * k, cap_to_ms=cfg.cap_to_ms * k)
+            )
+        except Exception:
+            logger.info("뒤 무음 압축기 만들기 실패, 이 통화는 그대로 통과", exc_info=True)
+            return None
 
     def _sent(self, out: bytes) -> bytes:
         self._audio_started = True
@@ -675,6 +693,7 @@ class QwenRealtimeTTSSession:
         if want:
             body["non_streaming_mode"] = True
         stage: _PauseStage | None = None
+        mode: str | None = None
         t_req = self._now_ms() if self._buffer is not None else 0.0
         first = True
         outcome = "aborted"
@@ -688,10 +707,12 @@ class QwenRealtimeTTSSession:
                     rec.header(response)
                 response.raise_for_status()
                 if want:
-                    if response.headers.get(NS_HEADER) == "1":
-                        stage = self._new_stage()
+                    if response.headers.get(NS_HEADER) != "1":
+                        mode = self._call.off_reason = "no_header"
+                    elif (stage := self._new_stage()) is None:
+                        mode = self._call.off_reason = "comp_error"
                     else:
-                        self._call.off_reason = "no_header"
+                        mode = "on"
                 async for chunk in response.aiter_bytes():
                     if not chunk:
                         continue
@@ -739,12 +760,12 @@ class QwenRealtimeTTSSession:
             if stage is not None and outcome != "eos":
                 stage.abort()
             if stage is not None and stage.failed:
-                self._call.off_reason = "comp_error"
+                mode = self._call.off_reason = "comp_error"
             if rec is not None:
                 with contextlib.suppress(Exception):
                     entry = rec.finish(text, self._voice, outcome)
-                    if want:
-                        entry["e"] = "comp_error" if stage and stage.failed else ("on" if stage else "no_header")
+                    if mode is not None:
+                        entry["e"] = mode
                     if stage is not None:
                         entry.update(stage.record())
                     self.request_log.append(entry)

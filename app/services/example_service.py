@@ -134,7 +134,9 @@ def _dialogue_prompt(row: ScenarioORM) -> str:
     )
 
 
-async def _generate_custom_dialogue(settings: Settings, row: ScenarioORM, attempt: int = 1) -> list[dict]:
+async def _generate_custom_dialogue(
+    settings: Settings, row: ScenarioORM, attempt: int = 1, timeout: float | None = None
+) -> list[dict]:
     """커스텀 시나리오의 예시 대화를 LLM으로 생성"""
     user_msg = _dialogue_prompt(row)
     client = AsyncAnthropic(api_key=settings.anthropic_api_key)
@@ -143,6 +145,7 @@ async def _generate_custom_dialogue(settings: Settings, row: ScenarioORM, attemp
         max_tokens=1500,
         system=_EXAMPLE_GEN_SYSTEM,
         messages=[MessageParam(role="user", content=user_msg)],
+        **({"timeout": httpx.Timeout(timeout, connect=5.0)} if timeout is not None else {}),
     )
     log_llm_usage(
         "anthropic",
@@ -657,6 +660,7 @@ class _BakeJob:
     turn_secs: list[float] | None = None
     fail_reason: str | None = None
     attempts: int = 0
+    stream_failed: bool = False
 
     def turn_done(self, seconds: float) -> None:
         self.turns_done += 1
@@ -818,23 +822,37 @@ class _CountedSession:
         return await self._session.synth_ns(voice, text)
 
 
-class _Counted:
-    """굽기 작업의 합성 시도 수를 센다"""
+class _BakeClient:
+    """굽기 작업용: 꺼낸 워커가 ready 인지 보고(probe 일 때), 합성 시도 수를 센다"""
 
-    def __init__(self, client: QwenTTSClient, job: _BakeJob) -> None:
-        self._client, self._job = client, job
+    def __init__(self, settings: Settings, job: _BakeJob, *, probe: bool) -> None:
+        self._settings, self._job, self._probe = settings, job, probe
 
     @asynccontextmanager
     async def connect(self, exclude: Iterable[str] = ()) -> AsyncIterator[_CountedSession]:
-        async with self._client.connect(exclude=exclude) as session:
+        async with QwenTTSClient(self._settings).connect(exclude=exclude) as session:
+            url = getattr(session, "_session_url", None)
+            if self._probe and url:
+                state = await _taken_state(self._settings, url)
+                if state != "ready":
+                    raise QwenUnreachableError(f"꺼낸 워커 {state}", worker=url)
             yield _CountedSession(session, self._job)
 
 
-async def _not_ready(settings: Settings, skip: set[str]) -> set[str]:
-    """실시간처럼 ready 가 아닌 워커를 고른다"""
-    urls = [url for url in worker_urls(settings) if url not in skip]
-    states = await asyncio.gather(*(QwenTTSClient(settings, base_url=url).health_state() for url in urls))
-    return {url for url, state in zip(urls, states, strict=True) if state != "ready"}
+_BUSY_PROBES = 10
+_BUSY_PROBE_SEC = 0.3
+
+
+async def _taken_state(settings: Settings, url: str) -> str:
+    """꺼낸 워커 상태, busy 는 잠깐 기다려 본다(통화 끝 drain)"""
+    state = "busy"
+    for i in range(_BUSY_PROBES):
+        state = await QwenTTSClient(settings, base_url=url).health_state()
+        if state != "busy":
+            return state
+        if i + 1 < _BUSY_PROBES:
+            await asyncio.sleep(_BUSY_PROBE_SEC)
+    return state
 
 
 async def _render_ns(
@@ -846,15 +864,13 @@ async def _render_ns(
     expect_refs: dict[str, str] | None,
     exclude: tuple[str, ...],
 ) -> tuple[bytes, dict, dict[str, str]]:
-    """ready 아닌 워커는 빼고, 연결이 안 되는 워커를 만나면 그 워커도 빼고 한 번 더"""
+    """연결이 안 되거나 ready 아닌 워커를 만나면 그 워커를 빼고 한 번 더"""
     skip = set(exclude)
-    if expect_refs is None:
-        skip |= await _not_ready(settings, skip)
     for attempt in range(2):
         job.turns_done, job.turn_secs = 0, None
         try:
             return await _synthesize_qwen_ns(
-                _Counted(QwenTTSClient(settings), job), dialogue, voices, levels=levels,
+                _BakeClient(settings, job, probe=expect_refs is None), dialogue, voices, levels=levels,
                 expect_refs=expect_refs, on_turn=job.turn_done, exclude=skip,
             )
         except QwenUnreachableError as exc:
@@ -902,7 +918,8 @@ async def _bake_ns(
         reason = job.fail_reason = _ns_reason(exc)
         logger.warning("시나리오 %s N 굽기 실패(%s): %s", scenario_id, reason, exc)
         if preset:
-            _loop_cooldown()[scenario_id] = time.monotonic() + _COOLDOWN_SEC
+            if job.attempts:
+                _loop_cooldown()[scenario_id] = time.monotonic() + _COOLDOWN_SEC
             log_metric("example_tts_deferred", scenario_id=scenario_id, trigger=trigger, reason=reason,
                        ns_attempts_wasted=job.attempts)
             return None
@@ -1135,8 +1152,14 @@ async def _prebake_round(settings: Settings, state: dict) -> str:
             summary["rejected"] += 1
             continue
         if present:
-            await _point_row(sid, want, "preset_prebake")
-            summary["reused"] += 1
+            try:
+                reused = await _reuse(sid, want, storage)
+            except Exception:
+                logger.warning("프리셋 %s S3 확인 실패, 미룸", sid, exc_info=True)
+                s3_errors.append(str(sid))
+                summary["deferred"] += 1
+                continue
+            summary["reused" if reused else "rejected"] += 1
             continue
         job = _ensure_job(sid, "preset_prebake", expect_refs=refs, exclude=exclude)
         key = await asyncio.shield(job.task)
@@ -1157,6 +1180,16 @@ async def _prebake_round(settings: Settings, state: dict) -> str:
         **summary,
     )
     return "done" if summary["deferred"] == 0 else "counted"
+
+
+async def _reuse(scenario_id: int, want: str, storage: RecordingStorageService) -> bool:
+    """이미 있는 기대 키로 행을 바꾼다, 그사이 탈락됐으면 바꾸지 않는다"""
+    lock = _generation_locks.setdefault(scenario_id, asyncio.Lock())
+    async with lock:
+        if storage.strict_exists(_rejected_key(want)):
+            return False
+        await _point_row(scenario_id, want, "preset_prebake")
+    return True
 
 
 async def _point_row(scenario_id: int, key: str, trigger: str) -> None:
@@ -1274,7 +1307,7 @@ async def restore_preset(scenario_id: int, prev: str, *, stamp: str) -> dict:
         raise ExampleOpError(409, "예시 N 굽기가 꺼져 있다")
     _check_op(settings, scenario_id)
     want, _, _ = await _expected_preset_key(settings, scenario_id)
-    if not prev.startswith(f"examples/prev/{want.rsplit('/', 1)[-1]}."):
+    if not prev.startswith(f"examples/prev/{want.rsplit('/', 1)[-1]}.") or prev.endswith(".rejected"):
         raise ExampleOpError(409, "prev 가 지금 기대 키의 백업이 아니다")
     storage = RecordingStorageService(settings)
     lock = _generation_locks.setdefault(scenario_id, asyncio.Lock())
@@ -1445,28 +1478,43 @@ async def _produce_dialogue(
                     queue.put_nowait(turn)
                 queue.put_nowait(_STREAM_END)
                 signalled = True
+                _ready(job, dialogue)
             else:
+                streamed = False
                 try:
                     dialogue = await _stream_dialogue(settings, row, queue)
                     queue.put_nowait(_STREAM_END)
-                    signalled = True
+                    signalled = streamed = True
                 except Exception as exc:
                     logger.warning("시나리오 %s 대본 스트림 실패, 비스트리밍으로 다시: %s", scenario_id, exc)
+                    job.stream_failed = True
                     queue.put_nowait(_StreamFailed(exc))
                     signalled = True
                     if job.phase == "baking":
                         with contextlib.suppress(TimeoutError):
                             await asyncio.wait_for(released.wait(), _LLM_TIMEOUT_SEC)
-                    dialogue = await _generate_custom_dialogue(settings, row, attempt=2)
+                    async with asyncio.timeout(_LLM_TIMEOUT_SEC):
+                        dialogue = await _generate_custom_dialogue(
+                            settings, row, attempt=2, timeout=_LLM_TIMEOUT_SEC
+                        )
                 row.example_dialogue = dialogue
                 await db.commit()
+                if streamed:
+                    _ready(job, dialogue)
         _resolve_future(committed, dialogue)
     except BaseException as exc:
         if not signalled:
+            job.stream_failed = True
             queue.put_nowait(_StreamFailed(exc))
         if not committed.done():
             committed.set_exception(exc if isinstance(exc, Exception) else RuntimeError("대본 생성 취소"))
         raise
+
+
+def _ready(job: _BakeJob, dialogue: list[dict]) -> None:
+    """대본이 확정되면 요청이 남은 시간을 셀 수 있게 알린다"""
+    job.turns_total = len(dialogue)
+    _resolve_future(job.dialogue, dialogue)
 
 
 async def _consume_turns(
@@ -1503,30 +1551,34 @@ async def _consume(
     async def _turns():
         item = first
         while True:
+            if job.stream_failed or isinstance(item, _StreamFailed):
+                raise _StreamAbortedError()
             if item is _STREAM_END:
                 return
-            if isinstance(item, _StreamFailed):
-                raise _StreamAbortedError()
             consumed.append(item)
             yield item
             item = await queue.get()
 
     job.phase = "queued"
     async with _prebake_semaphore():
+        if job.stream_failed:
+            return ("aborted",)
         job.phase = "baking"
         try:
             async with asyncio.timeout(_CUSTOM_NS_BUDGET_SEC):
-                skip = set(exclude)
-                if expect_refs is None:
-                    skip |= await _not_ready(settings, skip)
                 pcm, info, refs = await _synthesize_qwen_ns(
-                    _Counted(QwenTTSClient(settings), job), _turns(), voices, levels=levels,
-                    expect_refs=expect_refs, on_turn=job.turn_done, exclude=skip,
+                    _BakeClient(settings, job, probe=expect_refs is None), _turns(), voices, levels=levels,
+                    expect_refs=expect_refs, on_turn=job.turn_done, exclude=exclude,
                 )
         except _StreamAbortedError:
             return ("aborted",)
+        except QwenUnreachableError as exc:
+            return ("aborted", exc.worker)
         except (QwenTTSUnavailableError, TimeoutError) as exc:
             return ("fail", _ns_reason(exc))
+        except Exception:
+            logger.exception("예시 대본 스트리밍 굽기 중 뜻밖의 오류")
+            return ("fail", "synth_failed")
     return ("ok", pcm, info, refs, consumed)
 
 
@@ -1575,11 +1627,12 @@ async def _bake_streaming(
         job.fail_reason = rendered[1]
         job.phase = "done"
         return await _fallback_plain(settings, storage, scenario_id, dialogue, trigger, rendered[1], job.attempts)
+    skip = (*exclude, *(w for w in rendered[1:] if w))
     job.phase = "queued"
     async with _prebake_semaphore():
         job.phase = "baking"
         try:
             return await _bake_ns(settings, storage, scenario_id, dialogue, trigger, job,
-                                  expect_refs=expect_refs, exclude=exclude, force=False)
+                                  expect_refs=expect_refs, exclude=skip, force=False)
         finally:
             job.phase = "done"
