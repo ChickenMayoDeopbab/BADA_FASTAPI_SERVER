@@ -826,6 +826,7 @@ class VoicePipeline:
                         await task
             await self._cleanup_turn_tts(connect_task, box["tts"])
             flags["tts_chars"] = getattr(box["tts"], "chars_sent", 0) or 0
+            self._log_tts_requests(box["tts"], flags)
             if flags.get("cancelled"):
                 await self._salvage_cancelled_turn(user_utterance, ai_parts)
 
@@ -862,6 +863,25 @@ class VoicePipeline:
             self._history.append({"role": "assistant", "text": ai_text})
             await self._send_json(transcript_frame(TranscriptRole.AI, ai_text))
 
+    def _log_tts_requests(self, session, flags: dict) -> None:
+        """요청별 계측 줄을 voice_turn 앞에 남긴다"""
+        try:
+            log = list(getattr(session, "request_log", None) or ())
+            for i, rec in enumerate(log):
+                log_metric(
+                    "realtime_tts_req",
+                    session_id=self._session_id,
+                    step=self._current_step,
+                    i=i,
+                    last=i == len(log) - 1,
+                    **rec,
+                )
+            turn_metrics = getattr(session, "turn_metrics", None)
+            if log and callable(turn_metrics):
+                flags["tts_turn"] = turn_metrics()
+        except Exception:
+            logger.info("TTS 요청 계측 기록 실패(무시)", exc_info=True, extra={"session_id": self._session_id})
+
     async def _init_qwen_tts(self) -> None:
         """실시간 엔진 고르기: CSM -> Qwen -> ElevenLabs"""
         client, csm_skip_reason = None, "disabled"
@@ -871,6 +891,7 @@ class VoicePipeline:
         if client is None:
             client, skip_reason = await try_acquire_realtime_tts(self._settings)
         self._qwen_tts = client
+        worker = getattr(client, "_worker_url", None)
         log_metric(
             "realtime_tts_engine",
             session_id=self._session_id,
@@ -878,6 +899,7 @@ class VoicePipeline:
             skip_reason=skip_reason,
             csm_skip_reason=csm_skip_reason,
             speed=getattr(client, "speed", None),
+            **({"worker": worker} if worker else {}),
         )
         voice = getattr(self, "_qwen_voice", None)
         if voice is not None and self._current_tts_engine() == "qwen":
@@ -1037,6 +1059,7 @@ class VoicePipeline:
             llm_output_tokens=usage.get("output"),
             llm_thought_tokens=usage.get("thought"),
             tts_chars=flags.get("tts_chars", 0),
+            **flags.get("tts_turn", {}),
             **timings.as_metrics(),
             **(audio.as_metrics() if audio is not None else {}),
         )
