@@ -3,14 +3,18 @@
 배포 위치: 학교 GPU `~/bada-qwen3-tts/fork/server.py`(launch_workers.sh 가 워커별로 띄움),
 집 PC /home/uhihi/Qwen3-TTS-streaming/server.py (WSL2, systemd qwen-tts.service).
 계약:
-  GET  /health          → {ready, voices, busy}
+  GET  /health          → {ready, voices, busy, refs}
   POST /v1/tts          {voice, text, non_streaming_mode?} → raw PCM 16kHz mono 일괄 (예시 대화 배치용)
   POST /v1/tts/stream   {voice, text, non_streaming_mode?} → chunked raw PCM 16kHz mono (실시간 통화용, 계획 0043)
   응답 헤더 X-Non-Streaming: 1|0 — 실제로 적용한 모드(옛 워커는 헤더 없음 = 필드를 버리고 0)
+  응답 헤더 X-Voice-Ref: 그 보이스 ref 지문 sha1(ref 파일 바이트 + ref_text)[:8] — 기동 때 고정
+ref 는 기동 때 메모리에 올려 둔다 — 파일을 바꿔도 재시작 전까지 반영되지 않는다(바꿀 땐 새 파일명 + 롤링)
 """
 
 import asyncio
 import contextlib
+import hashlib
+import io
 import json
 import logging
 import math
@@ -47,10 +51,11 @@ WARMUP_TEXT = "네, 안녕하세요."
 # non_streaming 프리필은 글 길이를 따라 변한다 — 길이가 다른 둘로 워밍업해야 첫 실제 요청이 재컴파일(~19s)하지 않는다
 N_WARMUP_TEXTS = (WARMUP_TEXT, "네, 확인해 드리겠습니다.")
 NS_HEADER = "X-Non-Streaming"
+VOICE_REF_HEADER = "X-Voice-Ref"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 log = logging.getLogger("tts")
-S = {"model": None, "voices": {}, "ready": False, "lock": threading.Lock()}
+S = {"model": None, "voices": {}, "refs": {}, "ready": False, "lock": threading.Lock()}
 
 
 class CapHitError(RuntimeError):
@@ -266,10 +271,30 @@ def _warm(voice: str, text: str, non_streaming_mode: bool) -> None:
         log.info("워밍업 %s %.1fs", voice, time.perf_counter() - t)
 
 
+def ref_fingerprint(data: bytes, text: str) -> str:
+    """ref 파일 바이트와 글의 지문 — check_ref.py 와 같은 식"""
+    return hashlib.sha1(data + text.encode("utf-8")).hexdigest()[:8]
+
+
+def _snapshot(entries: dict) -> tuple[dict, dict]:
+    """ref 를 기동 때 한 번 읽어 (wav, sr) 로 들고 있는다 — 포크가 경로로 읽을 때와 같은 디코더"""
+    import librosa
+
+    voices, refs = {}, {}
+    for name, v in entries.items():
+        with open(os.path.expanduser(v["ref_audio"]), "rb") as f:
+            data = f.read()
+        wav, sr = librosa.load(io.BytesIO(data), sr=None, mono=True)
+        voices[name] = ((wav, sr), v["ref_text"])
+        refs[name] = ref_fingerprint(data, v["ref_text"])
+        log.info("ref voice=%s ref=%s %.2fs", name, refs[name], len(wav) / sr)
+    return voices, refs
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     with open(VOICES_F, encoding="utf-8") as f:
-        S["voices"] = {k: (v["ref_audio"], v["ref_text"]) for k, v in json.load(f).items()}
+        S["voices"], S["refs"] = _snapshot(json.load(f))
     log.info("모델 로드 중...")
     S["model"] = Qwen3TTSModel.from_pretrained(
         MODEL_ID, device_map=DEVICE, dtype=torch.bfloat16,
@@ -296,7 +321,11 @@ class Req(BaseModel):
 
 
 def _headers(r: Req) -> dict[str, str]:
-    return {"X-Sample-Rate": str(OUT_SR), NS_HEADER: "1" if r.non_streaming_mode else "0"}
+    headers = {"X-Sample-Rate": str(OUT_SR), NS_HEADER: "1" if r.non_streaming_mode else "0"}
+    ref = S.get("refs", {}).get(r.voice)
+    if ref:
+        headers[VOICE_REF_HEADER] = ref
+    return headers
 
 
 def _validate(r: Req) -> None:
@@ -308,7 +337,12 @@ def _validate(r: Req) -> None:
 
 @app.get("/health")
 def health():
-    return {"ready": S["ready"], "voices": list(S["voices"]), "busy": S["lock"].locked()}
+    return {
+        "ready": S["ready"],
+        "voices": list(S["voices"]),
+        "busy": S["lock"].locked(),
+        "refs": dict(S.get("refs", {})),
+    }
 
 
 @app.post("/v1/tts")
