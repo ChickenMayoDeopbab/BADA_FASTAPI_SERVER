@@ -296,3 +296,148 @@ async def test_other_4xx_is_not_voice_missing() -> None:
     with pytest.raises(QwenTTSUnavailableError) as err:
         await _client(lambda r: httpx.Response(422)).synth("ai", "네.")
     assert not isinstance(err.value, QwenVoiceMissingError)
+
+
+def _multi(handler, urls: str) -> QwenTTSClient:
+    s = _settings(None)
+    s.qwen_tts_urls = urls
+    return QwenTTSClient(s, transport=httpx.MockTransport(handler))
+
+
+async def test_synth_body_is_exactly_voice_and_text() -> None:
+    import json
+
+    seen: dict = {}
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        seen["body"] = json.loads(request.read())
+        return httpx.Response(200, content=b"\x01\x02")
+
+    await _client(_handler).synth("ai", "안녕하세요")
+    assert seen["body"] == {"voice": "ai", "text": "안녕하세요"}
+
+
+async def test_synth_ns_sends_flag_and_reads_headers() -> None:
+    import json
+
+    seen: dict = {}
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        seen["body"] = json.loads(request.read())
+        return httpx.Response(200, content=b"\x01\x02", headers={"X-Non-Streaming": "1", "X-Voice-Ref": "0a1b2c3d"})
+
+    result = await _client(_handler).synth_ns("user", "예약할게요")
+    assert seen["body"] == {"voice": "user", "text": "예약할게요", "non_streaming_mode": True}
+    assert (result.pcm, result.ns, result.ref, result.worker) == (b"\x01\x02", True, "0a1b2c3d", "http://tts.test")
+
+
+@pytest.mark.parametrize("headers", [{"X-Non-Streaming": "0"}, {}])
+async def test_synth_ns_without_flag_header_reports_not_ns(headers: dict) -> None:
+    result = await _client(lambda _r: httpx.Response(200, content=b"\x01\x02", headers=headers)).synth_ns("ai", "네.")
+    assert result.ns is False and result.ref is None
+
+
+@pytest.mark.parametrize("status", [500, 503])
+async def test_synth_ns_does_not_retry_server_errors(status: int) -> None:
+    from app.services.qwen_tts import QwenCapHitError
+
+    calls: list[int] = []
+
+    def _handler(_r: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        return httpx.Response(status)
+
+    with pytest.raises(QwenTTSUnavailableError) as err:
+        await _client(_handler).synth_ns("ai", "네.")
+    assert len(calls) == 1 and not isinstance(err.value, QwenCapHitError)
+
+
+async def test_synth_ns_classifies_failures() -> None:
+    from app.services.qwen_tts import (
+        QwenCapHitError,
+        QwenStalledError,
+        QwenUnreachableError,
+        QwenVoiceMissingError,
+    )
+
+    with pytest.raises(QwenCapHitError):
+        await _client(lambda _r: httpx.Response(502)).synth_ns("ai", "네.")
+    with pytest.raises(QwenStalledError):
+        await _client(_raise(httpx.ReadTimeout)).synth_ns("ai", "네.")
+    with pytest.raises(QwenUnreachableError):
+        await _client(_raise(httpx.ConnectError)).synth_ns("ai", "네.")
+    with pytest.raises(QwenVoiceMissingError):
+        await _client(lambda _r: httpx.Response(404)).synth_ns("ai", "네.")
+    with pytest.raises(QwenTTSUnavailableError) as err:
+        await _client(lambda _r: httpx.Response(422)).synth_ns("ai", "네.")
+    assert not isinstance(err.value, (QwenCapHitError, QwenStalledError, QwenVoiceMissingError))
+
+
+async def test_synth_ns_read_timeout_grows_with_text() -> None:
+    from app.services.qwen_tts import ns_timeout
+
+    seen: list[float] = []
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.extensions["timeout"]["read"])
+        return httpx.Response(200, content=b"\x01\x02", headers={"X-Non-Streaming": "1"})
+
+    client = _client(_handler)
+    await client.synth_ns("ai", "네.")
+    await client.synth_ns("ai", "가" * 300)
+    assert seen == [ns_timeout(5.0, "네."), ns_timeout(5.0, "가" * 300)]
+    assert ns_timeout(30.0, "가" * 47) == 30.0
+    assert ns_timeout(30.0, "가" * 300) == pytest.approx(110.0)
+
+
+async def test_synth_ns_inside_connect_uses_the_held_worker() -> None:
+    hosts: list[str] = []
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        hosts.append(request.url.host)
+        return httpx.Response(200, content=b"\x01", headers={"X-Non-Streaming": "1"})
+
+    client = _multi(_handler, "http://w1.test,http://w2.test")
+    async with client.connect() as session:
+        results = [await session.synth_ns("ai", "네.") for _ in range(3)]
+    assert len(set(hosts)) == 1 and {r.worker for r in results} == {f"http://{hosts[0]}"}
+
+
+def _refs_handler(table: dict):
+    def _handler(request: httpx.Request) -> httpx.Response:
+        entry = table[request.url.host]
+        if entry == "down":
+            raise httpx.ConnectError("refused", request=request)
+        body = {"ready": True, "voices": ["ai", "user"]}
+        if entry is not None:
+            body["refs"] = entry
+        return httpx.Response(200, json=body)
+
+    return _handler
+
+
+@pytest.mark.parametrize(
+    ("table", "state", "refs", "unreachable", "missing"),
+    [
+        ({"a": {"ai": "11111111", "user": "22222222"}, "b": {"ai": "11111111", "user": "22222222"}},
+         "ok", {"ai": "11111111", "user": "22222222"}, (), ()),
+        ({"a": "down", "b": {"ai": "11111111", "user": "22222222"}},
+         "ok", {"ai": "11111111", "user": "22222222"}, ("http://a",), ()),
+        ({"a": "down", "b": "down"}, "down", {}, ("http://a", "http://b"), ()),
+        ({"a": None, "b": {"ai": "11111111", "user": "22222222"}}, "no_refs", {}, (), ()),
+        ({"a": {"ai": "11111111", "user": "22222222"}, "b": {"ai": "33333333", "user": "22222222"}},
+         "rolling", {"user": "22222222"}, (), ()),
+        ({"a": {"ai": "11111111"}, "b": {"ai": "11111111"}}, "missing", {"ai": "11111111"}, (), ("user",)),
+        ({"a": {"ai": "11111111", "user": "22222222", "user_v2": "99999999"},
+          "b": {"ai": "11111111", "user": "22222222"}},
+         "ok", {"ai": "11111111", "user": "22222222"}, (), ()),
+        ({"a": {"ai": "stale", "user": "22222222"}, "b": {"ai": "stale", "user": "22222222"}},
+         "missing", {"user": "22222222"}, (), ("ai",)),
+        ({"a": None, "b": {"ai": "33333333", "user": "22222222"}, "c": {"ai": "11111111", "user": "22222222"}},
+         "no_refs", {}, (), ()),
+    ],
+)
+async def test_health_refs_states(table, state, refs, unreachable, missing) -> None:
+    urls = ",".join(f"http://{host}" for host in table)
+    result = await _multi(_refs_handler(table), urls).health_refs(["ai", "user"])
+    assert (result.state, result.refs, result.unreachable, result.missing) == (state, refs, unreachable, missing)

@@ -1053,3 +1053,329 @@ async def test_eleven_example_uses_the_low_slot_el_voice(monkeypatch) -> None:
     _wire_qwen(monkeypatch, _FakeQwenClient(enabled=False, ready=False))
     await get_example_conversation(_FakeDB(_preset_row(tts_voice_id="male_young_rough")), 1, user_id=7)
     assert tts.open_calls[0] == "yUhh6u2RvOjeCsWPEaEg", "거친 칸 저장이어도 예시는 하 칸 EL 보이스"
+
+
+def _speech_pcm(amp: float = 0.1, fade: bool = True, sec: float = 0.6) -> bytes:
+    import numpy as np
+
+    sr = 16_000
+    t = np.arange(int(sr * sec)) / sr
+    x = (amp * np.sin(2 * np.pi * 220 * t)).astype(np.float32)
+    if fade:
+        n = int(sr * 0.06)
+        x[-n:] *= np.geomspace(1.0, 1e-3, n).astype(np.float32)
+    pad = np.zeros(int(sr * 0.3), dtype=np.float32)
+    return (np.concatenate([pad, x, pad]) * 32767).astype("<i2").tobytes()
+
+
+_GOOD = _speech_pcm()
+_CUT = _speech_pcm(fade=False)
+
+
+class _FakeNsClient:
+    def __init__(self, script: dict[str, list] | None = None, *, ns: bool = True,
+                 refs: dict[str, str] | None = None) -> None:
+        self.script = {k: list(v) for k, v in (script or {}).items()}
+        self.ns = ns
+        self.refs = refs or {"ai": "aaaaaaaa", "user": "bbbbbbbb"}
+        self.calls: list[tuple[str, str]] = []
+        self.connects = 0
+
+    @asynccontextmanager
+    async def connect(self):
+        self.connects += 1
+        yield self
+
+    async def synth_ns(self, voice: str, text: str):
+        from app.services.qwen_tts import NsResult
+
+        self.calls.append((voice, text))
+        queue = self.script.get(text)
+        item = queue.pop(0) if queue else _GOOD
+        if isinstance(item, BaseException):
+            raise item
+        return NsResult(pcm=item, ns=self.ns, ref=self.refs.get(voice), worker="http://w1.test")
+
+
+_NS_VOICES = {"ai": "ai", "user": "user"}
+_NS_LEVELS = {"ai": -16.94749568714168, "user": -22.544892951720513}
+
+
+async def _ns(client, dialogue=_DIALOGUE, **kw):
+    return await example_service._synthesize_qwen_ns(client, dialogue, _NS_VOICES, levels=_NS_LEVELS, **kw)
+
+
+async def test_ns_bake_uses_one_connect_for_all_turns() -> None:
+    client = _FakeNsClient()
+    pcm, info, refs = await _ns(client)
+    assert client.connects == 1
+    assert [c[1] for c in client.calls] == [t["text"] for t in _DIALOGUE]
+    assert refs == {"ai": "aaaaaaaa", "user": "bbbbbbbb"}
+    assert info["attempts"] == 2 and info["worker"] == "http://w1.test"
+
+
+async def test_ns_bake_stops_at_first_response_without_ns() -> None:
+    client = _FakeNsClient(ns=False)
+    with pytest.raises(example_service.QwenNonStreamingMissingError):
+        await _ns(client)
+    assert len(client.calls) == 1
+
+
+@pytest.mark.parametrize("refs", [{"ai": None, "user": "bbbbbbbb"}, {"ai": "stale", "user": "bbbbbbbb"}])
+async def test_ns_bake_stops_when_ref_missing_or_malformed(refs) -> None:
+    client = _FakeNsClient(refs=refs)
+    with pytest.raises(example_service.QwenVoiceRefError):
+        await _ns(client)
+    assert len(client.calls) == 1
+
+
+async def test_ns_bake_stops_when_ref_differs_from_expected() -> None:
+    client = _FakeNsClient()
+    with pytest.raises(example_service.QwenVoiceRefError):
+        await _ns(client, expect_refs={"ai": "cccccccc", "user": "bbbbbbbb"})
+    assert len(client.calls) == 1
+
+
+async def test_ns_bake_stops_when_ref_changes_mid_dialogue() -> None:
+    dialogue = [{"speaker": "ai", "text": "하나"}, {"speaker": "ai", "text": "둘"}]
+    client = _FakeNsClient()
+    original = client.synth_ns
+
+    async def _flip(voice, text):
+        result = await original(voice, text)
+        if text == "둘":
+            from dataclasses import replace
+            return replace(result, ref="dddddddd")
+        return result
+
+    client.synth_ns = _flip
+    with pytest.raises(example_service.QwenVoiceRefError):
+        await _ns(client, dialogue)
+
+
+async def test_ns_bake_counts_cap_hit_as_one_attempt() -> None:
+    from app.services.qwen_tts import QwenCapHitError
+
+    text = _DIALOGUE[0]["text"]
+    client = _FakeNsClient({text: [QwenCapHitError("cap"), _GOOD]})
+    _, info, _ = await _ns(client)
+    assert [c[1] for c in client.calls].count(text) == 2
+    assert info["attempts"] == 3 and info["retried_turns"] == 1
+
+
+async def test_ns_bake_gives_up_after_eight_cap_hits() -> None:
+    from app.services.qwen_tts import QwenCapHitError
+
+    text = _DIALOGUE[0]["text"]
+    client = _FakeNsClient({text: [QwenCapHitError("cap")] * 8})
+    with pytest.raises(QwenCapHitError):
+        await _ns(client)
+    assert len(client.calls) == 8
+
+
+@pytest.mark.parametrize("exc_name", ["QwenStalledError", "QwenVoiceMissingError", "QwenUnreachableError"])
+async def test_ns_bake_aborts_without_retry_on_stall_missing_or_unreachable(exc_name) -> None:
+    from app.services import qwen_tts
+
+    if exc_name == "QwenVoiceMissingError":
+        exc = qwen_tts.QwenVoiceMissingError("ai")
+    else:
+        exc = getattr(qwen_tts, exc_name)("x")
+    text = _DIALOGUE[0]["text"]
+    client = _FakeNsClient({text: [exc, _GOOD]})
+    with pytest.raises(qwen_tts.QwenTTSUnavailableError):
+        await _ns(client)
+    assert len(client.calls) == 1
+
+
+async def test_ns_bake_retries_only_cut_turns_and_caps_at_eight() -> None:
+    ai_text, user_text = _DIALOGUE[0]["text"], _DIALOGUE[1]["text"]
+    client = _FakeNsClient({user_text: [_CUT, _CUT, _GOOD]})
+    _, info, _ = await _ns(client)
+    texts = [c[1] for c in client.calls]
+    assert texts.count(ai_text) == 1 and texts.count(user_text) == 3
+    assert info["attempts"] == 4 and info["residual_cuts"] == 0
+
+    always_cut = _FakeNsClient({user_text: [_CUT] * 20})
+    _, info, _ = await _ns(always_cut)
+    assert [c[1] for c in always_cut.calls].count(user_text) == 8
+    assert info["residual_cuts"] == 1
+
+
+async def test_ns_bake_retries_too_long_renders() -> None:
+    long_render = _speech_pcm(sec=4.0)
+    text = "네."
+    client = _FakeNsClient({text: [long_render, _GOOD]})
+    _, info, _ = await _ns(client, [{"speaker": "ai", "text": text}])
+    assert len(client.calls) == 2 and info["length_fails"] == 1
+
+
+async def test_ns_bake_trims_matches_level_per_role_and_joins_with_400ms_gap() -> None:
+    from app.services import example_audio
+
+    client = _FakeNsClient()
+    pcm, info, _ = await _ns(client)
+    parts = [
+        example_audio.finish([example_audio.evaluate(_GOOD, t["text"])], _NS_LEVELS[t["speaker"]])[0]
+        for t in _DIALOGUE
+    ]
+    assert pcm == example_audio.TURN_GAP_PCM.join(parts)
+    assert parts[0] != parts[1]
+    assert info["gain_db_min"] is not None and info["gain_db_max"] is not None
+
+
+async def test_ns_bake_reports_every_render() -> None:
+    user_text = _DIALOGUE[1]["text"]
+    client = _FakeNsClient({user_text: [_CUT, _GOOD]})
+    seen: list[tuple[str, int]] = []
+    await _ns(client, on_render=lambda role, text, attempt, pcm: seen.append((role, attempt)))
+    assert seen == [("ai", 1), ("user", 1), ("user", 2)]
+
+
+async def test_ns_bake_accepts_async_turns() -> None:
+    async def _turns():
+        for turn in _DIALOGUE:
+            yield turn
+
+    client = _FakeNsClient()
+    pcm, _, _ = await example_service._synthesize_qwen_ns(client, _turns(), _NS_VOICES, levels=_NS_LEVELS)
+    assert pcm and len(client.calls) == 2
+
+
+def test_ns_keys() -> None:
+    refs = {"ai": "aaaaaaaa", "user": "bbbbbbbb"}
+    v8 = example_service._ns_v8(_NS_VOICES, refs, _NS_LEVELS)
+    key = example_service._ns_key(3, _DIALOGUE, v8)
+    assert key == f"examples/3-{example_service._ns_d8(_DIALOGUE)}-{v8}-qn.wav"
+    other_text = [dict(_DIALOGUE[0]), {"speaker": "user", "text": "다른 말"}]
+    assert example_service._ns_d8(other_text) != example_service._ns_d8(_DIALOGUE)
+    assert example_service._ns_v8(_NS_VOICES, {"ai": "cccccccc", "user": "bbbbbbbb"}, _NS_LEVELS) != v8
+    assert example_service._ns_v8(_NS_VOICES, refs, {"ai": -16.0, "user": -22.5}) != v8
+    assert example_service._ns_v8({"ai": "female_young_soft", "user": "user"}, refs, _NS_LEVELS) != v8
+
+
+def test_ns_cached_accepts_any_render_setting_for_the_same_dialogue() -> None:
+    d8 = example_service._ns_d8(_DIALOGUE)
+    key = f"examples/3-{d8}-12345678-qn.wav"
+    assert example_service._ns_cached(3, _DIALOGUE, key) == key
+    assert example_service._ns_cached(3, _DIALOGUE, f"https://b.test/{key}") == key
+    assert example_service._ns_cached(3, _DIALOGUE, f"examples/13-{d8}-12345678-qn.wav") is None
+    assert example_service._ns_cached(3, _DIALOGUE, "examples/3-00000000-12345678-qn.wav") is None
+    assert example_service._ns_cached(3, _DIALOGUE, f"examples/3-{d8}-12345678-q.wav") is None
+    assert example_service._ns_cached(3, _DIALOGUE, None) is None
+
+
+@pytest.mark.parametrize("scenario_voices", [False, True])
+async def test_request_serves_ns_key_without_baking(monkeypatch, scenario_voices) -> None:
+    tts, storage = _wire(monkeypatch)
+    settings = _settings(True)
+    settings.qwen_scenario_voices = scenario_voices
+    monkeypatch.setattr(example_service, "get_settings", lambda: settings)
+    qwen = _wire_qwen(monkeypatch, _FakeQwenClient())
+    key = f"examples/1-{example_service._ns_d8(_DIALOGUE)}-12345678-qn.wav"
+    db = _FakeDB(_preset_row(example_audio_url=key))
+
+    resp = await get_example_conversation(db, 1, user_id=7)
+
+    assert resp.audio_url == f"https://signed.test/{key}"
+    assert tts.open_calls == [] and qwen.calls == [] and storage.uploads == []
+    assert db.refreshes == 0
+
+
+async def test_request_cache_hit_on_f109_key_skips_lock_and_refresh(monkeypatch) -> None:
+    tts, storage = _wire(monkeypatch)
+    _wire_qwen(monkeypatch, _FakeQwenClient())
+    db = _FakeDB(_preset_row(example_audio_url=_eleven_key()))
+
+    resp = await get_example_conversation(db, 1, user_id=7)
+
+    assert resp.audio_url == f"https://signed.test/{_eleven_key()}"
+    assert db.refreshes == 0 and storage.uploads == [] and tts.open_calls == []
+
+
+@asynccontextmanager
+async def _scenario_db():
+    from datetime import UTC, datetime
+
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+    from sqlalchemy.pool import StaticPool
+
+    from app.db.models import ScenarioORM
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:", poolclass=StaticPool,
+                                 connect_args={"check_same_thread": False})
+    async with engine.begin() as conn:
+        await conn.run_sync(lambda c: ScenarioORM.__table__.create(c))
+    factory = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
+    async with factory() as db:
+        db.add(ScenarioORM(scenario_id=42, title="t", content="c", category="ETC", ai_prompt="p",
+                           call_target="ct", call_purpose="cp", is_custom=True, user_id=7,
+                           created_at=datetime.now(UTC)))
+        await db.commit()
+    try:
+        yield factory
+    finally:
+        await engine.dispose()
+
+
+class _DeletingStorage(_FakeStorage):
+    def __init__(self) -> None:
+        super().__init__()
+        self.deleted: list[str] = []
+
+    def delete(self, key: str) -> bool:
+        self.deleted.append(key)
+        return True
+
+
+async def test_store_example_persists_key_in_a_real_session() -> None:
+    from app.db.models import ScenarioORM
+
+    storage = _DeletingStorage()
+    async with _scenario_db() as factory:
+        async with factory() as db:
+            row = await db.get(ScenarioORM, 42)
+            stored, prev = await example_service._store_example(db, row, storage, "examples/42-k.wav", b"\x01\x02")
+        async with factory() as fresh:
+            assert (await fresh.get(ScenarioORM, 42)).example_audio_url == "examples/42-k.wav"
+    assert (stored, prev) == ("examples/42-k.wav", None)
+
+
+async def test_store_example_deletes_upload_when_row_vanishes_before_commit() -> None:
+    from sqlalchemy import delete
+    from sqlalchemy.orm.exc import StaleDataError
+
+    from app.db.models import ScenarioORM
+
+    storage = _DeletingStorage()
+    async with _scenario_db() as factory, factory() as db:
+        row = await db.get(ScenarioORM, 42)
+        real_commit = db.commit
+
+        async def _commit_after_vanish() -> None:
+            async with factory() as other:
+                await other.execute(delete(ScenarioORM).where(ScenarioORM.scenario_id == 42))
+                await other.commit()
+            await real_commit()
+
+        db.commit = _commit_after_vanish
+        with pytest.raises(StaleDataError):
+            await example_service._store_example(db, row, storage, "examples/42-k.wav", b"\x01\x02")
+    assert storage.uploads == [("examples/42-k.wav", b"\x01\x02")]
+    assert storage.deleted == ["examples/42-k.wav"]
+
+
+async def test_store_example_skips_soft_deleted_row() -> None:
+    from datetime import UTC, datetime
+
+    from app.db.models import ScenarioORM
+
+    storage = _DeletingStorage()
+    async with _scenario_db() as factory, factory() as db:
+        row = await db.get(ScenarioORM, 42)
+        async with factory() as other:
+            other_row = await other.get(ScenarioORM, 42)
+            other_row.deleted_at = datetime.now(UTC)
+            await other.commit()
+        stored, _ = await example_service._store_example(db, row, storage, "examples/42-k.wav", b"\x01\x02")
+    assert stored is None and storage.uploads == []
