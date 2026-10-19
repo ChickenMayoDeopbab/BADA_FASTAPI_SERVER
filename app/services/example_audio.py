@@ -85,15 +85,19 @@ def _longest_quiet_s(w: np.ndarray, start: int, end: int) -> float:
 
 
 def _last_word_s(w: np.ndarray, start: int, end: int, gap_s: float) -> float | None:
-    """start~end 에서 gap_s 이상 쉰 마지막 틈 뒤 조각 길이, 틈 없으면 None"""
+    """start~end 마지막 큰 소리 앞 gap_s 이상 틈부터 그 큰 소리까지 길이, 숨소리는 안 셈"""
     b = int(SR * _BLOCK_S)
-    quiet = _block_db(w)[start // b : end // b] < _QUIET_DB
+    db = _block_db(w)[start // b : end // b]
+    loud = np.nonzero(db >= _LOUD_DB)[0]
+    if not len(loud):
+        return None
+    last_loud = int(loud[-1])
     last, run = None, 0
-    for i, q in enumerate(quiet):
+    for i, q in enumerate(db[:last_loud] < _QUIET_DB):
         run = run + 1 if q else 0
         if run * _BLOCK_S >= gap_s:
             last = i + 1
-    return None if last is None else (len(quiet) - last) * _BLOCK_S
+    return None if last is None else (last_loud - last + 1) * _BLOCK_S
 
 
 def _onset(w: np.ndarray) -> int | None:
