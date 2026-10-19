@@ -345,9 +345,18 @@ def test_eos_at_cap_minus_one_is_not_flagged(srv) -> None:
     assert r.status_code == 200
 
 
+def _wav(path: Path, seed: int = 0, seconds: float = 0.5) -> Path:
+    import soundfile as sf
+
+    x = np.random.default_rng(seed).normal(0, 0.1, int(24000 * seconds)).astype(np.float32)
+    sf.write(str(path), x, 24000, subtype="PCM_16")
+    return path
+
+
 def test_warmup_cap_hit_does_not_abort_startup(srv, tmp_path, monkeypatch) -> None:
     voices = tmp_path / "voices.json"
-    voices.write_text(json.dumps({"ai": {"ref_audio": "r.wav", "ref_text": "t"}}))
+    ref = _wav(tmp_path / "r.wav")
+    voices.write_text(json.dumps({"ai": {"ref_audio": str(ref), "ref_text": "t"}}))
     fake = _Fake(step_s=0)
     fake.enable_streaming_optimizations = lambda: None
     monkeypatch.setattr(srv, "VOICES_F", str(voices))
@@ -357,7 +366,9 @@ def test_warmup_cap_hit_does_not_abort_startup(srv, tmp_path, monkeypatch) -> No
     srv.S.update(ready=False, lock=threading.Lock())
 
     with TestClient(srv.app) as client:
-        assert client.get("/health").json() == {"ready": True, "voices": ["ai"], "busy": False}
+        assert client.get("/health").json() == {
+            "ready": True, "voices": ["ai"], "busy": False, "refs": {"ai": srv.ref_fingerprint(ref.read_bytes(), "t")},
+        }
 
 
 def test_fastapi_sentence_guard_always_trips_before_worker_cap(srv) -> None:
@@ -489,7 +500,8 @@ class _Rec(_Fake):
 
 def _boot(srv, tmp_path, monkeypatch, voices: dict, fake) -> dict:
     vf = tmp_path / "voices.json"
-    vf.write_text(json.dumps({k: {"ref_audio": a, "ref_text": "t"} for k, a in voices.items()}))
+    paths = {k: _wav(tmp_path / a, seed=i) for i, (k, a) in enumerate(voices.items())}
+    vf.write_text(json.dumps({k: {"ref_audio": str(p), "ref_text": "t"} for k, p in paths.items()}))
     fake.enable_streaming_optimizations = lambda: None
     monkeypatch.setattr(srv, "VOICES_F", str(vf))
     monkeypatch.setattr(srv, "Qwen3TTSModel", types.SimpleNamespace(from_pretrained=lambda *a, **k: fake))
@@ -506,9 +518,144 @@ def test_warmup_runs_non_streaming_twice_with_distinct_lengths_before_ready(srv,
 
     s0 = [c for c in fake.calls if "non_streaming_mode" not in c]
     ns = [c for c in fake.calls if c.get("non_streaming_mode") is True]
-    assert [c["ref_audio"] for c in s0] == list(voices.values()), "보이스마다 S0 워밍업은 그대로"
+    snap = {v: srv.S["voices"][v][0] for v in voices}
+
+    def _owner(call):
+        return next(v for v, ref in snap.items() if call["ref_audio"] is ref)
+
+    assert [_owner(c) for c in s0] == list(voices), "보이스마다 S0 워밍업은 그대로"
     assert len(ns) == 2 and len({len(c["text"]) for c in ns}) == 2, "N 워밍업은 길이가 다른 글 2개"
-    assert {c["ref_audio"] for c in ns} == {next(iter(voices.values()))}
-    assert fake.calls.index(ns[0]) > fake.calls.index(s0[-1]), "S0 워밍업 뒤에"
+    assert {_owner(c) for c in ns} == {next(iter(voices))}
+    order = [id(c) for c in fake.calls]
+    assert order.index(id(ns[0])) > order.index(id(s0[-1])), "S0 워밍업 뒤에"
     assert fake.ready_at_call == [False] * len(fake.calls), "워밍업은 전부 ready 전에 끝난다"
-    assert health == {"ready": True, "voices": list(voices), "busy": False}
+    assert health == {"ready": True, "voices": list(voices), "busy": False, "refs": dict(srv.S["refs"])}
+    assert set(health["refs"]) == set(voices)
+
+
+def _load_check_ref():
+    spec = importlib.util.spec_from_file_location("check_ref_under_test", _SCRIPT.parent / "check_ref.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_fingerprint_depends_on_bytes_and_text_not_path(srv, tmp_path) -> None:
+    a = _wav(tmp_path / "x.wav", seed=1).read_bytes()
+    b = _wav(tmp_path / "x.wav", seed=2).read_bytes()
+    assert srv.ref_fingerprint(a, "t") != srv.ref_fingerprint(b, "t")
+    assert srv.ref_fingerprint(a, "t") != srv.ref_fingerprint(a, "u")
+    assert len(srv.ref_fingerprint(a, "t")) == 8
+
+
+def test_check_ref_fingerprint_matches_worker(srv) -> None:
+    check_ref = _load_check_ref()
+    rng = np.random.default_rng(5)
+    for _ in range(20):
+        data = rng.bytes(int(rng.integers(1, 5000)))
+        text = "안녕하세요" * int(rng.integers(1, 4))
+        assert check_ref.ref_fingerprint(data, text) == srv.ref_fingerprint(data, text)
+
+
+def test_snapshot_keeps_boot_audio_when_file_is_overwritten(srv, tmp_path, monkeypatch) -> None:
+    fake = _Fake(eos_after=6, step_s=0)
+    health = _boot(srv, tmp_path, monkeypatch, {"ai": "a.wav"}, fake)
+    booted = srv.S["voices"]["ai"][0]
+    before = booted[0].copy()
+    _wav(tmp_path / "a.wav", seed=99)
+    fake.calls.clear()
+    srv.S["ready"] = True
+
+    r = TestClient(srv.app).post("/v1/tts", json={"voice": "ai", "text": "네"})
+
+    assert r.status_code == 200
+    assert fake.calls[-1]["ref_audio"] is booted and np.array_equal(booted[0], before)
+    assert r.headers["x-voice-ref"] == health["refs"]["ai"]
+
+
+def test_snapshot_decodes_like_a_path_load(srv, tmp_path) -> None:
+    import librosa
+
+    path = _wav(tmp_path / "s.wav", seed=3)
+    voices, refs = srv._snapshot({"ai": {"ref_audio": str(path), "ref_text": "t"}})
+    wav, sr = voices["ai"][0]
+    ref_wav, ref_sr = librosa.load(str(path), sr=None, mono=True)
+    assert sr == ref_sr and np.array_equal(wav, ref_wav)
+    assert refs == {"ai": srv.ref_fingerprint(path.read_bytes(), "t")}
+
+
+@pytest.mark.parametrize("path", ["/v1/tts", "/v1/tts/stream"])
+def test_voice_ref_header_on_both_paths(srv, path) -> None:
+    _reset(srv, _Fake(eos_after=6, step_s=0))
+    srv.S["refs"] = {"ai": "0a1b2c3d"}
+    r = TestClient(srv.app).post(path, json={"voice": "ai", "text": "네"})
+    assert r.status_code == 200 and r.headers["x-voice-ref"] == "0a1b2c3d"
+
+
+def test_no_voice_ref_header_when_unknown(srv) -> None:
+    _reset(srv, _Fake(eos_after=6, step_s=0))
+    srv.S["refs"] = {}
+    r = TestClient(srv.app).post("/v1/tts", json={"voice": "ai", "text": "네"})
+    assert r.status_code == 200 and "x-voice-ref" not in r.headers
+
+
+def test_unknown_voice_still_404(srv) -> None:
+    _reset(srv, _Fake(eos_after=6, step_s=0))
+    srv.S["refs"] = {"ai": "0a1b2c3d"}
+    assert TestClient(srv.app).post("/v1/tts", json={"voice": "nope", "text": "네"}).status_code == 404
+
+
+def test_missing_ref_file_fails_before_model_load(srv, tmp_path, monkeypatch) -> None:
+    vf = tmp_path / "voices.json"
+    vf.write_text(json.dumps({"ai": {"ref_audio": str(tmp_path / "없음.wav"), "ref_text": "t"}}))
+    loaded: list[int] = []
+    monkeypatch.setattr(srv, "VOICES_F", str(vf))
+    monkeypatch.setattr(srv, "Qwen3TTSModel", types.SimpleNamespace(from_pretrained=lambda *a, **k: loaded.append(1)))
+    srv.S.update(ready=False, lock=threading.Lock())
+    with pytest.raises(FileNotFoundError), TestClient(srv.app):
+        pass
+    assert loaded == []
+
+
+def test_check_ref_reports_and_refuses_existing_path(tmp_path, capsys) -> None:
+    import soundfile as sf
+
+    check_ref = _load_check_ref()
+    good = tmp_path / "good.wav"
+    sf.write(str(good), np.random.default_rng(1).normal(0, 0.1, 24000 * 12).astype(np.float32), 24000, subtype="PCM_16")
+    refs = tmp_path / "refs"
+    refs.mkdir()
+    args = [str(good), "--voice", "user", "--text", "안녕", "--refs-dir", str(refs), "--date", "20261020"]
+    assert check_ref.main(args) == 0
+    fp = check_ref.ref_fingerprint(good.read_bytes(), "안녕")
+    out = capsys.readouterr().out
+    assert f"user-20261020-{fp}.wav" in out and '"ref_text": "안녕"' in out
+    (refs / f"user-20261020-{fp}.wav").write_bytes(good.read_bytes())
+    assert check_ref.main(args) == 2
+
+
+def test_check_ref_fails_stereo_and_too_short_and_warns_silence(tmp_path, capsys) -> None:
+    import soundfile as sf
+
+    check_ref = _load_check_ref()
+    stereo = tmp_path / "stereo.wav"
+    sf.write(str(stereo), np.zeros((24000 * 5, 2), dtype=np.float32) + 0.1, 24000)
+    short = tmp_path / "short.wav"
+    sf.write(str(short), np.full(24000 * 2, 0.1, dtype=np.float32), 24000)
+    quiet = tmp_path / "quiet.wav"
+    x = np.concatenate([np.zeros(24000 * 2), np.random.default_rng(0).normal(0, 0.1, 24000 * 11)]).astype(np.float32)
+    sf.write(str(quiet), x, 44100)
+    assert check_ref.main([str(stereo), "--voice", "v", "--text", "t", "--refs-dir", str(tmp_path)]) == 1
+    assert check_ref.main([str(short), "--voice", "v", "--text", "t", "--refs-dir", str(tmp_path)]) == 1
+    capsys.readouterr()
+    assert check_ref.main([str(quiet), "--voice", "v", "--text", "t", "--refs-dir", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "샘플레이트 44100Hz" in out and "앞뒤 무음" in out
+
+
+def test_voice_ref_header_is_per_voice(srv) -> None:
+    _reset(srv, _Fake(eos_after=6, step_s=0))
+    srv.S["voices"] = {"ai": ("r.wav", "t"), "user": ("u.wav", "t")}
+    srv.S["refs"] = {"ai": "11111111", "user": "22222222"}
+    r = TestClient(srv.app).post("/v1/tts", json={"voice": "user", "text": "네"})
+    assert r.headers["x-voice-ref"] == "22222222"
