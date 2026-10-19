@@ -78,6 +78,12 @@ class Settings(BaseSettings):
     qwen_tts_realtime_enabled: bool = False
     qwen_tts_speed: float = 1.0 # 실시간 말 속도(0.8~1.25)
     qwen_tts_req_metric: bool = True  # 실시간 요청별 끝·쉼·시간 계측 줄
+    qwen_tts_non_streaming: bool = False  # 실시간 N 요청 + 말소리 뒤 쉼 압축
+    qwen_tts_non_streaming_voices: str = "ai"  # N 을 쓸 보이스(쉼표 구분)
+    qwen_tts_pause_keep_ms: float = 160.0  # 말소리 뒤 남길 쉼(들리는 ms)
+    qwen_tts_pause_cap_over_ms: float = 350.0  # 안쪽 쉼이 이보다 길면
+    qwen_tts_pause_cap_to_ms: float = 250.0  # 이 길이로 줄임
+    qwen_tts_pause_min_buffer_ms: float = 300.0  # 앱 버퍼가 이보다 얇으면 쉼을 덜 줄임
     example_qwen_ns: bool = False  # 프리셋·새 커스텀 예시를 Qwen non_streaming_mode 로 굽기
     example_request_wait_sec: float = 20.0  # 예시 요청이 굽기를 기다리는 상한(앱 30초 타임아웃 안)
     example_turn_prior_sec: float = 6.0  # 남은 굽기 시간 추정용 턴당 사전값

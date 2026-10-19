@@ -17,6 +17,7 @@ from app.core.audio_stats import BYTES_PER_MS
 from app.core.config import Settings
 from app.core.metrics import log_metric
 from app.schemas.llm import AiEmotion
+from app.services.pause_compress import FRAME_BYTES, ClientBuffer, PauseCompressor
 from app.services.pcm_stretch import PcmStretcher, clamp_speed
 from app.services.tts import _SentenceBuffer
 
@@ -35,6 +36,8 @@ _REALTIME_READ_TIMEOUT = 10.0
 _RUNAWAY_FLOOR_MS = 3000
 _RUNAWAY_MS_PER_CHAR = 300
 _SPEED_WARMUP_MS = 180  # 턴 첫 문장 앞 부분은 원래 속도
+_APP_PREBUFFER_MS = 250.0  # 앱이 재생을 시작하는 버퍼
+_TTFB_CAP_MS = 1000.0
 
 
 class QwenTTSUnavailableError(Exception):
@@ -476,6 +479,103 @@ def _turn_metrics(log: list[dict], speed: float) -> dict:
     }
 
 
+@dataclass
+class _CallState:
+    """통화 하나 동안 유지되는 N 상태"""
+
+    off_reason: str | None = None
+
+
+@dataclass(frozen=True)
+class _PauseConfig:
+    keep_ms: float = 160.0
+    cap_over_ms: float = 350.0
+    cap_to_ms: float = 250.0
+    min_buffer_ms: float = 300.0
+
+
+def _ns_voices(settings: Settings) -> frozenset[str]:
+    raw = getattr(settings, "qwen_tts_non_streaming_voices", "ai") or ""
+    return frozenset(v.strip() for v in str(raw).split(",") if v.strip())
+
+
+def _pause_config(settings: Settings) -> _PauseConfig:
+    base = _PauseConfig()
+    return _PauseConfig(
+        keep_ms=float(getattr(settings, "qwen_tts_pause_keep_ms", base.keep_ms)),
+        cap_over_ms=float(getattr(settings, "qwen_tts_pause_cap_over_ms", base.cap_over_ms)),
+        cap_to_ms=float(getattr(settings, "qwen_tts_pause_cap_to_ms", base.cap_to_ms)),
+        min_buffer_ms=float(getattr(settings, "qwen_tts_pause_min_buffer_ms", base.min_buffer_ms)),
+    )
+
+
+class _PauseStage:
+    """압축기 감싸기, 예외가 나면 그 요청 나머지는 원 바이트로 통과"""
+
+    def __init__(self, comp: PauseCompressor) -> None:
+        self.comp = comp
+        self.failed = False
+        self._rem = b""
+        self._out_meter = RequestMeter()
+
+    def push(self, chunk: bytes, spare_ms: float) -> bytes:
+        if self.failed:
+            return chunk
+        try:
+            out = self.comp.push(chunk, spare_ms)
+        except Exception:
+            return self._fail(chunk)
+        buf = self._rem + chunk
+        keep = len(buf) % FRAME_BYTES
+        self._rem = buf[len(buf) - keep :] if keep else b""
+        self._out_meter.push(out)
+        return out
+
+    def finish(self, spare_ms: float) -> bytes:
+        if self.failed:
+            return b""
+        try:
+            out = self.comp.finish(True, spare_ms)
+        except Exception:
+            return self._fail(b"")
+        self._out_meter.push(out)
+        return out
+
+    def abort(self) -> None:
+        with contextlib.suppress(Exception):
+            self.comp.finish(False)
+
+    def _fail(self, chunk: bytes) -> bytes:
+        logger.info("뒤 무음 압축 실패, 이 요청은 그대로 통과", exc_info=True)
+        self.failed = True
+        out, self._rem = self._rem + chunk, b""
+        return out
+
+    def record(self) -> dict:
+        st = self.comp.stats
+        return {
+            "drop_ms": st.end_dropped_ms,
+            "cap_ms": st.capped_ms,
+            "extra_ms": st.extra_ms,
+            "island_ms": st.end_island_ms,
+            "thr_db": st.thr_db,
+            "out_trail_ms": self._out_meter.result().get("trail_ms"),
+        }
+
+
+def _pause_turn_metrics(log: list[dict], mode: str, end_ahead: float | None) -> dict:
+    out: dict = {"tts_ns": mode}
+    pressed = [r for r in log if "drop_ms" in r]
+    if pressed:
+        out.update(
+            tts_drop_ms=round(sum(r["drop_ms"] + r["cap_ms"] for r in pressed), 1),
+            tts_extra_ms=round(sum(r["extra_ms"] for r in pressed), 1),
+            tts_island=sum(r["island_ms"] > 0 for r in pressed),
+            tts_end_ahead_ms=None if end_ahead is None else round(end_ahead, 1),
+        )
+    return out
+
+
 class QwenRealtimeTTSSession:
     """실시간 한 턴"""
 
@@ -488,6 +588,9 @@ class QwenRealtimeTTSSession:
         *,
         req_metric: bool = True,
         clock=time.monotonic,
+        ns: str = "off",
+        call: _CallState | None = None,
+        pause: _PauseConfig | None = None,
     ) -> None:
         self._client = client
         self._base_url = base_url
@@ -500,6 +603,12 @@ class QwenRealtimeTTSSession:
         self._req_metric = req_metric
         self._clock = clock
         self.request_log: list[dict] = []
+        self._ns = ns
+        self._call = call if call is not None else _CallState()
+        self._pause = pause or _PauseConfig()
+        self._buffer = ClientBuffer(_APP_PREBUFFER_MS) if ns == "want" else None
+        self._ttfb_max = 0.0
+        self._end_ahead: float | None = None
 
     async def begin(self, emotion: AiEmotion = AiEmotion.NEUTRAL) -> None:
         """감정 지시는 클론 경로에 없음"""
@@ -523,6 +632,32 @@ class QwenRealtimeTTSSession:
                 async for pcm in gen:
                     yield pcm
 
+    @property
+    def ns_mode(self) -> str:
+        if self._ns != "want":
+            return self._ns
+        return self._call.off_reason or "on"
+
+    def _now_ms(self) -> float:
+        return self._clock() * 1000
+
+    def _spare_ms(self) -> float:
+        need = max(self._pause.min_buffer_ms, 2 * min(self._ttfb_max, _TTFB_CAP_MS))
+        return max(0.0, need - self._buffer.ahead_ms(self._now_ms())) * self._speed
+
+    def _new_stage(self) -> _PauseStage:
+        k = self._speed
+        cfg = self._pause
+        return _PauseStage(
+            PauseCompressor(keep_ms=cfg.keep_ms * k, cap_over_ms=cfg.cap_over_ms * k, cap_to_ms=cfg.cap_to_ms * k)
+        )
+
+    def _sent(self, out: bytes) -> bytes:
+        self._audio_started = True
+        if self._buffer is not None:
+            self._buffer.on_yield(len(out), self._now_ms())
+        return out
+
     async def _synth_sentence(self, text: str) -> AsyncIterator[bytes]:
         self.chars_sent += len(text)
         cap_ms = runaway_cap_ms(text)
@@ -532,16 +667,28 @@ class QwenRealtimeTTSSession:
             self._speed, warmup_ms=0 if self._audio_started else _SPEED_WARMUP_MS
         )
         rec = _RequestRecorder(self._clock) if self._req_metric else None
+        want = self._ns == "want" and self._call.off_reason is None
+        body = {"voice": self._voice, "text": text}
+        if want:
+            body["non_streaming_mode"] = True
+        stage: _PauseStage | None = None
+        t_req = self._now_ms() if self._buffer is not None else 0.0
+        first = True
         outcome = "aborted"
         try:
             async with self._client.stream(
                 "POST",
                 f"{self._base_url}/v1/tts/stream",
-                json={"voice": self._voice, "text": text},
+                json=body,
             ) as response:
                 if rec is not None:
                     rec.header(response)
                 response.raise_for_status()
+                if want:
+                    if response.headers.get(NS_HEADER) == "1":
+                        stage = self._new_stage()
+                    else:
+                        self._call.off_reason = "no_header"
                 async for chunk in response.aiter_bytes():
                     if not chunk:
                         continue
@@ -556,14 +703,25 @@ class QwenRealtimeTTSSession:
                         )
                     if rec is not None:
                         rec.chunk(chunk)
-                    out = stretcher.push(chunk)
+                    if first and self._buffer is not None:
+                        self._ttfb_max = max(self._ttfb_max, self._now_ms() - t_req)
+                    first = False
+                    data = chunk
+                    if stage is not None:
+                        data = stage.push(chunk, self._spare_ms())
+                    out = stretcher.push(data) if data else b""
                     if out:
-                        self._audio_started = True
-                        yield out
+                        yield self._sent(out)
+                if stage is not None:
+                    rest = stage.finish(self._spare_ms())
+                    out = stretcher.push(rest) if rest else b""
+                    if out:
+                        yield self._sent(out)
                 tail = stretcher.flush()
                 if tail:
-                    self._audio_started = True
-                    yield tail
+                    yield self._sent(tail)
+                if self._buffer is not None:
+                    self._end_ahead = self._buffer.raw_ahead_ms(self._now_ms())
             outcome = "eos"
         except QwenTTSRunawayError:
             outcome = "runaway"
@@ -575,14 +733,26 @@ class QwenRealtimeTTSSession:
             outcome = "error"
             raise QwenTTSUnavailableError(f"{type(exc).__name__}: {exc}") from exc
         finally:
+            if stage is not None and outcome != "eos":
+                stage.abort()
+            if stage is not None and stage.failed:
+                self._call.off_reason = "comp_error"
             if rec is not None:
                 with contextlib.suppress(Exception):
-                    self.request_log.append(rec.finish(text, self._voice, outcome))
+                    entry = rec.finish(text, self._voice, outcome)
+                    if want:
+                        entry["e"] = "comp_error" if stage and stage.failed else ("on" if stage else "no_header")
+                    if stage is not None:
+                        entry.update(stage.record())
+                    self.request_log.append(entry)
 
     def turn_metrics(self) -> dict:
         """voice_turn 에 붙일 요청 집계"""
         try:
-            return _turn_metrics(self.request_log, self._speed)
+            base = _turn_metrics(self.request_log, self._speed)
+            if base:
+                base.update(_pause_turn_metrics(self.request_log, self.ns_mode, self._end_ahead))
+            return base
         except Exception:
             logger.info("요청 집계 실패(무시)", exc_info=True)
             return {}
@@ -615,6 +785,10 @@ class QwenRealtimeTTSClient:
         self._worker_url: str | None = None
         self.speed = clamp_speed(getattr(settings, "qwen_tts_speed", 1.0))
         self.voices: frozenset[str] | None = None
+        self._call = _CallState()
+        self._ns_on = getattr(settings, "qwen_tts_non_streaming", False) is True
+        self._ns_voices = _ns_voices(settings)
+        self._pause = _pause_config(settings) if self._ns_on else _PauseConfig()
 
     async def open(self, voice_id: str | None = None) -> QwenRealtimeTTSSession:
         """턴마다 호출"""
@@ -624,12 +798,17 @@ class QwenRealtimeTTSClient:
             ),
             transport=self._transport,
         )
+        voice = voice_id or _REALTIME_VOICE
+        ns = "off" if not self._ns_on else ("want" if voice in self._ns_voices else "voice")
         return QwenRealtimeTTSSession(
             client,
             self._base_url,
             self.speed,
-            voice_id or _REALTIME_VOICE,
+            voice,
             req_metric=getattr(self._settings, "qwen_tts_req_metric", True),
+            ns=ns,
+            call=self._call,
+            pause=self._pause,
         )
 
     def release_slot(self) -> None:
