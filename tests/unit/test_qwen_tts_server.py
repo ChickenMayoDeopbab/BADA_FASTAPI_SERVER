@@ -425,3 +425,90 @@ def test_real_uvicorn_client_disconnect_releases_lock(srv, mode, http) -> None:
     finally:
         server.should_exit = True
         th.join(timeout=5)
+
+
+# ── 계획 0071 E 기능 1: 요청 단위 non_streaming_mode ──
+
+
+def _post(srv, path: str, body: dict):
+    return TestClient(srv.app).post(path, json={"voice": "ai", **body})
+
+
+@pytest.mark.parametrize("path", ["/v1/tts", "/v1/tts/stream"])
+def test_request_without_field_calls_fork_exactly_as_before(srv, path) -> None:
+    m = _Fake(eos_after=10, step_s=0)
+    _reset(srv, m)
+
+    r = _post(srv, path, {"text": "네, 확인해 드리겠습니다."})
+
+    assert r.status_code == 200
+    assert "non_streaming_mode" not in m.calls[0], "옛 FastAPI 요청은 포크 인자가 예전과 같아야 한다"
+    assert r.headers["x-non-streaming"] == "0"
+
+
+@pytest.mark.parametrize("path", ["/v1/tts", "/v1/tts/stream"])
+def test_non_streaming_flag_reaches_fork_with_same_cap(srv, path) -> None:
+    text = "네, 확인해 드리겠습니다."
+    m = _Fake(eos_after=10, step_s=0)
+    _reset(srv, m)
+
+    r = _post(srv, path, {"text": text, "non_streaming_mode": True})
+
+    assert r.status_code == 200
+    assert m.calls[0]["non_streaming_mode"] is True
+    assert m.calls[0]["max_frames"] == srv.max_frames_for(text), "상한은 모드와 무관하게 같은 식"
+    assert r.headers["x-non-streaming"] == "1", "호출측은 이 헤더로만 N 이 적용됐다고 본다"
+
+
+def test_unknown_request_fields_are_ignored(srv) -> None:
+    m = _Fake(eos_after=10, step_s=0)
+    _reset(srv, m)
+
+    r = _post(srv, "/v1/tts", {"text": "네.", "future_field": 1})
+
+    assert r.status_code == 200, "새 FastAPI 가 옛 워커에 새 필드를 보내도 422 가 나면 안 된다(롤링 배포)"
+
+
+def test_cap_formula_covers_observed_n_speech(srv) -> None:
+    # 학교 3090 ai N 460요청(가드 걸린 1건 제외) 길이별 최장 — 뒤 무음 ~0.9s 포함
+    observed = {7: 3.68, 9: 2.88, 11: 3.2, 12: 3.36, 14: 3.52, 15: 6.16, 21: 4.4, 24: 4.8, 27: 6.32, 46: 7.44}
+    worst = max(sec / (srv.max_frames_for("x" * k) * srv.FRAME_S) for k, sec in observed.items())
+    assert worst <= 0.6, f"N 정상 발화가 상한에 너무 가깝다: {worst:.2f}"
+
+
+class _Rec(_Fake):
+    def __init__(self, srv, **k) -> None:
+        super().__init__(**k)
+        self.srv = srv
+        self.ready_at_call: list[bool] = []
+
+    def stream_generate_voice_clone(self, **kw):
+        self.ready_at_call.append(self.srv.S["ready"])
+        return super().stream_generate_voice_clone(**kw)
+
+
+def _boot(srv, tmp_path, monkeypatch, voices: dict, fake) -> dict:
+    vf = tmp_path / "voices.json"
+    vf.write_text(json.dumps({k: {"ref_audio": a, "ref_text": "t"} for k, a in voices.items()}))
+    fake.enable_streaming_optimizations = lambda: None
+    monkeypatch.setattr(srv, "VOICES_F", str(vf))
+    monkeypatch.setattr(srv, "Qwen3TTSModel", types.SimpleNamespace(from_pretrained=lambda *a, **k: fake))
+    srv.S.update(ready=False, lock=threading.Lock())
+    with TestClient(srv.app) as client:
+        return client.get("/health").json()
+
+
+@pytest.mark.parametrize("voices", [{"user": "u.wav", "ai": "a.wav"}, {"ai": "a.wav"}])
+def test_warmup_runs_non_streaming_twice_with_distinct_lengths_before_ready(srv, tmp_path, monkeypatch, voices) -> None:
+    fake = _Rec(srv, eos_after=6, step_s=0)
+
+    health = _boot(srv, tmp_path, monkeypatch, voices, fake)
+
+    s0 = [c for c in fake.calls if "non_streaming_mode" not in c]
+    ns = [c for c in fake.calls if c.get("non_streaming_mode") is True]
+    assert [c["ref_audio"] for c in s0] == list(voices.values()), "보이스마다 S0 워밍업은 그대로"
+    assert len(ns) == 2 and len({len(c["text"]) for c in ns}) == 2, "N 워밍업은 길이가 다른 글 2개"
+    assert {c["ref_audio"] for c in ns} == {next(iter(voices.values()))}
+    assert fake.calls.index(ns[0]) > fake.calls.index(s0[-1]), "S0 워밍업 뒤에"
+    assert fake.ready_at_call == [False] * len(fake.calls), "워밍업은 전부 ready 전에 끝난다"
+    assert health == {"ready": True, "voices": list(voices), "busy": False}
