@@ -66,6 +66,7 @@ class _Storage:
         self.markers: list[str] = []
         self.fail_copy: Exception | None = None
         self.fail_head: Exception | None = None
+        self.fail_delete: Exception | None = None
 
     def upload_wav(self, key: str, pcm: bytes) -> str:
         self.uploads.append(key)
@@ -95,6 +96,8 @@ class _Storage:
         return True
 
     def delete(self, key: str) -> bool:
+        if self.fail_delete is not None:
+            raise self.fail_delete
         self.deleted.append(key)
         self.objects.pop(key, None)
         return True
@@ -962,3 +965,23 @@ async def test_fallback_bake_waits_for_the_scene_lock_and_reuses_its_result(monk
     assert await asyncio.wait_for(baker, 2) == plain
     await holder
     assert env.el.opens == 0 and env.storage.uploads == []
+
+
+async def test_reject_still_succeeds_when_cleanup_delete_fails(monkeypatch) -> None:
+    current = _expected(1, _D1)
+    rows = {1: _row(1, url=current)}
+    storage = _Storage({current: b"bad", "examples/1-8c9047e7.wav": b"el"})
+    storage.fail_delete = RuntimeError("S3 503")
+    env = _wire(monkeypatch, rows, storage=storage)
+    result = await es.reject_preset(1, "examples/1-8c9047e7.wav")
+    assert result == {"rejected": current, "restored": "examples/1-8c9047e7.wav", "deleted": False}
+    assert rows[1].example_audio_url == "examples/1-8c9047e7.wav"
+    assert env.storage.objects[es._rejected_key(current)] == b"bad"
+    assert [m["deleted"] for m in _named(env.metrics, "example_tts") if m.get("trigger") == "reject"] == [False]
+
+
+async def test_reject_reports_a_successful_cleanup(monkeypatch) -> None:
+    current = _expected(1, _D1)
+    rows = {1: _row(1, url=current)}
+    _wire(monkeypatch, rows, storage=_Storage({current: b"bad", "examples/1-8c9047e7.wav": b"el"}))
+    assert (await es.reject_preset(1, "examples/1-8c9047e7.wav"))["deleted"] is True
