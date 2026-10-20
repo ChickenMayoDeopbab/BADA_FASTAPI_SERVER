@@ -991,8 +991,9 @@ async def _fallback_plain(
 ) -> str | None:
     """커스텀은 예전 굽기로, 그것도 실패하면 잠시 다시 굽지 않는다"""
     key = None
+    lock = _generation_locks.setdefault(scenario_id, asyncio.Lock())
     try:
-        async with asyncio.timeout(_FALLBACK_BUDGET_SEC), AsyncSessionLocal() as db:
+        async with asyncio.timeout(_FALLBACK_BUDGET_SEC), lock, AsyncSessionLocal() as db:
             row = await db.get(ScenarioORM, scenario_id)
             if row is not None and not is_deleted(row):
                 key = await _bake_locked(
@@ -1324,6 +1325,11 @@ async def restore_preset(scenario_id: int, prev: str, *, stamp: str) -> dict:
     return {"key": want, "backup": _backup_path(want, stamp) if backed_up else None}
 
 
+def _own_example_key(scenario_id: int, key: str) -> bool:
+    """이 시나리오의 예시 키(plain·-q·-qn) 모양인지"""
+    return re.fullmatch(rf"examples/{scenario_id}-[0-9a-f]{{8}}(?:-q|-[0-9a-f]{{8}}-qn)?\.wav", key) is not None
+
+
 async def reject_preset(scenario_id: int, restore_key: str) -> dict:
     """내부 API: 지금 ns 객체를 탈락으로 옮기고 행을 restore_key 로 되돌린다"""
     settings = get_settings()
@@ -1331,6 +1337,8 @@ async def reject_preset(scenario_id: int, restore_key: str) -> dict:
         raise ExampleOpError(409, "예시 N 굽기가 꺼져 있다")
     if scenario_id not in PRESET_MAP:
         raise ExampleOpError(404, f"프리셋 아님: {scenario_id}")
+    if not _own_example_key(scenario_id, restore_key):
+        raise ExampleOpError(400, f"restore_key 가 이 프리셋의 예시 키가 아니다: {restore_key}")
     storage = RecordingStorageService(settings)
     lock = _generation_locks.setdefault(scenario_id, asyncio.Lock())
     async with lock, AsyncSessionLocal() as db:
@@ -1343,6 +1351,8 @@ async def reject_preset(scenario_id: int, restore_key: str) -> dict:
         current_ns = _ns_cached(scenario_id, dialogue, current)
         if current_ns is None:
             raise ExampleOpError(409, "지금 행이 ns 키가 아니다")
+        if restore_key == current_ns:
+            raise ExampleOpError(400, "restore_key 가 지금 탈락시킬 키와 같다")
         if not storage.exists(restore_key):
             raise ExampleOpError(409, f"되돌릴 객체 없음: {restore_key}")
         if not storage.copy(current_ns, _rejected_key(current_ns)):
