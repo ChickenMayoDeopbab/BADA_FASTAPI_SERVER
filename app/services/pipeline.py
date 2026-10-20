@@ -1287,18 +1287,19 @@ class VoicePipeline:
             return
         self._end_reason = reason
         self._closing.set()
-        fields = {
-            "session_id": self._session_id,
-            "reason": reason.value,
-            **detail,
-            "state": state.value,
-            "playback_left_ms": left_ms,
-        }
-        logger.info(
-            "파이프라인 종료 트리거 %s",
-            " ".join(f"{k}={v}" for k, v in fields.items()),
-            extra={"session_id": self._session_id, "reason": reason.value},
-        )
+        with suppress(Exception):
+            fields = {
+                "session_id": self._session_id,
+                "reason": reason.value,
+                **detail,
+                "state": state.value,
+                "playback_left_ms": left_ms,
+            }
+            logger.info(
+                "파이프라인 종료 트리거 %s",
+                " ".join(f"{k}={v}" for k, v in fields.items()),
+                extra=fields,
+            )
 
     async def _wait_for_playback(self) -> None:
         playback = self._playback
