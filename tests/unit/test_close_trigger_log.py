@@ -125,6 +125,31 @@ async def test_only_first_trigger_is_logged(caplog) -> None:
     assert line["source"] == "end_frame"
 
 
+async def test_extra_matches_message(caplog) -> None:
+    p = _pipeline({"type": "websocket.disconnect", "code": 1006})
+    await p._recv_loop()
+
+    [record] = [r for r in caplog.records if r.getMessage().startswith(_TRIGGER)]
+    [line] = _fields(caplog)
+    assert set(line) == {"session_id", "reason", "source", "code", "state", "playback_left_ms"}
+    for key, value in line.items():
+        assert str(getattr(record, key)) == value
+
+
+class _Unformattable:
+    def __format__(self, spec: str) -> str:
+        raise ValueError("포맷 실패")
+
+
+@pytest.mark.parametrize("detail", [{"source": _Unformattable()}, {"name": "LogRecord 예약 이름"}])
+async def test_log_failure_does_not_escape_close(detail) -> None:
+    p = _pipeline()
+    await p._close(EndReason.USER_END, **detail)
+
+    assert p._closing.is_set()
+    assert p._end_reason == EndReason.USER_END
+
+
 @pytest.mark.parametrize("value", ["call_end", "playback_error", "interrupt", "disposed", "completed"])
 def test_playback_stats_keep_app_end_reason(value) -> None:
     out = _sanitize_playback_stats({"type": "playback_stats", "turn": 1, "end_reason": value})
