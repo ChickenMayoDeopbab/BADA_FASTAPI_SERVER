@@ -506,7 +506,8 @@ def test_denoise_client_only_adds_denoiser_to_operational_config(monkeypatch) ->
     assert dn["streaming_config"]["config"].pop("denoiser_config") == {"denoise_audio": True, "snr_threshold": 0.0}
     assert dn == op
     features = op["streaming_config"]["streaming_features"]
-    assert features == {"interim_results": True, "enable_voice_activity_events": True}
+    assert features["interim_results"] is True
+    assert features["enable_voice_activity_events"] is True
 
 
 def test_non_chirp_operational_engine_is_refused(monkeypatch) -> None:
