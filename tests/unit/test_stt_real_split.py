@@ -309,6 +309,25 @@ def test_cuts_override_the_split_and_make_only_the_given_ids(tmp_path, monkeypat
     assert "cuts 에 있지만 녹음에 없는 연속 녹음: tv/all.wav" in text and "fan/u03.wav" in text
 
 
+def test_cuts_with_no_usable_entry_drop_the_file_with_a_mark(tmp_path, monkeypatch, capsys) -> None:
+    """cuts 가 전부 무효면 클립이 하나도 안 나오므로 ✗ 로 뺀다(경고만 늘어놓지 않는다)"""
+    rec, _ = _misread_kit(tmp_path)
+    cuts = tmp_path / "cuts.tsv"
+    cuts.write_text("fan/all.wav\tx99\t1\t2\nfan/all.wav\tu01\t1\t999\n", encoding="utf-8")
+    loaded = real_manifest.load_cuts(cuts)
+    manifest, _ = real_manifest.build(rec, SENT, tmp_path / "o", clean_label="quiet", cuts=loaded)
+    fan = next(s for s in manifest["splits"] if s["env"] == "fan")
+    assert fan["included"] is False
+    assert fan["warnings"] == [
+        "cuts 의 x99 는 문장표에 없음(뺌)",
+        f"cuts u01 끝 999초가 녹음({fan['dur_s']:.1f}초) 밖(뺌)",
+        "cuts 에 쓸 수 있는 항목이 없음 — 클립 없음(뺌)",
+    ]
+    assert {c["env"] for c in manifest["clips"]} == {"quiet"}
+    text = _main(monkeypatch, capsys, "--rec-dir", str(rec), "--out", str(tmp_path / "o2"), "--cuts", str(cuts))
+    assert "✗ fan/all.wav" in text and "cuts 에 쓸 수 있는 항목이 없음" in text
+
+
 @pytest.mark.parametrize("pause", [0.3, 0.5, 0.6])
 def test_cuts_keep_a_quick_reread_out_of_the_clip(tmp_path, pause) -> None:
     """틀린 시도 뒤 0.8초 안에 바로 다시 읽어도 cuts 클립 앞 여유에 틀린 시도가 안 든다(구절·핵 run 단위로 피한다)"""
