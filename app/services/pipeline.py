@@ -154,7 +154,7 @@ _PLAYBACK_NUMERIC_FIELDS = (
     "dropped_chunks",  # resetStream 등으로 버린 청크 수(잘림 판정)
     "first_play_ms",   # 첫 청크 도착→재생 시작
 )
-_PLAYBACK_TEXT_FIELDS = ("route", "platform", "os", "app_version")
+_PLAYBACK_TEXT_FIELDS = ("route", "platform", "os", "app_version", "end_reason")
 _PLAYBACK_TEXT_MAX = 32
 
 
@@ -366,7 +366,7 @@ class VoicePipeline:
                 msg = await self._ws.receive()
                 if msg.get("type") == "websocket.disconnect":
                     self._ws_alive = False
-                    await self._close(EndReason.USER_END)
+                    await self._close(EndReason.USER_END, source="ws_disconnect", code=msg.get("code"))
                     return
                 if msg.get("bytes") is not None:
                     if not self._muted:
@@ -375,9 +375,9 @@ class VoicePipeline:
                         await self._audio_queue.put(msg["bytes"])
                 elif msg.get("text") is not None:
                     await self._handle_client_text(msg["text"])
-        except (WebSocketDisconnect, RuntimeError):
+        except (WebSocketDisconnect, RuntimeError) as exc:
             self._ws_alive = False
-            await self._close(EndReason.USER_END)
+            await self._close(EndReason.USER_END, source="recv_error", error=type(exc).__name__)
 
     async def _handle_client_text(self, raw: str) -> None:
         """클라이언트 텍스트 핸들링"""
@@ -388,7 +388,7 @@ class VoicePipeline:
             return
         mtype = data.get("type")
         if mtype == "end":
-            await self._close(EndReason.USER_END)
+            await self._close(EndReason.USER_END, source="end_frame")
         elif mtype == "ping":
             await self._send_json({"type": "pong"})
         elif mtype == "mute":
@@ -1269,9 +1269,14 @@ class VoicePipeline:
                 await turn
         await self._close(EndReason.TIMEOUT)
 
-    async def _close(self, reason: EndReason) -> None:
+    async def _close(self, reason: EndReason, **detail: object) -> None:
         if self._closing.is_set():
             return
+        state = self._state
+        playback = self._playback
+        left_ms = 0
+        if playback is not None and playback.expected_end_ms is not None and not playback.done.is_set():
+            left_ms = max(0, round(playback.expected_end_ms - now_ms()))
         if self._state == _State.LISTENING:
             self._bank_silence()
         self._state = _State.CLOSING
@@ -1282,8 +1287,16 @@ class VoicePipeline:
             return
         self._end_reason = reason
         self._closing.set()
+        fields = {
+            "session_id": self._session_id,
+            "reason": reason.value,
+            **detail,
+            "state": state.value,
+            "playback_left_ms": left_ms,
+        }
         logger.info(
-            "파이프라인 종료 트리거",
+            "파이프라인 종료 트리거 %s",
+            " ".join(f"{k}={v}" for k, v in fields.items()),
             extra={"session_id": self._session_id, "reason": reason.value},
         )
 
