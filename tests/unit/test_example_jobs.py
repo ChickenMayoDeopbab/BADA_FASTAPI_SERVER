@@ -369,11 +369,11 @@ async def test_queue_wait_does_not_eat_the_budget(monkeypatch) -> None:
 
 
 async def test_preset_failure_is_deferred_not_fallen_back(monkeypatch) -> None:
-    rows = {1: _row(1, url="examples/1-old.wav")}
+    rows = {1: _row(1, url="examples/1-8c9047e7.wav")}
     env = _wire(monkeypatch, rows, qwen=_Qwen(ns=False))
     job = es._ensure_job(1, "preset_prebake")
     assert await asyncio.wait_for(job.task, 2) is None
-    assert rows[1].example_audio_url == "examples/1-old.wav" and env.storage.uploads == [] and env.el.opens == 0
+    assert rows[1].example_audio_url == "examples/1-8c9047e7.wav" and env.storage.uploads == [] and env.el.opens == 0
     assert _named(env.metrics, "example_tts_deferred")[0]["reason"] == "no_ns"
 
 
@@ -420,14 +420,14 @@ async def test_skip_list_keeps_plain_path(monkeypatch) -> None:
 
 
 async def test_ns_bake_logs_usage_and_metric(monkeypatch) -> None:
-    rows = {1: _row(1, url="examples/1-old.wav")}
+    rows = {1: _row(1, url="examples/1-8c9047e7.wav")}
     env = _wire(monkeypatch, rows)
     key = await asyncio.wait_for(es._ensure_job(1, "preset_prebake").task, 2)
     (args, kw), = env.usage
     assert args == ("qwen", "qwen-ns1", "example_audio")
     assert (kw["attempts"], kw["turns"], kw["trigger"]) == (2, 2, "preset_prebake")
     metric = [m for m in _named(env.metrics, "example_tts") if m.get("method") == "ns1"][0]
-    assert metric["prev_key"] == "examples/1-old.wav" and metric["v8"] == key.rsplit("-", 2)[-2]
+    assert metric["prev_key"] == "examples/1-8c9047e7.wav" and metric["v8"] == key.rsplit("-", 2)[-2]
 
 
 async def test_warmup_row_is_not_baked(monkeypatch) -> None:
@@ -472,7 +472,7 @@ async def test_prebake_rebakes_when_ref_fingerprint_changed(monkeypatch) -> None
 
 async def test_prebake_reuses_existing_object_without_synthesis(monkeypatch) -> None:
     want = _expected(1, _D1)
-    rows = {1: _row(1, url="examples/1-old.wav")}
+    rows = {1: _row(1, url="examples/1-8c9047e7.wav")}
     env = _wire(monkeypatch, rows, storage=_Storage({want: b"x"}))
     await asyncio.wait_for(es.prebake_presets(), 2)
     assert rows[1].example_audio_url == want and env.qwen.calls == []
@@ -509,11 +509,11 @@ async def test_prebake_ref_mismatch_stops_the_round(monkeypatch) -> None:
 
 async def test_prebake_skips_rejected_render(monkeypatch) -> None:
     want = _expected(1, _D1)
-    rows = {1: _row(1, url="examples/1-old.wav")}
+    rows = {1: _row(1, url="examples/1-8c9047e7.wav")}
     env = _wire(monkeypatch, rows, storage=_Storage({es._rejected_key(want): b"x"}))
     monkeypatch.setattr(es, "_NS_PRESET_ROUNDS", 1)
     await asyncio.wait_for(es.prebake_presets(), 2)
-    assert env.qwen.calls == [] and rows[1].example_audio_url == "examples/1-old.wav"
+    assert env.qwen.calls == [] and rows[1].example_audio_url == "examples/1-8c9047e7.wav"
 
 
 async def test_custom_created_mid_round_waits_behind_one_preset(monkeypatch) -> None:
@@ -571,7 +571,7 @@ async def test_rebake_copy_failure_does_not_bake(monkeypatch) -> None:
 async def test_ops_refuse_when_switch_off(monkeypatch) -> None:
     _wire(monkeypatch, {1: _row(1)}, settings=_settings(example_qwen_ns=False))
     for call in (es.rebake_preset(1, stamp="T"), es.restore_preset(1, "examples/prev/x", stamp="T"),
-                 es.reject_preset(1, "examples/1-old.wav")):
+                 es.reject_preset(1, "examples/1-8c9047e7.wav")):
         with pytest.raises(es.ExampleOpError) as err:
             await call
         assert err.value.status == 409
@@ -596,9 +596,9 @@ async def test_restore_only_accepts_backups_of_the_expected_key(monkeypatch) -> 
 async def test_reject_moves_render_aside_and_restores_r0(monkeypatch) -> None:
     current = _expected(1, _D1)
     rows = {1: _row(1, url=current)}
-    env = _wire(monkeypatch, rows, storage=_Storage({current: b"bad", "examples/1-old.wav": b"el"}))
-    await es.reject_preset(1, "examples/1-old.wav")
-    assert rows[1].example_audio_url == "examples/1-old.wav"
+    env = _wire(monkeypatch, rows, storage=_Storage({current: b"bad", "examples/1-8c9047e7.wav": b"el"}))
+    await es.reject_preset(1, "examples/1-8c9047e7.wav")
+    assert rows[1].example_audio_url == "examples/1-8c9047e7.wav"
     assert env.storage.objects[es._rejected_key(current)] == b"bad" and env.storage.deleted == [current]
 
 
@@ -607,10 +607,10 @@ async def test_reject_refuses_missing_restore_key_or_non_ns_row(monkeypatch) -> 
     rows = {1: _row(1, url=current)}
     _wire(monkeypatch, rows, storage=_Storage({current: b"bad"}))
     with pytest.raises(es.ExampleOpError):
-        await es.reject_preset(1, "examples/1-missing.wav")
-    rows[1].example_audio_url = "examples/1-old.wav"
+        await es.reject_preset(1, "examples/1-deadbeef.wav")
+    rows[1].example_audio_url = "examples/1-8c9047e7.wav"
     with pytest.raises(es.ExampleOpError):
-        await es.reject_preset(1, "examples/1-old.wav")
+        await es.reject_preset(1, "examples/1-8c9047e7.wav")
 
 
 async def test_unreachable_worker_is_waited_for_within_grace(monkeypatch) -> None:
@@ -650,30 +650,30 @@ async def test_ops_refuse_while_a_job_runs_and_change_nothing(monkeypatch) -> No
     prev = f"examples/prev/{current.rsplit('/', 1)[-1]}.T0"
     rows = {1: _row(1, url=current)}
     qwen = _Qwen(delay=0.05)
-    storage = _Storage({current: b"now", prev: b"old", "examples/1-old.wav": b"el"})
+    storage = _Storage({current: b"now", prev: b"old", "examples/1-8c9047e7.wav": b"el"})
     env = _wire(monkeypatch, rows, storage=storage, qwen=qwen)
     job = await _running_job(1, qwen)
-    assert await _status(es.reject_preset(1, "examples/1-old.wav")) == 409
+    assert await _status(es.reject_preset(1, "examples/1-8c9047e7.wav")) == 409
     assert await _status(es.restore_preset(1, prev, stamp="T1")) == 409
     assert await _status(es.rebake_preset(1, stamp="T1")) == 409
     assert env.storage.copies == [] and env.storage.deleted == [] and env.storage.markers == []
     assert rows[1].example_audio_url == current
     await asyncio.wait_for(asyncio.shield(job.task), 2)
-    await es.reject_preset(1, "examples/1-old.wav")
-    assert rows[1].example_audio_url == "examples/1-old.wav"
+    await es.reject_preset(1, "examples/1-8c9047e7.wav")
+    assert rows[1].example_audio_url == "examples/1-8c9047e7.wav"
 
 
 async def test_rebake_and_restore_refuse_skip_listed_preset_but_reject_works(monkeypatch) -> None:
     current = _expected(1, _D1)
     prev = f"examples/prev/{current.rsplit('/', 1)[-1]}.T0"
     rows = {1: _row(1, url=current)}
-    storage = _Storage({current: b"now", prev: b"old", "examples/1-old.wav": b"el"})
+    storage = _Storage({current: b"now", prev: b"old", "examples/1-8c9047e7.wav": b"el"})
     env = _wire(monkeypatch, rows, storage=storage, settings=_settings(example_ns_skip_presets="1"))
     assert await _status(es.rebake_preset(1, stamp="T1")) == 409
     assert await _status(es.restore_preset(1, prev, stamp="T1")) == 409
     assert es._loop_jobs() == {} and env.qwen.calls == [] and env.storage.copies == []
-    await es.reject_preset(1, "examples/1-old.wav")
-    assert rows[1].example_audio_url == "examples/1-old.wav"
+    await es.reject_preset(1, "examples/1-8c9047e7.wav")
+    assert rows[1].example_audio_url == "examples/1-8c9047e7.wav"
 
 
 async def test_trigger_during_a_round_runs_one_more_round(monkeypatch) -> None:
@@ -785,17 +785,17 @@ async def test_preset_rounds_do_not_probe_worker_health(monkeypatch) -> None:
 async def test_reject_without_source_object_still_marks_the_render(monkeypatch) -> None:
     current = _expected(1, _D1)
     rows = {1: _row(1, url=current)}
-    env = _wire(monkeypatch, rows, storage=_Storage({"examples/1-old.wav": b"el"}))
+    env = _wire(monkeypatch, rows, storage=_Storage({"examples/1-8c9047e7.wav": b"el"}))
     monkeypatch.setattr(es, "_NS_PRESET_ROUNDS", 1)
-    await es.reject_preset(1, "examples/1-old.wav")
+    await es.reject_preset(1, "examples/1-8c9047e7.wav")
     assert env.storage.markers == [es._rejected_key(current)]
     await asyncio.wait_for(es.prebake_presets(), 2)
-    assert env.qwen.calls == [] and rows[1].example_audio_url == "examples/1-old.wav"
+    assert env.qwen.calls == [] and rows[1].example_audio_url == "examples/1-8c9047e7.wav"
 
 
 async def test_rejected_preset_does_not_keep_the_driver_going(monkeypatch) -> None:
     want = _expected(1, _D1)
-    rows = {1: _row(1, url="examples/1-old.wav")}
+    rows = {1: _row(1, url="examples/1-8c9047e7.wav")}
     env = _wire(monkeypatch, rows, storage=_Storage({es._rejected_key(want): b""}))
     monkeypatch.setattr(es, "_NS_PRESET_RETRY_SEC", 0.0)
     await asyncio.wait_for(es.prebake_presets(), 2)
@@ -848,7 +848,7 @@ async def test_fallback_metric_counts_wasted_renders(monkeypatch) -> None:
 
 async def test_s3_head_error_defers_instead_of_overwriting(monkeypatch) -> None:
     want = _expected(1, _D1)
-    rows = {1: _row(1, url="examples/1-old.wav")}
+    rows = {1: _row(1, url="examples/1-8c9047e7.wav")}
     storage = _Storage({want: b"approved"})
     storage.fail_head = RuntimeError("S3 503")
     env = _wire(monkeypatch, rows, storage=storage)
@@ -888,10 +888,10 @@ async def test_ops_recheck_for_a_job_started_while_reading_refs(monkeypatch, op)
 async def test_restore_refuses_a_rejection_marker(monkeypatch) -> None:
     want = _expected(1, _D1)
     marker = es._rejected_key(want)
-    rows = {1: _row(1, url="examples/1-old.wav")}
+    rows = {1: _row(1, url="examples/1-8c9047e7.wav")}
     env = _wire(monkeypatch, rows, storage=_Storage({marker: b""}))
     assert await _status(es.restore_preset(1, marker, stamp="T1")) == 409
-    assert want not in env.storage.objects and rows[1].example_audio_url == "examples/1-old.wav"
+    assert want not in env.storage.objects and rows[1].example_audio_url == "examples/1-8c9047e7.wav"
 
 
 async def test_reuse_rechecks_the_marker_under_the_scene_lock(monkeypatch) -> None:
@@ -904,10 +904,61 @@ async def test_reuse_rechecks_the_marker_under_the_scene_lock(monkeypatch) -> No
                 self.objects[es._rejected_key(want)] = b""
             return found
 
-    rows = {1: _row(1, url="examples/1-old.wav")}
+    rows = {1: _row(1, url="examples/1-8c9047e7.wav")}
     env = _wire(monkeypatch, rows, storage=_Racing({want: b"approved"}))
     monkeypatch.setattr(es, "_NS_PRESET_ROUNDS", 1)
     await asyncio.wait_for(es.prebake_presets(), 2)
-    assert rows[1].example_audio_url == "examples/1-old.wav" and env.qwen.calls == []
+    assert rows[1].example_audio_url == "examples/1-8c9047e7.wav" and env.qwen.calls == []
     (summary,) = _named(env.metrics, "example_preset_prebake")
     assert (summary["reused"], summary["rejected"]) == (0, 1)
+
+
+@pytest.mark.parametrize(
+    "key",
+    ["examples/2-0ce833be.wav", "examples/11-8c9047e7.wav", "examples/prev/1-8c9047e7.wav.T1",
+     "examples/prev/1-8c9047e7.wav.rejected", "recordings/1-8c9047e7.wav", "examples/1-old.wav",
+     "examples/1-8c9047e7.wav.rejected", "examples/1-8c9047e7.wav.T1"],
+)
+async def test_reject_refuses_a_restore_key_outside_this_preset(monkeypatch, key) -> None:
+    current = _expected(1, _D1)
+    rows = {1: _row(1, url=current)}
+    env = _wire(monkeypatch, rows, storage=_Storage({current: b"bad", key: b"other"}))
+    assert await _status(es.reject_preset(1, key)) == 400
+    assert rows[1].example_audio_url == current and env.storage.copies == [] and env.storage.deleted == []
+
+
+async def test_reject_refuses_restoring_the_key_it_rejects(monkeypatch) -> None:
+    current = _expected(1, _D1)
+    rows = {1: _row(1, url=current)}
+    env = _wire(monkeypatch, rows, storage=_Storage({current: b"bad"}))
+    assert await _status(es.reject_preset(1, current)) == 400
+    assert env.storage.deleted == [] and env.storage.markers == []
+
+
+@pytest.mark.parametrize("key", ["examples/1-8c9047e7-q.wav", "examples/1-61bf53b8-0badc0de-qn.wav"])
+async def test_reject_accepts_qwen_keys_of_the_same_preset(monkeypatch, key) -> None:
+    current = _expected(1, _D1)
+    rows = {1: _row(1, url=current)}
+    _wire(monkeypatch, rows, storage=_Storage({current: b"bad", key: b"older"}))
+    await es.reject_preset(1, key)
+    assert rows[1].example_audio_url == key
+
+
+async def test_fallback_bake_waits_for_the_scene_lock_and_reuses_its_result(monkeypatch) -> None:
+    rows = {42: _row(42, custom=True, dialogue=_DC)}
+    qwen = _Qwen(ns=False, delay=0.05)
+    env = _wire(monkeypatch, rows, qwen=qwen)
+    plain = es._plain_keys(env.settings, rows[42], 42, _DC).eleven
+
+    async def _legacy():
+        async with es._generation_locks.setdefault(42, asyncio.Lock()):
+            await asyncio.sleep(0.1)
+            rows[42].example_audio_url = plain
+
+    baker = asyncio.ensure_future(_bake(42))
+    while not qwen.calls:
+        await asyncio.sleep(0.005)
+    holder = asyncio.ensure_future(_legacy())
+    assert await asyncio.wait_for(baker, 2) == plain
+    await holder
+    assert env.el.opens == 0 and env.storage.uploads == []
