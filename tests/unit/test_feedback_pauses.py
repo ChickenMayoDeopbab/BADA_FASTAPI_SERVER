@@ -232,7 +232,7 @@ async def test_failed_writing_falls_back_by_reason_and_hides_pause_data() -> Non
 
     (seg,) = segments
     assert seg["title"] == "말이 잠깐 끊겼어요"
-    assert set(seg) == {"start", "end", "type", "title", "content", "good_point"}
+    assert set(seg) == {"start", "end", "type", "title", "content"}
 
 
 async def test_teardown_picks_the_paused_turn_and_tells_the_writer(monkeypatch) -> None:
@@ -267,4 +267,4 @@ async def test_teardown_picks_the_paused_turn_and_tells_the_writer(monkeypatch) 
     assert (paused["pause_count"], paused["pause_longest_sec"]) == (1, 2.2)
     assert [seg["type"] for seg in spring["good_segments"]] == ["IMPROVE"]
     for seg in spring["good_segments"]:
-        assert set(seg) == {"start", "end", "type", "title", "content", "good_point"}
+        assert set(seg) == {"start", "end", "type", "title", "content"}

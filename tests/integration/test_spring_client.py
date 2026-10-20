@@ -94,7 +94,7 @@ async def test_notify_session_closed_sends_correct_request() -> None:
             silence_total=3.5,
             shake_count=2,
             recording_key="recordings/sess-123/a1b2c3d4.wav",
-            good_segments=[{"start": 1.0, "end": 4.0, "good_point": "잘 이야기했어요"}],
+            good_segments=[{"start": 1.0, "end": 4.0, "content": "잘 이야기했어요"}],
             session_type="SCENARIO",
             analysis=analysis,
         )
@@ -114,7 +114,7 @@ async def test_notify_session_closed_sends_correct_request() -> None:
             "shake_count": 2,
             "recording_key": "recordings/sess-123/a1b2c3d4.wav",
             "good_segments": [
-                {"start": 1.0, "end": 4.0, "good_point": "잘 이야기했어요"}
+                {"start": 1.0, "end": 4.0, "content": "잘 이야기했어요"}
             ],
             "analysis": {
                 "stability_score": 82.5,
