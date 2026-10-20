@@ -457,6 +457,13 @@ class _RequestRecorder:
         }
 
 
+def _heard_trail_ms(r: dict) -> float:
+    """E 로 압축한 요청은 압축 뒤 말 뒤 무음"""
+    if r.get("e") == "on" and r.get("out_trail_ms") is not None:
+        return r["out_trail_ms"]
+    return r.get("trail_ms", 0.0)
+
+
 def _turn_metrics(log: list[dict], speed: float) -> dict:
     if not log:
         return {}
@@ -464,7 +471,7 @@ def _turn_metrics(log: list[dict], speed: float) -> dict:
     raw = sum(r["raw_ms"] for r in log)
     gen = sum(r["wall_ms"] - (r["ttfb_ms"] or 0.0) for r in log if r["ttfb_ms"] is not None)
     gaps = [
-        (a.get("trail_ms", 0.0) + b.get("lead_ms", 0.0)) / max(speed, 1e-6)
+        (_heard_trail_ms(a) + b.get("lead_ms", 0.0)) / max(speed, 1e-6)
         for a, b in zip(shaped, shaped[1:], strict=False)
     ]
     ttfbs = [r["ttfb_ms"] for r in log if r["ttfb_ms"] is not None]
