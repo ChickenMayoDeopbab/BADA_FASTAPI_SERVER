@@ -420,7 +420,6 @@ async def test_segment_text_reaches_the_callback(monkeypatch) -> None:
     assert seg["type"] == "IMPROVE"        # AVTI 8.5 → 짚어줄 구간
     assert seg["title"] == "용건을 말했어요"
     assert seg["content"] == "무슨 일로 걸었는지 밝혔어요."
-    assert seg["good_point"] == seg["content"]   # 기존 Spring 매핑 호환
     assert "reason" not in seg
 
 

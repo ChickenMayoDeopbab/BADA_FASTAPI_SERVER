@@ -139,6 +139,28 @@ async def test_on_ai_with_header_trims_end_pause_to_keep() -> None:
     assert metrics["tts_ns"] == "on" and metrics["tts_drop_ms"] == 720 and metrics["tts_extra_ms"] == 0
 
 
+LEAD_RAW = pcm(np.concatenate([np.zeros(ms(40)), speech(500), np.zeros(ms(900))]))
+
+
+async def test_turn_gap_counts_the_heard_pause_between_compressed_requests() -> None:
+    worker = _Worker(LEAD_RAW, clock=_Clock())
+    session = _session(worker)
+    await _turn(session, ("안녕하세요. ", "반갑습니다."))
+    assert [r["e"] for r in session.request_log] == ["on", "on"]
+    metrics = session.turn_metrics()
+    assert metrics["tts_gap_max_ms"] == pytest.approx(220, abs=10)
+    assert metrics["tts_gap_over700"] == 0
+
+
+async def test_turn_gap_without_compression_stays_raw() -> None:
+    worker = _Worker(LEAD_RAW, header=None)
+    session = _session(worker)
+    await _turn(session, ("안녕하세요. ", "반갑습니다."))
+    metrics = session.turn_metrics()
+    assert metrics["tts_gap_max_ms"] == pytest.approx(940, abs=10)
+    assert metrics["tts_gap_over700"] == 1
+
+
 async def test_on_through_client_compresses_ai_turns() -> None:
     worker = _Worker()
     client = QwenRealtimeTTSClient(_settings(), transport=worker.transport())

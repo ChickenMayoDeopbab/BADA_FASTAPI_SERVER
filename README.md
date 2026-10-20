@@ -132,6 +132,19 @@ CSM은 실험 후 운영 적용을 보류했습니다. 위 실험·평가 모델
 
 <br>
 
+# 사용한 데이터셋
+| 데이터셋 | 출처 | 용도 |
+| --- | --- | --- |
+| [한국어 음성](https://www.aihub.or.kr/aihubdata/data/view.do?currMenu=115&topMenu=100&dataSetSn=123) | AI 허브 | CSM 대화형 음성 합성 학습 실험, 합성 품질 평가 문장 |
+| [상담 음성](https://www.aihub.or.kr/aihubdata/data/view.do?currMenu=115&topMenu=100&dataSetSn=100) | AI 허브 | CSM 대화 문맥 학습 실험, 평가 |
+| [감정이 태깅된 자유대화 (성인)](https://www.aihub.or.kr/aihubdata/data/view.do?currMenu=115&topMenu=100&dataSetSn=71631) | AI 허브 | CSM 재학습 실험, 시나리오 화자별 참조 음성 후보 추출·청취 평가 |
+
+이 프로젝트는 과학기술정보통신부의 재원으로 한국지능정보사회진흥원의 지원을 받아 구축된 "한국어 음성", "상담 음성", "감정이 태깅된 자유대화 (성인)"을 활용하여 수행되었습니다. 활용된 데이터는 AI 허브(aihub.or.kr)에서 다운로드할 수 있습니다.
+
+AI 허브 데이터 이용정책에 따라 이 저장소에는 데이터 원본과 원본을 자르거나 가공한 음성·전사를 포함하지 않습니다. `scripts/csm_experiments`, `scripts/tts_bench`의 데이터 처리 스크립트를 실행하려면 AI 허브에서 이용 승인을 받아 데이터를 직접 내려받아야 합니다.
+
+<br>
+
 # License
 This project is licensed under the MIT License.<br>
 See the LICENSE file for details.

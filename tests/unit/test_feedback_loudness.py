@@ -278,7 +278,7 @@ async def test_failed_writing_falls_back_by_reason_and_hides_loudness_data() -> 
 
     (seg,) = segments
     assert seg["title"] == "목소리가 작아졌어요"
-    assert set(seg) == {"start", "end", "type", "title", "content", "good_point"}
+    assert set(seg) == {"start", "end", "type", "title", "content"}
 
 
 async def test_teardown_picks_the_quiet_turn_and_tells_the_writer(monkeypatch) -> None:
@@ -310,4 +310,4 @@ async def test_teardown_picks_the_quiet_turn_and_tells_the_writer(monkeypatch) -
     assert quiet["utterance"] == "네 명이요, 창가 자리로 부탁드려요"
     assert [seg["type"] for seg in spring["good_segments"]] == ["IMPROVE"]
     for seg in spring["good_segments"]:
-        assert set(seg) == {"start", "end", "type", "title", "content", "good_point"}
+        assert set(seg) == {"start", "end", "type", "title", "content"}
