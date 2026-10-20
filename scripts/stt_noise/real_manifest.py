@@ -447,6 +447,9 @@ def split_jobs(
                 info["warnings"].append(f"cuts {sid} 끝 {e:g}초가 녹음({dur:.1f}초) 밖(뺌)")
             else:
                 picked.append((sid, (s, e)))
+        if not picked:
+            info["warnings"].append("cuts 에 쓸 수 있는 항목이 없음 — 클립 없음(뺌)")
+            return info, []
     elif len(spans) == len(sentences):
         picked = list(zip(sentences, spans, strict=True))
         info["order_r"], order, long = order_check([e - s for s, e in spans], list(sentences), sentences)
