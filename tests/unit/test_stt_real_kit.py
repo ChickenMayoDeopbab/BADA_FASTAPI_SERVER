@@ -355,7 +355,7 @@ def test_build_writes_16k_mono_clips_and_manifest_grouped_by_environment(tmp_pat
     assert all(set(run_chirp.CLIP_KEYS) <= set(c) for c in manifest["clips"] if not c["noise_only"])
     assert all((c["lead_s"], c["utt_end_s"]) == (c["speech_start_s"], c["speech_end_s"])
                for c in manifest["clips"] if not c["noise_only"])  # ws_bench 는 utt_end_s 에서 발화를 자른다
-    assert manifest["span_ref_s"] == {"u01": pytest.approx(q["speech_end_s"] - q["speech_start_s"], abs=0.01)}
+    assert manifest["span_ref_s"] == {"u01": pytest.approx(q["speech_end_s"] - q["strong_start_s"], abs=0.01)}
     assert abs(c1["span_vs_quiet_s"]) < 0.3 and q["span_vs_quiet_s"] is None
     assert by_file["tv/u02.wav"]["span_vs_quiet_s"] is None  # quiet 테이크가 없는 문장은 대조 안 함
     assert not any(c["manual_span"] for c in manifest["clips"]) and manifest["spans_unused"] == []
