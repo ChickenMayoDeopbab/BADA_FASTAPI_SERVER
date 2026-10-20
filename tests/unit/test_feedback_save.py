@@ -48,7 +48,7 @@ async def _save(store: dict, *, silence_total: float = 0.0, **kwargs) -> bool:
         "scenario_id": 3,
         "shake_count": 2,
         "silence_total": silence_total,
-        "good_segments": [{"start": 0.0, "end": 1.0, "good_point": "또박또박 말했어요"}],
+        "good_segments": [{"start": 0.0, "end": 1.0, "content": "또박또박 말했어요"}],
     }
     params.update(kwargs)
     return await save_feedback(session_factory=_factory(store, **{}), **params)
@@ -87,7 +87,7 @@ async def test_highlights_serialized_as_utf8_json() -> None:
     await _save(store)
 
     highlights = json.loads(store["values"]["highlights"])
-    assert highlights[0]["good_point"] == "또박또박 말했어요"
+    assert highlights[0]["content"] == "또박또박 말했어요"
     # ensure_ascii=False 라 한글이 이스케이프되지 않는다
     assert "또박또박" in store["values"]["highlights"]
 

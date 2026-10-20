@@ -367,7 +367,6 @@ async def run_case(case: Case, *, offline: bool, with_context: bool = True) -> N
             print(f"  ✗ 검증 탈락 → 폴백 문구로 대체: {title} | {content}")
             title, content = _segment_fallback(seg["type"], seg.get("reason"))
         seg["title"], seg["content"] = title, content
-        seg["good_point"] = content
         seg.pop("reason", None)
         seg.pop("turn", None)
         seg.pop("avti", None)

@@ -227,7 +227,7 @@ async def test_context_never_reaches_spring_or_the_app() -> None:
     await p._write_segment_feedback(segments)
 
     for seg in segments:
-        assert set(seg) == {"start", "end", "type", "title", "content", "good_point"}
+        assert set(seg) == {"start", "end", "type", "title", "content"}
 
 
 async def test_teardown_gives_context_to_the_writer_and_keeps_spring_payload(monkeypatch) -> None:
@@ -257,4 +257,4 @@ async def test_teardown_gives_context_to_the_writer_and_keeps_spring_payload(mon
     assert p._llm.last_kwargs["call_target"] == "레스토랑 직원"
     assert spring["good_segments"]
     for seg in spring["good_segments"]:
-        assert set(seg) == {"start", "end", "type", "title", "content", "good_point"}
+        assert set(seg) == {"start", "end", "type", "title", "content"}

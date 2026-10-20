@@ -10,7 +10,6 @@ class FeedbackSegment(BaseModel):
     type: str       # GOOD / IMPROVE
     title: str      # 한눈에 읽는 한 줄
     content: str    # 왜 그런지 + 다음에 어떻게 할지
-    good_point: str # content 미러 (기존 Spring 매핑 호환)
 
 
 class FeedbackResponse(BaseModel):

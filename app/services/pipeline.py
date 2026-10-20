@@ -1621,7 +1621,6 @@ class VoicePipeline:
                 title, content = _segment_fallback(seg["type"], seg.get("reason"))
             seg["title"] = title
             seg["content"] = content
-            seg["good_point"] = content  # 기존 Spring 매핑 유지
             for internal in _INTERNAL_SEGMENT_KEYS:
                 seg.pop(internal, None)
 
