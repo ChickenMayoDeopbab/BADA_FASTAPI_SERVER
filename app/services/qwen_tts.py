@@ -12,6 +12,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
 import httpx
+import numpy as np
 
 from app.core.audio_shape import RequestMeter
 from app.core.audio_stats import BYTES_PER_MS
@@ -523,6 +524,44 @@ def _pause_ms(settings: Settings, name: str, default: float) -> float:
     return default
 
 
+def _ns_gain_db(settings: Settings) -> float:
+    """−20~+6 dB 안의 유한한 값만 받고 아니면 0"""
+    raw = getattr(settings, "qwen_tts_ns_gain_db", 0.0)
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        value = math.nan
+    if math.isfinite(value) and -20.0 <= value <= 6.0:
+        return value
+    logger.warning("qwen_tts_ns_gain_db=%r 은 쓸 수 없어 0 을 씀", raw)
+    return 0.0
+
+
+class _PcmGain:
+    """int16 PCM 고정 배율, 홀수 바이트는 다음 조각으로 넘김"""
+
+    def __init__(self, factor: float) -> None:
+        self.factor = factor
+        self._carry = b""
+
+    @classmethod
+    def of_db(cls, db: float) -> _PcmGain | None:
+        return cls(10 ** (db / 20)) if db else None
+
+    def push(self, data: bytes) -> bytes:
+        data = self._carry + data
+        even = len(data) - len(data) % 2
+        self._carry = data[even:]
+        if not even:
+            return b""
+        x = np.frombuffer(data[:even], dtype="<i2").astype(np.float64) * self.factor
+        return np.clip(np.rint(x), -32768, 32767).astype("<i2").tobytes()
+
+    def flush(self) -> bytes:
+        out, self._carry = self._carry, b""
+        return out
+
+
 def _pause_config(settings: Settings) -> _PauseConfig:
     base = _PauseConfig()
     return _PauseConfig(
@@ -615,6 +654,7 @@ class QwenRealtimeTTSSession:
         ns: str = "off",
         call: _CallState | None = None,
         pause: _PauseConfig | None = None,
+        ns_gain_db: float = 0.0,
     ) -> None:
         self._client = client
         self._base_url = base_url
@@ -630,6 +670,7 @@ class QwenRealtimeTTSSession:
         self._ns = ns
         self._call = call if call is not None else _CallState()
         self._pause = pause or _PauseConfig()
+        self._ns_gain_db = ns_gain_db
         self._buffer = ClientBuffer(_APP_PREBUFFER_MS) if ns == "want" else None
         self._ttfb_max = 0.0
         self._end_ahead: float | None = None
@@ -700,6 +741,7 @@ class QwenRealtimeTTSSession:
         if want:
             body["non_streaming_mode"] = True
         stage: _PauseStage | None = None
+        gain: _PcmGain | None = None
         mode: str | None = None
         t_req = self._now_ms() if self._buffer is not None else 0.0
         first = True
@@ -716,10 +758,12 @@ class QwenRealtimeTTSSession:
                 if want:
                     if response.headers.get(NS_HEADER) != "1":
                         mode = self._call.off_reason = "no_header"
-                    elif (stage := self._new_stage()) is None:
-                        mode = self._call.off_reason = "comp_error"
                     else:
-                        mode = "on"
+                        gain = _PcmGain.of_db(self._ns_gain_db)
+                        if (stage := self._new_stage()) is None:
+                            mode = self._call.off_reason = "comp_error"
+                        else:
+                            mode = "on"
                 async for chunk in response.aiter_bytes():
                     if not chunk:
                         continue
@@ -741,14 +785,20 @@ class QwenRealtimeTTSSession:
                     if stage is not None:
                         data = stage.push(chunk, self._spare_ms())
                     out = stretcher.push(data) if data else b""
+                    if gain is not None:
+                        out = gain.push(out)
                     if out:
                         yield self._sent(out)
                 if stage is not None:
                     rest = stage.finish(self._spare_ms())
                     out = stretcher.push(rest) if rest else b""
+                    if gain is not None:
+                        out = gain.push(out)
                     if out:
                         yield self._sent(out)
                 tail = stretcher.flush()
+                if gain is not None:
+                    tail = gain.push(tail) + gain.flush()
                 if tail:
                     yield self._sent(tail)
                 if self._buffer is not None:
@@ -775,6 +825,8 @@ class QwenRealtimeTTSSession:
                         entry["e"] = mode
                     if stage is not None:
                         entry.update(stage.record())
+                    if gain is not None:
+                        entry["gain_db"] = self._ns_gain_db
                     self.request_log.append(entry)
 
     def turn_metrics(self) -> dict:
@@ -820,6 +872,7 @@ class QwenRealtimeTTSClient:
         self._ns_on = getattr(settings, "qwen_tts_non_streaming", False) is True
         self._ns_voices = _ns_voices(settings)
         self._pause = _pause_config(settings) if self._ns_on else _PauseConfig()
+        self._ns_gain_db = _ns_gain_db(settings) if self._ns_on else 0.0
 
     async def open(self, voice_id: str | None = None) -> QwenRealtimeTTSSession:
         """턴마다 호출"""
@@ -840,6 +893,7 @@ class QwenRealtimeTTSClient:
             ns=ns,
             call=self._call,
             pause=self._pause,
+            ns_gain_db=self._ns_gain_db,
         )
 
     def release_slot(self) -> None:
