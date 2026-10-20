@@ -747,6 +747,45 @@ def test_turn_metrics_aggregate_requests() -> None:
     assert qwen_mod._turn_metrics([], 1.0) == {}
 
 
+def _shaped_req(trail: float, lead: float, **extra) -> dict:
+    return {"raw_ms": 1000.0, "ttfb_ms": 100.0, "wall_ms": 600.0, "stall_max_ms": 0.0, "decay_ms": 20.0,
+            "trail_ms": trail, "lead_ms": lead, **extra}
+
+
+def test_gap_uses_compressed_trail_for_compressed_requests() -> None:
+    on = [_shaped_req(900.0, 40.0, e="on", out_trail_ms=180.0), _shaped_req(900.0, 40.0, e="on", out_trail_ms=180.0)]
+    got = qwen_mod._turn_metrics(on, 1.0)
+    assert (got["tts_gap_max_ms"], got["tts_gap_over700"]) == (220.0, 0)
+    assert qwen_mod._turn_metrics(on, 1.25)["tts_gap_max_ms"] == 176.0
+    then_off = [_shaped_req(900.0, 40.0, e="on", out_trail_ms=180.0), _shaped_req(900.0, 40.0, e="no_header")]
+    assert qwen_mod._turn_metrics(then_off, 1.0)["tts_gap_max_ms"] == 220.0
+
+
+@pytest.mark.parametrize(
+    "first",
+    [
+        {}, {"e": "no_header"}, {"e": "comp_error", "out_trail_ms": 180.0},
+        {"e": "on", "out_trail_ms": None}, {"e": "on"},
+    ],
+    ids=["no_e", "no_header", "comp_error", "out_trail_none", "out_trail_missing"],
+)
+def test_gap_keeps_raw_trail_when_the_request_was_not_compressed(first) -> None:
+    log = [_shaped_req(900.0, 40.0, **first), _shaped_req(900.0, 40.0, e="on", out_trail_ms=180.0)]
+    got = qwen_mod._turn_metrics(log, 1.0)
+    assert (got["tts_gap_max_ms"], got["tts_gap_over700"]) == (940.0, 1)
+
+
+def test_gap_is_taken_per_boundary_and_counts_every_long_one() -> None:
+    log = [
+        _shaped_req(800.0, 40.0),
+        _shaped_req(900.0, 40.0, e="comp_error", out_trail_ms=180.0),
+        _shaped_req(900.0, 40.0, e="on", out_trail_ms=180.0),
+        _shaped_req(900.0, 40.0, e="on", out_trail_ms=180.0),
+    ]
+    got = qwen_mod._turn_metrics(log, 1.0)
+    assert (got["tts_gap_max_ms"], got["tts_gap_over700"]) == (940.0, 2)
+
+
 async def test_request_raw_ms_counts_worker_bytes_before_speed_change() -> None:
     chunks = _pcm_chunks(1.0)
     out, session = await _speak_session(_settings(speed=1.1), _chunk_transport(chunks))
