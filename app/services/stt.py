@@ -75,10 +75,16 @@ class GoogleSTTClient:
         language: str,
         recognizer: str = "_",
         sample_rate_hertz: int = 16000,
+        *,
+        denoise: bool = False,
+        denoise_snr_threshold: float = 0.0,
     ) -> None:
         self._model = model
         self._language = language
+        self._location = location
         self._sample_rate_hertz = sample_rate_hertz
+        self._denoise = denoise
+        self._denoise_snr_threshold = denoise_snr_threshold
         self.audio_bytes_sent = 0
         self._recognizer_path = (
             f"projects/{project_id}/locations/{location}/recognizers/{recognizer}"
@@ -105,6 +111,10 @@ class GoogleSTTClient:
             # TODO(2차): features에 자동 구두점 추가 고민
             #   features=cs.RecognitionFeatures(enable_automatic_punctuation=True)
         )
+        if self._denoise:
+            recognition_config.denoiser_config = cs.DenoiserConfig(
+                denoise_audio=True, snr_threshold=self._denoise_snr_threshold
+            )
         streaming_config = cs.StreamingRecognitionConfig(
             config=recognition_config,
             streaming_features=cs.StreamingRecognitionFeatures(
@@ -212,7 +222,24 @@ def build_stt_client(settings) -> "GoogleSTTClient | GeminiLiveSTTClient":
         location=settings.google_stt_location,
         model=settings.google_stt_model,
         language=settings.google_stt_language,
+        denoise=settings.google_stt_denoise,
+        denoise_snr_threshold=settings.google_stt_denoise_snr_threshold,
     )
+
+
+def stt_config_fields(client) -> dict[str, object]:
+    """세션 STT 설정 로그 필드, 모르는 클라이언트면 빈 dict"""
+    if isinstance(client, GoogleSTTClient):
+        return {
+            "engine": "chirp",
+            "model": client._model,
+            "location": client._location,
+            "denoise": client._denoise,
+            "snr_threshold": client._denoise_snr_threshold if client._denoise else None,
+        }
+    if isinstance(client, GeminiLiveSTTClient):
+        return {"engine": "gemini_live", "model": client._model}
+    return {}
 
 
 def _to_seconds(duration) -> float | None:

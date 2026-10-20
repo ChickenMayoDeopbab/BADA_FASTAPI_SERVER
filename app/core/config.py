@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     google_stt_location: str = "asia-northeast1"
     google_stt_model: str = "chirp_3"
     google_stt_language: str = "ko-KR"
+    google_stt_denoise: bool = False
+    google_stt_denoise_snr_threshold: float = 0.0
     stt_engine: Literal["chirp", "gemini_live"] = "chirp"
     gemini_stt_model: str = "gemini-3.5-transcribe-live"
     gemini_stt_silence_ms: int = 500

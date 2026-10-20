@@ -3,8 +3,8 @@
   .venv/bin/python scripts/stt_noise/run_chirp.py --dry-run     # STT 호출 없이 작업 수·예상 비용
   .venv/bin/python scripts/stt_noise/run_chirp.py               # 실측(돈 든다, --max-usd 넘으면 거절)
 
-운영 설정 = get_settings() + build_stt_client(GoogleSTTClient).
-denoiser 조건은 그 config 요청에 DenoiserConfig 만 더한다.
+운영 설정 = get_settings() + build_stt_client(GoogleSTTClient), denoiser 는 운영 스위치(GOOGLE_STT_DENOISE)와
+무관하게 끈다. denoiser 조건은 그 config 요청에 DenoiserConfig(--denoise-snr-threshold) 만 더한다.
 파이프라인처럼 첫 오디오 청크에서 스트림을 열고, FINAL(빈 것 포함)마다 반쯤 닫고 다음 청크에서 다시 연다.
 청크는 마이크처럼 그 길이만큼 시간이 지난 뒤 보낸다(기본 100ms). 꼬리 잡음을 보내는 동안에도 계속 받는다.
 발화 클립은 덮은 오디오가 말소리 끝 − 0.3초를 넘는 비어 있지 않은 FINAL 에서 멈춘다(score.final_end_s,
@@ -15,6 +15,7 @@ denoiser 조건은 그 config 요청에 DenoiserConfig 만 더한다.
 
 import argparse
 import asyncio
+import copy
 import json
 import subprocess
 import sys
@@ -46,23 +47,28 @@ class DenoiseSTTClient(GoogleSTTClient):
     """운영 chirp 설정에 denoiser 만 켠 클라이언트"""
 
     def __init__(self, *args, snr_threshold: float = 0.0, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
-        self.snr_threshold = snr_threshold
+        super().__init__(*args, denoise=True, denoise_snr_threshold=snr_threshold, **kwargs)
 
-    def _build_config_request(self) -> cs.StreamingRecognizeRequest:
-        request = super()._build_config_request()
-        request.streaming_config.config.denoiser_config = cs.DenoiserConfig(
-            denoise_audio=True, snr_threshold=self.snr_threshold
-        )
-        return request
+    @property
+    def snr_threshold(self) -> float:
+        """결과 JSON 에 적는 임계값, 요청에 보내는 값 그대로"""
+        return self._denoise_snr_threshold
+
+
+def denoise_off(settings):
+    """운영 스위치 값과 무관하게 denoiser 를 끈 설정 사본"""
+    view = copy.copy(settings)
+    view.google_stt_denoise = False
+    view.google_stt_denoise_snr_threshold = 0.0
+    return view
 
 
 def make_clients(settings, modes: list[bool], snr_threshold: float) -> dict[bool, GoogleSTTClient]:
-    """False = 운영 그대로, True = denoiser"""
+    """False = 운영 그대로(denoiser 끔), True = denoiser"""
     clients: dict[bool, GoogleSTTClient] = {}
     for denoise in modes:
         if not denoise:
-            client = build_stt_client(settings)
+            client = build_stt_client(denoise_off(settings))
             if not isinstance(client, GoogleSTTClient):
                 raise SystemExit(f"운영 STT 가 chirp 가 아니다(STT_ENGINE={settings.stt_engine})")
             clients[False] = client
@@ -414,7 +420,10 @@ def main() -> None:
     ap.add_argument("--out", default=None, help="결과 JSON(기본 .harness/stt-noise-2026-10/runs/chirp-<시각>.json)")
     ap.add_argument("--reps", type=int, default=3)
     ap.add_argument("--chunk-ms", type=int, default=100, help="송신 청크(앱 실측: 웹 256·iOS 64)")
-    ap.add_argument("--denoise", choices=("both", "off", "on"), default="both", help="off=운영 그대로, on=denoiser")
+    ap.add_argument(
+        "--denoise", choices=("both", "off", "on"), default="both",
+        help="off=운영 그대로(denoiser 끔, 스위치 무관), on=denoiser",
+    )
     ap.add_argument(
         "--denoise-snr-threshold", type=float, default=0.0, help="DenoiserConfig.snr_threshold, 0=거르지 않음"
     )
