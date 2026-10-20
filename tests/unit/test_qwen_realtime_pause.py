@@ -99,11 +99,11 @@ async def _turn(session, sentences=("네.",)) -> bytes:
         await session.aclose()
 
 
-def _session(worker: _Worker, *, speed: float = 1.0, clock=None, call=None, **kw):
+def _session(worker: _Worker, *, speed: float = 1.0, clock=None, call=None, ns_gain_db: float = 0.0, **kw):
     client = httpx.AsyncClient(transport=worker.transport())
     return qwen_mod.QwenRealtimeTTSSession(
         client, "http://tts.test", speed, "ai", ns="want", call=call or qwen_mod._CallState(),
-        pause=qwen_mod._PauseConfig(**kw), clock=clock or worker.clock or _Clock(),
+        pause=qwen_mod._PauseConfig(**kw), clock=clock or worker.clock or _Clock(), ns_gain_db=ns_gain_db,
     )
 
 
@@ -447,3 +447,122 @@ async def test_error_before_the_header_is_not_labelled_no_header() -> None:
         await _turn(session)
     assert "e" not in session.request_log[0] and session.ns_mode == "on"
     assert worker.bodies == []
+
+
+def _gained(b: bytes, db: float) -> bytes:
+    x = np.frombuffer(b, dtype="<i2").astype(np.float64) * 10 ** (db / 20)
+    return np.clip(np.rint(x), -32768, 32767).astype("<i2").tobytes()
+
+
+QUIET_TAIL = pcm(np.concatenate([speech(500), 10 ** (-73 / 20) * np.sin(np.arange(ms(900)) * 0.3)]))
+
+
+@pytest.mark.parametrize("eos_delay", [0, 3000])
+@pytest.mark.parametrize("speed", [1.0, 1.1])
+async def test_ns_gain_scales_n_output_after_stretch(speed, eos_delay) -> None:
+    plain = _session(_Worker(QUIET_TAIL, clock=_Clock(), eos_delay_ms=eos_delay), speed=speed)
+    want = await _turn(plain)
+    session = _session(_Worker(QUIET_TAIL, clock=_Clock(), eos_delay_ms=eos_delay), speed=speed, ns_gain_db=-3.0)
+    out = await _turn(session)
+    assert out == _gained(want, -3.0) and out != want
+    assert (plain.request_log[0]["extra_ms"] > 0) == (eos_delay > 0)
+    rec, base = session.request_log[0], plain.request_log[0]
+    assert rec["gain_db"] == -3.0 and {k: v for k, v in rec.items() if k != "gain_db"} == base
+
+
+@pytest.mark.parametrize("header", [None, "0"])
+async def test_ns_gain_skips_requests_without_n_header(header) -> None:
+    worker = _Worker(header=header)
+    client = QwenRealtimeTTSClient(_settings(qwen_tts_ns_gain_db=-3.0), transport=worker.transport())
+    session = await client.open()
+    assert await _turn(session) == RAW and "gain_db" not in session.request_log[0]
+
+
+@pytest.mark.parametrize(("on", "voice"), [(False, None), (True, "male_old_rough")])
+@pytest.mark.parametrize("speed", [1.0, 1.1])
+async def test_ns_gain_leaves_off_and_slot_voice_bytes(on, voice, speed) -> None:
+    worker = _Worker()
+    client = QwenRealtimeTTSClient(_settings(on, speed, qwen_tts_ns_gain_db=-3.0), transport=worker.transport())
+    assert await _turn(await client.open(voice)) == _stretched(RAW, speed)
+
+
+async def test_ns_gain_applies_when_compressor_cannot_be_made(monkeypatch) -> None:
+    def _boom(self, **_kw):
+        raise ValueError("boom")
+
+    monkeypatch.setattr(pc_mod.PauseCompressor, "__init__", _boom)
+    session = _session(_Worker(), ns_gain_db=-3.0)
+    assert await _turn(session) == _gained(RAW, -3.0)
+    assert session.request_log[0]["e"] == "comp_error" and session.request_log[0]["gain_db"] == -3.0
+    odd = _session(_Worker(RAW + b"\x07", chunks=[RAW[:4481], RAW[4481:] + b"\x07"]), ns_gain_db=-3.0)
+    assert await _turn(odd) == _gained(RAW, -3.0) + b"\x07"
+
+
+async def test_ns_gain_clips_a_positive_gain() -> None:
+    loud = pcm(np.concatenate([speech(500, db=-1.0), np.zeros(ms(900))]))
+    plain = await _turn(_session(_Worker(loud, clock=_Clock())))
+    out = await _turn(_session(_Worker(loud, clock=_Clock()), ns_gain_db=6.0))
+    assert out == _gained(plain, 6.0) and np.abs(np.frombuffer(out, dtype="<i2")).max() == 32767
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), "abc", 6.5, -20.5])
+async def test_unusable_ns_gain_falls_back_to_zero(bad) -> None:
+    worker = _Worker()
+    client = QwenRealtimeTTSClient(_settings(qwen_tts_ns_gain_db=bad), transport=worker.transport())
+    assert client._ns_gain_db == 0.0
+    session = await client.open()
+    await _turn(session)
+    assert "gain_db" not in session.request_log[0]
+
+
+@pytest.mark.parametrize("edge", [6.0, -20.0])
+def test_ns_gain_edges_are_accepted(edge) -> None:
+    assert QwenRealtimeTTSClient(_settings(qwen_tts_ns_gain_db=edge))._ns_gain_db == edge
+
+
+def test_ns_gain_env_reaches_client_only_when_e_is_on(monkeypatch) -> None:
+    for name in ("QWEN_TTS_NON_STREAMING", "QWEN_TTS_NS_GAIN_DB"):
+        monkeypatch.delenv(name, raising=False)
+    assert _real_settings().qwen_tts_ns_gain_db == -3.0
+    assert QwenRealtimeTTSClient(_real_settings())._ns_gain_db == 0.0
+    monkeypatch.setenv("QWEN_TTS_NON_STREAMING", "true")
+    assert QwenRealtimeTTSClient(_real_settings())._ns_gain_db == -3.0
+    monkeypatch.setenv("QWEN_TTS_NS_GAIN_DB", "-1.5")
+    assert QwenRealtimeTTSClient(_real_settings())._ns_gain_db == -1.5
+
+
+def test_pcm_gain_carries_odd_bytes_across_chunks() -> None:
+    raw = pcm(speech(100))
+    whole = qwen_mod._PcmGain(10 ** (-3 / 20))
+    want = whole.push(raw) + whole.flush()
+    split = qwen_mod._PcmGain(10 ** (-3 / 20))
+    got = b"".join(split.push(raw[i : i + 333]) for i in range(0, len(raw), 333)) + split.flush()
+    assert got == want == _gained(raw, -3.0)
+    tail = qwen_mod._PcmGain(0.5)
+    assert tail.push(b"\x10\x00\x20") == b"\x08\x00" and tail.flush() == b"\x20"
+
+
+@pytest.mark.parametrize("at", [2, 3])
+async def test_ns_gain_keeps_applying_after_a_mid_request_compressor_error(monkeypatch, at) -> None:
+    _fail_push(monkeypatch, at)
+    session = _session(_Worker(chunks=chunked(RAW, first=4481, rest=5121)), ns_gain_db=-3.0)
+    assert await _turn(session) == _gained(RAW, -3.0)
+    rec = session.request_log[0]
+    assert rec["e"] == "comp_error" and rec["gain_db"] == -3.0
+
+
+async def test_ns_gain_applies_to_every_n_request_in_a_turn() -> None:
+    sentences = ("안녕하세요. ", "반갑습니다.")
+    plain = _session(_Worker(QUIET_TAIL, clock=_Clock()), speed=1.1)
+    want = await _turn(plain, sentences)
+    session = _session(_Worker(QUIET_TAIL, clock=_Clock()), speed=1.1, ns_gain_db=-3.0)
+    assert await _turn(session, sentences) == _gained(want, -3.0)
+    assert [r.get("gain_db") for r in session.request_log] == [-3.0, -3.0]
+
+
+async def test_ns_gain_applies_without_request_metric() -> None:
+    off = _settings(qwen_tts_req_metric=False)
+    plain = await _turn(await QwenRealtimeTTSClient(off, transport=_Worker().transport()).open())
+    gained = _settings(qwen_tts_req_metric=False, qwen_tts_ns_gain_db=-3.0)
+    client = QwenRealtimeTTSClient(gained, transport=_Worker().transport())
+    assert await _turn(await client.open()) == _gained(plain, -3.0) != plain
