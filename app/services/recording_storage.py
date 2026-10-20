@@ -27,6 +27,17 @@ def _boto_client(service: str, settings: Settings) -> Any:
     return boto3.client(service, region_name=settings.aws_region)
 
 
+_MISSING_CODES = frozenset({"NoSuchKey", "404", "NotFound"})
+_DENIED_CODES = frozenset({"AccessDenied", "403"})
+
+
+def _error_code(exc: Exception) -> str | None:
+    response = getattr(exc, "response", None)
+    if not isinstance(response, dict):
+        return None
+    return response.get("Error", {}).get("Code")
+
+
 class RecordingStorageService:
     def __init__(
         self, settings: Settings, client: Any | None = None, kms_client: Any | None = None
@@ -96,6 +107,40 @@ class RecordingStorageService:
             self._client.head_object(Bucket=self._bucket, Key=key)
         except Exception:
             return False
+        return True
+
+    def strict_exists(self, key: str) -> bool:
+        """없음(404·403)만 False, 그 밖의 오류는 던진다"""
+        if not self._bucket or not key or self._client is None:
+            return False
+        try:
+            self._client.head_object(Bucket=self._bucket, Key=key)
+        except Exception as exc:
+            if _error_code(exc) in _MISSING_CODES | _DENIED_CODES:
+                return False
+            raise
+        return True
+
+    def copy(self, src: str, dst: str) -> bool:
+        """버킷 안 복사, 원본이 없으면 False"""
+        if not self._bucket or not src or not dst or self._client is None:
+            return False
+        try:
+            self._client.copy_object(Bucket=self._bucket, Key=dst, CopySource={"Bucket": self._bucket, "Key": src})
+        except Exception as exc:
+            code = _error_code(exc)
+            if code in _MISSING_CODES:
+                return False
+            if code in _DENIED_CODES and not self.strict_exists(src):
+                return False
+            raise
+        return True
+
+    def put_marker(self, key: str) -> bool:
+        """빈 표지 객체"""
+        if not self._bucket or not key or self._client is None:
+            return False
+        self._client.put_object(Bucket=self._bucket, Key=key, Body=b"")
         return True
 
     def delete(self, key: str) -> bool:

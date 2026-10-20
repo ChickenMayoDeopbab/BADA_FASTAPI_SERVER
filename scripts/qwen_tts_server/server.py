@@ -3,13 +3,18 @@
 배포 위치: 학교 GPU `~/bada-qwen3-tts/fork/server.py`(launch_workers.sh 가 워커별로 띄움),
 집 PC /home/uhihi/Qwen3-TTS-streaming/server.py (WSL2, systemd qwen-tts.service).
 계약:
-  GET  /health          → {ready, voices, busy}
-  POST /v1/tts          {voice, text} → raw PCM 16kHz mono 일괄 (예시 대화 배치용)
-  POST /v1/tts/stream   {voice, text} → chunked raw PCM 16kHz mono (실시간 통화용, 계획 0043)
+  GET  /health          → {ready, voices, busy, refs}
+  POST /v1/tts          {voice, text, non_streaming_mode?} → raw PCM 16kHz mono 일괄 (예시 대화 배치용)
+  POST /v1/tts/stream   {voice, text, non_streaming_mode?} → chunked raw PCM 16kHz mono (실시간 통화용, 계획 0043)
+  응답 헤더 X-Non-Streaming: 1|0 — 실제로 적용한 모드(옛 워커는 헤더 없음 = 필드를 버리고 0)
+  응답 헤더 X-Voice-Ref: 그 보이스 ref 지문 sha1(ref 파일 바이트 + ref_text)[:8] — 기동 때 고정
+ref 는 기동 때 메모리에 올려 둔다 — 파일을 바꿔도 재시작 전까지 반영되지 않는다(바꿀 땐 새 파일명 + 롤링)
 """
 
 import asyncio
 import contextlib
+import hashlib
+import io
 import json
 import logging
 import math
@@ -42,10 +47,15 @@ CAP_PER_CHAR_S = 0.4
 # 소비자가 떠난 뒤: drain = 출력 없이 EOS·상한까지(예전 동작) / close = 다음 yield 경계에서 gen.close().
 # close 는 GPU 점검(계획 0064 5절) 통과 뒤 env 로 켠다
 STOP_MODE = os.environ.get("QWEN_STOP_MODE", "drain")
+WARMUP_TEXT = "네, 안녕하세요."
+# non_streaming 프리필은 글 길이를 따라 변한다 — 길이가 다른 둘로 워밍업해야 첫 실제 요청이 재컴파일(~19s)하지 않는다
+N_WARMUP_TEXTS = (WARMUP_TEXT, "네, 확인해 드리겠습니다.")
+NS_HEADER = "X-Non-Streaming"
+VOICE_REF_HEADER = "X-Voice-Ref"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 log = logging.getLogger("tts")
-S = {"model": None, "voices": {}, "ready": False, "lock": threading.Lock()}
+S = {"model": None, "voices": {}, "refs": {}, "ready": False, "lock": threading.Lock()}
 
 
 class CapHitError(RuntimeError):
@@ -67,19 +77,20 @@ def _pcm16(w: np.ndarray) -> bytes:
     return (np.clip(w, -1.0, 1.0) * 32767).astype("<i2").tobytes()
 
 
-def _generate(voice: str, text: str, max_frames: int):
+def _generate(voice: str, text: str, max_frames: int, non_streaming_mode: bool = False):
     ref, rtxt = S["voices"][voice]
+    extra = {"non_streaming_mode": True} if non_streaming_mode else {}  # 꺼짐이면 포크 호출 인자가 예전과 같다
     return S["model"].stream_generate_voice_clone(
         text=text, language="Korean", ref_audio=ref, ref_text=rtxt,
-        emit_every_frames=EMIT, temperature=0.7, top_k=20, max_frames=max_frames)
+        emit_every_frames=EMIT, temperature=0.7, top_k=20, max_frames=max_frames, **extra)
 
 
-def _synth(voice: str, text: str) -> bytes:
+def _synth(voice: str, text: str, non_streaming_mode: bool = False) -> bytes:
     cap = max_frames_for(text)
     chunks = []
     sr = OUT_SR
     n = 0
-    for pcm, chunk_sr in _generate(voice, text, cap):
+    for pcm, chunk_sr in _generate(voice, text, cap, non_streaming_mode):
         chunks.append(pcm)
         sr = chunk_sr
         n += len(pcm)
@@ -153,8 +164,11 @@ class _StreamJob:
     안 와도 상한 안에 끝나며 (3) 소비자 쪽 finally 가 stop 을 세우면 다음 yield 경계에서 멈춘다.
     """
 
-    def __init__(self, voice: str, text: str, loop: asyncio.AbstractEventLoop, q: asyncio.Queue) -> None:
-        self.voice, self.text = voice, text
+    def __init__(
+        self, voice: str, text: str, loop: asyncio.AbstractEventLoop, q: asyncio.Queue,
+        non_streaming_mode: bool = False,
+    ) -> None:
+        self.voice, self.text, self.ns = voice, text, non_streaming_mode
         self.cap = max_frames_for(text)
         self.stop = threading.Event()
         self._lock = S["lock"]  # 잡은 락을 그대로 푼다
@@ -178,7 +192,7 @@ class _StreamJob:
             if self.stop.is_set():  # 락을 기다리는 사이 소비자가 떠남 — 생성을 시작하지 않는다
                 outcome = "gone"
                 return
-            gen = _generate(self.voice, self.text, self.cap)
+            gen = _generate(self.voice, self.text, self.cap, self.ns)
             rs = None
             for pcm, sr in gen:
                 n += len(pcm)
@@ -188,8 +202,8 @@ class _StreamJob:
                     continue
                 if rs is None:
                     rs = _StreamResampler(sr)
-                    log.info("stream 첫 청크 voice=%s chars=%d %.3fs",
-                             self.voice, len(self.text), time.perf_counter() - t)
+                    log.info("stream 첫 청크 voice=%s chars=%d %.3fs ns=%d",
+                             self.voice, len(self.text), time.perf_counter() - t, self.ns)
                 out = rs.push(np.asarray(pcm, dtype=np.float32))
                 if len(out):
                     sent += len(out)
@@ -218,11 +232,12 @@ class _StreamJob:
                 self._put(end)
             frames = n / (FRAME_S * sr) if sr else 0.0
             (log.warning if outcome == "cap" else log.info)(
-                "stream 완료 outcome=%s voice=%s chars=%d %.2fs → %.2fs audio frames=%.0f/%d",
-                outcome, self.voice, len(self.text), time.perf_counter() - t, sent / OUT_SR, frames, self.cap)
+                "stream 완료 outcome=%s voice=%s chars=%d %.2fs → %.2fs audio frames=%.0f/%d ns=%d",
+                outcome, self.voice, len(self.text), time.perf_counter() - t, sent / OUT_SR, frames, self.cap,
+                self.ns)
 
 
-async def _stream_pcm(voice: str, text: str):
+async def _stream_pcm(voice: str, text: str, non_streaming_mode: bool = False):
     """문장 하나를 16kHz PCM 청크로 흘린다. 비동기 제너레이터여야 한다 — 그래야 Starlette 가
     응답 태스크를 취소할 때(ASGI spec < 2.4 의 끊김 감지) CancelledError 가 이 프레임에 들어와
     finally 가 바로 돈다. 동기 제너레이터는 iterate_in_threadpool 안쪽이라 취소를 못 본다.
@@ -230,7 +245,7 @@ async def _stream_pcm(voice: str, text: str):
     생산 스레드는 첫 __anext__ 에서야 띄운다 — 응답 시작 전에 끊기면 생성도 락도 없다.
     """
     q: asyncio.Queue = asyncio.Queue()  # 무제한이지만 실제 상한은 cap 프레임분(≤ 수 MB)
-    job = _StreamJob(voice, text, asyncio.get_running_loop(), q)
+    job = _StreamJob(voice, text, asyncio.get_running_loop(), q, non_streaming_mode)
     threading.Thread(target=job.run, name="tts-stream", daemon=True).start()
     try:
         while True:
@@ -244,22 +259,53 @@ async def _stream_pcm(voice: str, text: str):
         job.stop.set()  # 취소·aclose·정상 종료 어느 길로 와도. GC 로만 닫히는 경우도 상한이 받친다
 
 
+def _warm(voice: str, text: str, non_streaming_mode: bool) -> None:
+    t = time.perf_counter()
+    try:
+        _synth(voice, text, non_streaming_mode)
+    except CapHitError as e:  # 컴파일은 이미 됐다 — 워밍업 문장이 옹알이여도 기동은 한다
+        log.warning("워밍업 %s %s", voice, e)
+    if non_streaming_mode:
+        log.info("워밍업 N voice=%s chars=%d %.1fs", voice, len(text), time.perf_counter() - t)
+    else:
+        log.info("워밍업 %s %.1fs", voice, time.perf_counter() - t)
+
+
+def ref_fingerprint(data: bytes, text: str) -> str:
+    """ref 파일 바이트와 글의 지문 — check_ref.py 와 같은 식"""
+    return hashlib.sha1(data + text.encode("utf-8")).hexdigest()[:8]
+
+
+def _snapshot(entries: dict) -> tuple[dict, dict]:
+    """ref 를 기동 때 한 번 읽어 (wav, sr) 로 들고 있는다 — 포크가 경로로 읽을 때와 같은 디코더"""
+    import librosa
+
+    voices, refs = {}, {}
+    for name, v in entries.items():
+        with open(os.path.expanduser(v["ref_audio"]), "rb") as f:
+            data = f.read()
+        wav, sr = librosa.load(io.BytesIO(data), sr=None, mono=True)
+        voices[name] = ((wav, sr), v["ref_text"])
+        refs[name] = ref_fingerprint(data, v["ref_text"])
+        log.info("ref voice=%s ref=%s %.2fs", name, refs[name], len(wav) / sr)
+    return voices, refs
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     with open(VOICES_F, encoding="utf-8") as f:
-        S["voices"] = {k: (v["ref_audio"], v["ref_text"]) for k, v in json.load(f).items()}
+        S["voices"], S["refs"] = _snapshot(json.load(f))
     log.info("모델 로드 중...")
     S["model"] = Qwen3TTSModel.from_pretrained(
         MODEL_ID, device_map=DEVICE, dtype=torch.bfloat16,
         attn_implementation="flash_attention_2")
     S["model"].enable_streaming_optimizations()
     for v in S["voices"]:  # 보이스마다 컴파일 1회(~90초)
-        t = time.perf_counter()
-        try:
-            _synth(v, "네, 안녕하세요.")
-        except CapHitError as e:  # 컴파일은 이미 됐다 — 워밍업 문장이 옹알이여도 기동은 한다
-            log.warning("워밍업 %s %s", v, e)
-        log.info("워밍업 %s %.1fs", v, time.perf_counter() - t)
+        _warm(v, WARMUP_TEXT, False)
+    first = next(iter(S["voices"]), None)
+    if first is not None:  # dynamo 그래프는 보이스가 아니라 모양에 묶인다 — 한 보이스로 충분
+        for text in N_WARMUP_TEXTS:
+            _warm(first, text, True)
     S["ready"] = True
     log.info("준비 완료 — voices=%s", list(S["voices"]))
     yield
@@ -271,6 +317,15 @@ app = FastAPI(lifespan=lifespan)
 class Req(BaseModel):
     voice: str
     text: str = Field(min_length=1, max_length=MAX_CHARS)
+    non_streaming_mode: bool = False  # 옛 FastAPI 는 안 보낸다 → 예전과 같은 생성
+
+
+def _headers(r: Req) -> dict[str, str]:
+    headers = {"X-Sample-Rate": str(OUT_SR), NS_HEADER: "1" if r.non_streaming_mode else "0"}
+    ref = S.get("refs", {}).get(r.voice)
+    if ref:
+        headers[VOICE_REF_HEADER] = ref
+    return headers
 
 
 def _validate(r: Req) -> None:
@@ -282,7 +337,12 @@ def _validate(r: Req) -> None:
 
 @app.get("/health")
 def health():
-    return {"ready": S["ready"], "voices": list(S["voices"]), "busy": S["lock"].locked()}
+    return {
+        "ready": S["ready"],
+        "voices": list(S["voices"]),
+        "busy": S["lock"].locked(),
+        "refs": dict(S.get("refs", {})),
+    }
 
 
 @app.post("/v1/tts")
@@ -293,14 +353,13 @@ def tts(r: Req):
     try:
         t = time.perf_counter()
         try:
-            pcm = _synth(r.voice, r.text)
+            pcm = _synth(r.voice, r.text, r.non_streaming_mode)
         except CapHitError as e:  # 5xx → 호출측 _attempt 가 재시도(샘플링이라 다시 하면 대개 정상) 후 EL 폴백
             log.warning("tts cap voice=%s %s %.2fs", r.voice, e, time.perf_counter() - t)
             raise HTTPException(502, str(e)) from e
-        log.info("tts voice=%s chars=%d %.2fs → %.2fs audio",
-                 r.voice, len(r.text), time.perf_counter() - t, len(pcm) / (OUT_SR * 2))
-        return Response(pcm, media_type="audio/L16",
-                        headers={"X-Sample-Rate": str(OUT_SR)})
+        log.info("tts voice=%s chars=%d %.2fs → %.2fs audio ns=%d",
+                 r.voice, len(r.text), time.perf_counter() - t, len(pcm) / (OUT_SR * 2), r.non_streaming_mode)
+        return Response(pcm, media_type="audio/L16", headers=_headers(r))
     finally:
         S["lock"].release()
 
@@ -309,5 +368,5 @@ def tts(r: Req):
 def tts_stream(r: Req):
     """실시간 통화용 — 문장 하나를 chunked 로 흘림"""
     _validate(r)
-    return StreamingResponse(_stream_pcm(r.voice, r.text), media_type="audio/L16",
-                             headers={"X-Sample-Rate": str(OUT_SR)})
+    return StreamingResponse(_stream_pcm(r.voice, r.text, r.non_streaming_mode), media_type="audio/L16",
+                             headers=_headers(r))

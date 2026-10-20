@@ -2,6 +2,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, R
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.enums import CommunityReportTargetType
 from app.deps.auth import get_current_user_id
 from app.deps.community_moderation import get_community_content_moderator
@@ -60,6 +61,7 @@ from app.services.community_report import (
 )
 from app.services.community_report import create_report as svc_create_report
 from app.services.community_report_alert import CommunityReportAlertService
+from app.services.example_service import bake_example_audio
 from app.services.post_attachment import AttachmentInvalidError
 from app.services.scenario_share import (
     NothingToCopyError,
@@ -515,6 +517,7 @@ async def list_my_posts(
 async def copy_attached_scenario(
     post_id: int,
     response: Response,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     user_id: int = Depends(get_current_user_id),
 ) -> ScenarioCopyResponse:
@@ -533,6 +536,8 @@ async def copy_attached_scenario(
         ) from e
 
     response.status_code = status.HTTP_200_OK if already else status.HTTP_201_CREATED
+    if not already and getattr(get_settings(), "example_qwen_ns", False):
+        background_tasks.add_task(bake_example_audio, scenario.scenario_id, "copy")
     return ScenarioCopyResponse(
         scenario_id=scenario.scenario_id,
         title=scenario.title,

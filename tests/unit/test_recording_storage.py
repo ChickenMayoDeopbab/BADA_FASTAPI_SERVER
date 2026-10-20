@@ -179,3 +179,65 @@ def test_delete_is_noop_without_bucket() -> None:
 
     assert storage.delete("community/morphed/test.wav") is False
     assert s3.delete_calls == []
+
+
+class _CopyS3(_S3Client):
+    def __init__(self, copy_code: str | None = None, head_code: str | None = None, head_raise=None) -> None:
+        super().__init__()
+        self.copy_code, self.head_code, self.head_raise = copy_code, head_code, head_raise
+        self.copies: list[dict] = []
+
+    @staticmethod
+    def _error(code: str, op: str):
+        from botocore.exceptions import ClientError
+
+        return ClientError({"Error": {"Code": code}}, op)
+
+    def copy_object(self, **kwargs) -> None:
+        if self.copy_code:
+            raise self._error(self.copy_code, "CopyObject")
+        self.copies.append(kwargs)
+
+    def head_object(self, **kwargs) -> dict:
+        if self.head_raise is not None:
+            raise self.head_raise
+        if self.head_code:
+            raise self._error(self.head_code, "HeadObject")
+        return {}
+
+
+@pytest.mark.parametrize(
+    ("copy_code", "head_code", "expected"),
+    [(None, None, True), ("NoSuchKey", None, False), ("404", None, False), ("AccessDenied", "404", False),
+     ("AccessDenied", "403", False)],
+)
+def test_copy_reports_missing_source(copy_code, head_code, expected) -> None:
+    storage = RecordingStorageService(_settings(), client=_CopyS3(copy_code, head_code))
+    assert storage.copy("examples/a.wav", "examples/prev/a.wav.T") is expected
+
+
+@pytest.mark.parametrize(("copy_code", "head_code"), [("AccessDenied", None), ("SlowDown", None)])
+def test_copy_raises_other_errors(copy_code, head_code) -> None:
+    from botocore.exceptions import ClientError
+
+    storage = RecordingStorageService(_settings(), client=_CopyS3(copy_code, head_code))
+    with pytest.raises(ClientError):
+        storage.copy("examples/a.wav", "examples/prev/a.wav.T")
+
+
+def test_strict_exists_only_hides_missing() -> None:
+    assert RecordingStorageService(_settings(), client=_CopyS3()).strict_exists("k") is True
+    for code in ("404", "NoSuchKey", "403", "AccessDenied"):
+        assert RecordingStorageService(_settings(), client=_CopyS3(head_code=code)).strict_exists("k") is False
+    with pytest.raises(ConnectionError):
+        RecordingStorageService(_settings(), client=_CopyS3(head_raise=ConnectionError("x"))).strict_exists("k")
+    from botocore.exceptions import ClientError
+
+    with pytest.raises(ClientError):
+        RecordingStorageService(_settings(), client=_CopyS3(head_code="500")).strict_exists("k")
+
+
+def test_put_marker_writes_an_empty_object() -> None:
+    s3 = _CopyS3()
+    assert RecordingStorageService(_settings(), client=s3).put_marker("examples/prev/a.wav.rejected") is True
+    assert s3.objects["examples/prev/a.wav.rejected"] == b""

@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -6,11 +8,50 @@ from app.core.security import require_internal_secret
 from app.db.models import ScenarioORM, is_deleted
 from app.deps.db import get_db
 from app.schemas.scenario import ScenarioContextResponse, ScriptTurnContext
+from app.services import example_service
 from app.services.feedback_service import delete_feedback as svc_delete_feedback
 from app.services.training_data_cleanup import delete_training_data as svc_delete_training_data
 from app.services.user_data_cleanup import delete_user_data as svc_delete_user_data
 
 router = APIRouter(dependencies=[Depends(require_internal_secret)])
+
+
+def _stamp() -> str:
+    return datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+
+
+async def _example_op(call):
+    try:
+        return await call
+    except example_service.ExampleOpError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
+
+
+@router.post(
+    "/examples/presets/prebake", status_code=status.HTTP_202_ACCEPTED, summary="프리셋 예시 미리 굽기 지금 돌리기"
+)
+async def prebake_presets_now() -> dict:
+    try:
+        joined = example_service.trigger_prebake()
+    except example_service.ExampleOpError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
+    return {"joined": joined}
+
+
+@router.post("/examples/presets/{scenario_id}/rebake", status_code=status.HTTP_202_ACCEPTED,
+             summary="프리셋 예시 하나 다시 굽기(지금 객체는 prev 로 백업)")
+async def rebake_preset(scenario_id: int) -> dict:
+    return await _example_op(example_service.rebake_preset(scenario_id, stamp=_stamp()))
+
+
+@router.post("/examples/presets/{scenario_id}/restore", summary="prev 백업을 지금 기대 키로 되살리기")
+async def restore_preset(scenario_id: int, prev: str) -> dict:
+    return await _example_op(example_service.restore_preset(scenario_id, prev, stamp=_stamp()))
+
+
+@router.post("/examples/presets/{scenario_id}/reject", summary="지금 ns 예시를 탈락시키고 restore_key 로 되돌리기")
+async def reject_preset(scenario_id: int, restore_key: str) -> dict:
+    return await _example_op(example_service.reject_preset(scenario_id, restore_key))
 
 @router.get("/health")
 async def health() -> dict[str, str]:
