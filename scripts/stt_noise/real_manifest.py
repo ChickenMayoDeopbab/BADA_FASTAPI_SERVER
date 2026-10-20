@@ -196,7 +196,7 @@ def _levels(p: np.ndarray, db: np.ndarray, in_runs: np.ndarray, a: int, b: int, 
     voiced = db[a:b] >= (thr if noise is None else _db(noise) + SPEECH_OVER_DB)
     mix = float(np.mean(p[a:b][voiced])) if voiced.any() else float(np.mean(p[a:b]))
     speech = mix - noise if noise is not None else mix
-    snr = float(_db(speech / noise)) if noise and speech > 0 else None
+    snr = float(_db(speech) - _db(noise)) if noise is not None and speech > 0 else None
     return {
         "noise_db": None if noise is None else round(float(_db(noise)), 1),
         "speech_level_db": round(float(_db(speech if speech > 0 else mix)), 1),
