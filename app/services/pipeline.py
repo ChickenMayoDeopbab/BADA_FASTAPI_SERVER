@@ -71,6 +71,7 @@ from app.services.stt import (
     STTIdleTimeoutError,
     STTStreamAbortedError,
     build_stt_client,
+    stt_config_fields,
 )
 from app.services.training_analysis import TrainingPerformanceAnalyzer
 from app.services.tremor import TremorAnalyzer
@@ -253,6 +254,7 @@ class VoicePipeline:
         self._spring = spring
 
         self._stt = build_stt_client(settings)
+        log_metric("stt_config", session_id=session_id, **stt_config_fields(self._stt))
         self._llm = LLMClient()
         self._difficulty = parse_difficulty(session)
         self._tts = ElevenLabsTTSClient(settings, self._difficulty)

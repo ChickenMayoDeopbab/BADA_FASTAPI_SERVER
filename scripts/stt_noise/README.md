@@ -2,6 +2,7 @@
 
 같은 TTS 발화 8문장(`.harness/stt-compare-2026-09/audio/u01~u08.wav`)에 합성 잡음을 SNR 단계별로 섞어
 chirp 를 **운영 설정 그대로** 와 **denoiser 켜기** 로 나란히 잰다. 결과는 상대 비교용이다(아래 '한계').
+실제 사람 목소리로 같은 비교를 하는 키트(§5)와 운영 로그로 켜기 전후를 보는 집계기(§6)는 계획 0077.
 
 | 파일 | 하는 일 | 돈 |
 |---|---|---|
@@ -9,6 +10,9 @@ chirp 를 **운영 설정 그대로** 와 **denoiser 켜기** 로 나란히 잰�
 | `run_chirp.py` | 클립을 실시간 속도로 chirp 에 흘려 모든 FINAL·SPEECH 이벤트를 JSON 으로 | **chirp** |
 | `score.py` | (잡음, SNR, denoiser)별 채점표. ws_bench 결과도 받는다 | 없음 |
 | `tests/perf/ws_bench.py` | 로컬 서버 전체 경로(`--noise-manifest`) | **chirp·LLM·TTS** |
+| `real_sentences.tsv` | 실발화 녹음 문장표(u01~u14) | — |
+| `real_manifest.py` | 폰 녹음 폴더 → 16k mono wav 와 run_chirp·score 가 그대로 읽는 `manifest.json`, 클립별 말소리 구간·추정 SNR·경고, quiet 테이크와 구간 길이 대조, 손으로 고친 구간(`--spans`) | 없음 |
+| `prod_compare.py` | 운영 텍스트 로그 → 세션을 `stt_config denoise=` 로 묶어 final_dropped·ERROR 종료·지연 | 없음 |
 
 결과는 전부 `.harness/stt-noise-2026-10/`(gitignore). 워크트리의 `.harness` 는 메인 체크아웃으로 가는 심링크라 같은 곳이다.
 
@@ -46,6 +50,8 @@ chirp 를 **운영 설정 그대로** 와 **denoiser 켜기** 로 나란히 잰�
 - 실시간 속도라 걸리는 시간 ≈ 보내는 오디오 길이 ÷ `--concurrency`. 결과 JSON 은 클립마다 다시 써서 중간에 끊겨도 남는다.
 - 자격 증명은 운영과 같은 ADC(`gcloud auth application-default login`), 설정은 레포 `.env` 를 `get_settings()` 로 읽는다.
   `STT_ENGINE` 이 chirp 가 아니면 거절한다.
+- 운영 스위치 `GOOGLE_STT_DENOISE`(기본 꺼짐)를 `.env` 에서 켜 둬도 `off`(결과 JSON `operational`)는 denoiser 를 끄고, `on` 은
+  `--denoise-snr-threshold` 로 켠다(`GOOGLE_STT_DENOISE_SNR_THRESHOLD` 는 안 읽는다).
 
 결과 JSON(`runs/chirp-<시각>.json`): `git`(commit·dirty) · `stt`(엔진·리전·모델·언어 + 조건별 실제 config 요청 전체) · `chunk_ms` ·
 `reps` · `warmup` · `clips[]`(조건 필드 + `denoise`·`denoise_snr_threshold`·`chunk_ms`·`rep`·`stopped`·`audio_sent_s`·`streams`·
@@ -127,3 +133,181 @@ JSON 에 `noise`·`snr_db`·`lead_ms`·`chunk_ms`·`turn_gap_ms` 가 더해진�
   이번엔 STT 지표만 잰다.
 - 러너 비용은 `usage_event` 에 남지 않는다(청구서와 `usage_report` 가 몇 달러 어긋난다). 스트림마다의 반올림·최소 과금은
   예상 비용에 반영 안 됨 — 잡음이 빈 FINAL 을 많이 내면 스트림 수가 늘어난다(`streams` 로 확인).
+
+## 5. 실발화 확인 (계획 0077 F130) — 폰 녹음으로 끔·켬 비교
+
+합성 잡음 + TTS 한 목소리 결과(§1~3)를 실제 사람 목소리·실제 잡음으로 확인한다. 순서: 녹음 → `real_manifest.py`(네트워크 없음)
+→ `run_chirp.py --manifest … --denoise both`(chirp 비용) → `score.py`.
+
+### 5-1. 문장표 `real_sentences.tsv` (`id<TAB>정답`)
+
+- u01~u08 은 9/09 TTS 세트(`.harness/stt-compare-2026-09/audio/manifest.json`)와 같은 문장, u09~u14 는 숫자·고유명사가 많은 문장
+  (시각·인원·주문번호·이름·전화·날짜·장소·호수). 이름·번호는 전부 지어낸 값이다.
+- **정답 숫자는 아라비아 숫자로 쓴다.** chirp 는 숫자를 숫자로 적는다 — 10/20 `runs/chirp-main.json` clean 6/6 이 "세 시"→"3시",
+  "열 시 반"→"10시 반", "1998년 3월 15일", "010-2345-6789". 채점 정규화(`stt_compare.normalize`)는 공백·구두점·하이픈만 지우고
+  한글 수사↔숫자는 안 바꾸므로, 정답을 한글 수사로 두면 끔·켬 모두 매번 mismatch·CER 로 잡혀 진짜 오인식이 묻힌다.
+  그래서 u03·u05 는 TTS manifest("세 시"·"열 시 반")와 **표기만** 다르다(읽는 소리는 같다).
+- u09~u14 를 chirp 가 어떤 표기로 쓰는지는 아직 안 봤다("4명"·"73052819"·"1203호" 등). 첫 실측 뒤 `score.py --details` 에서
+  끔·켬 둘 다 같은 자리가 같게 다르면 오인식이 아니라 표기 차이다 → 문장표를 고치고 manifest 를 다시 만든다(채점은 결과 JSON 의
+  `text` 를 쓰므로 이미 돌린 결과는 손으로 본다).
+- 읽을 때: 숫자는 평소 말하듯(3시=세 시, 4명=네 명, 2번 출구=이 번 출구), 전화·주문번호는 한 자리씩.
+
+### 5-2. 녹음 안내
+
+- 폰 기본 녹음 앱(아이폰 '음성 메모', 갤럭시 '음성 녹음'). 앱의 잡음 제거·'녹음 향상' 같은 기능은 끈다(원본 그대로).
+- **통화하듯** 폰을 귀에 대고 입과의 거리를 일정하게(스피커폰처럼 멀리 들지 않는다). 문장마다 **파일 하나**:
+  녹음 시작 → **1초** 쉼 → 문장 → **2초** 쉼 → 정지. 뒤 여유가 짧으면 chirp 가 끝점을 내기 전에 오디오가 끝나 '턴 없음'으로 잡힌다
+  (EOS 뒤 FINAL 은 채점에서 뺀다, §2). `real_manifest` 가 앞 0.5초·뒤 1.5초 미만이면 경고한다.
+- 환경 **3종 이상**, 환경 안에서는 위치·음량을 그대로:
+  - `quiet` — 조용한 방. **문장마다 꼭 녹음한다** — 다른 환경의 말소리 구간을 이 길이와 견준다(§5-3).
+  - `cafe`(또는 `rain`) — 유튜브 '카페 소음'·빗소리처럼 **알아들을 대사가 없는** 앰비언스 영상을 1~2m 떨어진 스피커로,
+    대화가 조금 방해될 정도로
+  - `fan`(또는 `street`) — 선풍기·환풍기 가까이, 또는 거리
+  - TV 드라마·뉴스처럼 **한 사람 대사가 또렷한 소리는 피한다.** 말소리 구간을 소리 크기로 추정하는데 대사도 말소리라,
+    문장 앞뒤 0.8초 안의 대사가 구간에 붙어 끝이 최대 2초 늦게 잡힌다(합성 시험: 대사 SNR 10~20dB 에서 절반 이상이 0.3초 넘게
+    틀림). quiet 길이 대조가 대부분 걸러 내지만 빠진 만큼 표본이 준다. 꼭 TV 로 하려면 대사가 적은 장면·음악 방송으로.
+- (선택) 환경마다 말 없이 15~20초 `noise.m4a` — 잡음만 클립(거짓 FINAL). 문장 녹음과 같은 자리·음량. quiet 엔 필요 없다.
+- **파일 이름**: 폴더 = 환경 라벨(영문 소문자 권장, score 표에 그대로 나온다), 파일 = `<문장 id>.<확장자>`, 같은 문장을 다시 녹음하면
+  `<id>_2.<확장자>`(테이크). 음성 메모는 녹음 직후 제목을 `u01` 처럼 바꾸면 내보낼 때 그 이름이 된다.
+
+```
+bada-rec/
+  quiet/u01.m4a … u14.m4a
+  cafe/u01.m4a … u14.m4a  noise.m4a
+  fan/u01.m4a … u14.m4a  noise.m4a
+```
+
+- **맥으로 옮기기**: 아이폰은 음성 메모 → 공유 → AirDrop(맥 '다운로드'로 온다), 또는 맥 '음성 메모' 앱(같은 iCloud 면 동기화)에서
+  녹음을 Finder 로 끌어다 놓는다. 갤럭시는 공유 → Quick Share·구글 드라이브, 또는 USB. 녹음 폴더는 레포 밖(예 `~/Desktop/bada-rec`)에
+  두고 변환 결과는 `.harness`(gitignore) 아래로 — 본인 목소리라 커밋하지 않는다.
+
+### 5-3. manifest → 실측 → 채점
+
+```
+.venv/bin/python scripts/stt_noise/real_manifest.py --rec-dir ~/Desktop/bada-rec          # 네트워크 없음, 표 확인
+.venv/bin/python scripts/stt_noise/real_manifest.py --rec-dir ~/Desktop/bada-rec --spans ~/Desktop/bada-spans.tsv  # (선택) 고친 구간
+M=.harness/stt-noise-2026-10/real/audio/manifest.json
+.venv/bin/python scripts/stt_noise/run_chirp.py --manifest $M --denoise both --reps 1 --dry-run
+.venv/bin/python scripts/stt_noise/run_chirp.py --manifest $M --denoise both --reps 1 --concurrency 4 \
+    --out .harness/stt-noise-2026-10/real/runs/chirp-$(date +%m%d-%H%M).json                 # chirp 비용
+.venv/bin/python scripts/stt_noise/score.py .harness/stt-noise-2026-10/real/runs/*.json --details
+```
+
+- **변환**: wav 는 soundfile, 그 밖(m4a 등)은 맥 내장 `afconvert`(없으면 `ffmpeg`, 둘 다 없으면 안내하고 멈춘다)로 PCM 만 꺼낸 뒤
+  스테레오는 채널 평균, 다른 샘플레이트는 `resample_poly` 로 16kHz → 16k mono PCM16 `<out>/<환경>/<파일 이름>.wav`. 레벨은 안 맞춘다.
+- **말소리 구간**: 20ms 프레임 전력을 100ms 로 고른 뒤 잡음 바닥(하위 10%) 위로 4~12dB(바닥~상위 2% 폭의 절반) 문턱을 넘는
+  곳을 말소리 핵으로 잡는다. 0.15초 미만 튐은 버리고 0.8초 안 틈은 잇는다. **가장 긴 덩어리가 문장**이다. 0.8초 넘게 떨어진
+  덩어리는 0.4초 이상·에너지가 문장의 20% 이상이고 문장보다 6dB 넘게 크지 않을 때만 붙인다(`말소리 덩어리 N개`). 그보다 크면
+  `구간 모호(뺌)`, 짧거나 작으면 `말소리 밖 소리`로만 센다. 그다음 0.8초 안의 짧은 run(원래 프레임 60ms 이상, 약한 음절)을
+  흡수하고, 가장자리는 **고른 레벨이 잡음 중앙값 + max(3dB, 1.3 × (중앙값 − 하위 10%) + 2dB) 이상인 동안** 바깥으로 넓힌다
+  (0.3초 이하 틈은 잇고 탁 소리는 밟지 않는다). 끝으로 고르기 전 프레임으로 가장자리를 다시 자른다. 잡음 중앙값은 핵과 튐 밖의
+  프레임에서 잰다.
+- **정확도(로컬 확인, CI 밖)**: §1 의 TTS 클립(8문장 × 변형 3)을 실녹음처럼 앞 1초 + 발화 + 뒤 2초로 잘라 mix_noise 정답과 견줬다.
+  끝 오차 0.3초 초과는 백색·분홍 10·20dB 0/24, 웅성거림 20dB 0/24·10dB 2/24(최대 −0.32초), 5dB 6~9/24, 0dB 대부분이다.
+  10dB 이상 끝 오차 90%는 백색·분홍 ±0.05초, 웅성거림 10dB ±0.17초 안이다. 문턱 하나로 자르던 이전 방식은 백색·분홍 10dB 에서
+  15/24 가 0.3초 넘게 일렀다(최악 −1.66초). `runs/chirp-main.json` 을 추정 구간으로 다시 채점해도 차이 방향이 정답 구간과 같다.
+  백색 10dB p50 운영/denoiser 는 정답 1536/1620ms, 추정 1562/1660ms 다. 분홍 10dB 는 1552/1642 대 1592/1685, 백색 5dB early
+  운영 3 → 3. 단 웅성거림 5dB 는 1973/1905 대 2245/2318 로 뒤집힌다 — 추정 SNR 9dB 미만 경고가 뜨는 조건이다.
+  잡음에 묻힌 끝 음절(잡음보다 약한 만큼)은 구간에서 빠져 끝이 그만큼 이르게 잡히고, 지연은 그만큼 크게 나온다.
+- **추정 SNR** = (말소리 프레임 평균 전력 − 잡음 평균 전력) ÷ 잡음 평균 전력. 말소리 프레임 = 구간 안에서 고른 레벨이 잡음 평균
+  +3dB 이상인 프레임, 잡음 = 말소리 구간 앞뒤 0.1초 밖(다른 소리·튐 제외). 정의는 §1 과 같은 전력 비지만, 잡음에 묻힌 약한
+  음절이 빠지는 만큼 **높게 나온다**. 같은 TTS 클립에서 편향은 실제 20dB +0.0, 10dB +0.4~0.5, 5dB +1.3~1.6, 0dB +3.3~3.9dB 였다
+  (실제 5dB → 추정 5.5~8.2, 10dB → 9.2~11.8). 합성 조건과는 10dB 이상에서만 대략 견줄 수 있다. 그래서 **추정 9dB 미만은
+  `구간 추정 불확실` 경고**를 낸다. 이 데이터에서 추정 9 이상 144클립 중 끝 오차 0.3초 초과는 2개였다.
+- **quiet 길이 대조**: `--clean-label`(기본 `quiet`) 테이크가 있는 문장은 다른 환경 클립의 말소리 길이(끝 − 시작)를 그 문장 quiet
+  테이크들의 중앙값과 견준다. 0.5초와 15% 중 큰 값보다 다르면 `구간 길이가 quiet 보다 +1.2초 — 잡음에 끌림?(뺌)`으로 뺀다.
+  `--keep-mismatch` 면 경고만 하고 넣는다. 차이는 `span_vs_quiet_s` 에 남는다. TV 한 사람 대사를 잡음으로 넣은 합성 시험에서
+  0.3초 넘게 틀린 80클립이 전부 걸렸고, 정상 잡음 288클립 중 잘못 뺀 것은 없었다. 같은 사람의 테이크 간 길이 차(느리게 읽기 등)는
+  0.5초 안이면 통과한다. quiet 테이크가 없는 문장은 대조하지 않는다(표 끝에 몇 문장을 대조했는지 찍힌다).
+- **구간 손으로 고치기 `--spans`**: `파일<TAB>시작초<TAB>끝초` TSV(`#` 줄·빈 줄 무시). 파일은 표의 파일 열(`cafe/u03.wav`)이나
+  원본 경로(`cafe/u03.m4a`)다. 시각은 원본 녹음 그대로라(앞을 자르지 않는다) 아무 플레이어로 들으며 적으면 된다. 적힌 클립은 추정
+  대신 그 구간을 쓰고(`manual_span`, 경고 `구간 수동(spans)`), 잡음·추정 SNR 을 그 구간으로 다시 잰다. quiet 길이 대조는 건너뛴다.
+  끝이 녹음보다 길면 뺀다. 녹음에 없는 파일 이름은 표 아래에 `spans 에 있지만 녹음에 없는 파일` 로 찍힌다. `구간 모호`·`잡음에 끌림`
+  으로 뺀 클립도 16k wav 는 `--out` 에 남는다.
+- **표**: 파일 · 문장 · 길이 · 말소리 구간 · 잡음 바닥(하위 10%) · 잡음(말소리 밖 평균) · 추정 SNR · 경고. `✗` = manifest 에서 뺌
+  (말소리 못 찾음 · 문장표에 없는 id · 같은 이름 중복 · 구간 모호 · quiet 길이와 다름 · spans 가 녹음 밖 · 문장 녹음이 없어 SNR 을
+  못 잰 환경). 경고: 앞/뒤 여유 부족 · 녹음 처음 0.5초·끝 1초 안 소리(대사 같은 잡음이면 구간이 끌린다) · 클리핑(|x|≥0.99 3샘플
+  이상) · 말소리 덩어리 2개 이상(0.8초 넘는 쉼 — 구간 확인) · 말소리 밖 소리 · 추정 SNR 9dB 미만 · 구간 수동. 끝에 환경별 요약·
+  quiet 길이 대조 범위·예상 비용.
+- **조건 묶음은 환경 라벨 단위**: `noise` = 환경 라벨, `--clean-label`(기본 `quiet`)은 `clean` 으로 — run_chirp 가 clean 클립을
+  워밍업으로 쓰고 score 표 첫 줄에 온다. `snr_db` = 그 환경의 추정 SNR 중앙값(정수, clean 은 null) — run_chirp 진행 줄이
+  `<라벨>_snr<값>` 으로 찍히고 score 가 환경마다 한 줄로 묶는다. 클립별 추정은 `snr_est_db`(manifest 에만). manifest 를 다시 만들면
+  중앙값이 바뀔 수 있어 그 전 실행과 따로 묶인다 — 끔·켬은 같은 manifest 로 같이 돌린다. 그 밖 필드(`file`·`utt`(문장 id)·`text`·
+  `variant`(null)·`noise_only`·`lead_s`·`speech_start_s`·`speech_end_s`·`utt_end_s`(= 말소리 끝)·`dur_s`)는 mix_noise manifest 와 같은 뜻.
+  run_chirp·score 는 고치지 않았다.
+- **`--reps 1`**: `variant` 가 null 이라 반복마다 같은 파일을 다시 보낸다 — 같은 오디오 반복은 결과가 사실상 같아(9/09) 돈만 든다.
+  테이크를 여러 개 녹음하면 각각 한 번씩 간다(CI 표본 = 서로 다른 파일 수 `aud`). 일부만은 `--noise cafe --utt u02 u06`.
+- 합성 벤치 결과(`runs/`)와 폴더를 나눈다 — 둘 다 `clean` 을 쓰므로 score 에 같이 넣으면 섞인다.
+- **비용**: 14문장 × 3환경 × 테이크 1 = 42클립, 클립 ≈ 6초(1 + 문장 3 + 2)라 끝까지 보내도 조건당 약 4.2분 → 끔·켬 2조건 + 워밍업 ≈
+  8.6분 × $0.016/분 ≈ **$0.14**(턴 FINAL 에서 멈추니 실제는 더 적다). 잡음만 20초 × 2환경을 넣으면 +1.3분 ≈ $0.02. 정확한 상한은
+  `--dry-run`. 실시간 속도라 걸리는 시간 ≈ 오디오 길이 ÷ `--concurrency`(4 면 3분 안팎).
+
+### 5-4. 한계
+
+- **음성 메모는 통화 모드 신호 처리를 안 거친다.** 앱(BADA_APP develop d815b33 `hooks/useAudio.ts`·`useTrainPlayback.ts`)은 웹이
+  getUserMedia `noiseSuppression`·`echoCancellation`·`autoGainControl` 을 켜고, iOS 는 오디오 세션 `playAndRecord` + `voiceChat`
+  (애플 음성 처리), 안드로이드는 `audioSource: 6`(VOICE_RECOGNITION)이다. 실제 통화 오디오는 기기에서 잡음이 이미 일부 줄어든 것이라
+  음성 메모 결과는 잡음 쪽으로 비관적이다 — 기기 억제 뒤 남은 잡음에 chirp denoiser 가 더 할 일이 있는지는 이 키트로 못 잰다.
+- 한 사람·한 폰·낭독. 같은 환경 라벨 안에서도 영상 내용·위치에 따라 잡음이 다르다(`snr_est_db` 로 본다).
+- 말소리 구간은 소리 크기로 한 추정이다. 잡음보다 약한 끝 음절은 빠져 끝이 이르게 잡히고(지연이 그만큼 크게, 5dB 안팎에선 0.3초
+  넘게), 문장 0.8초 안의 대사·말소리 같은 잡음은 구간에 붙어 끝이 늦게 잡힌다(정상 턴이 early 로, 꼬리 대사 FINAL 이 split 으로
+  보인다). 앞쪽은 quiet 길이 대조와 `추정 SNR` 경고, 뒤쪽은 quiet 길이 대조로 거르지만 둘 다 완전하지 않다. 경고가 붙은 클립은 원본을
+  들어 보고 `--spans` 로 고친다.
+- 추정 SNR 은 말소리 밑 잡음이 앞뒤 잡음과 같다는 전제다. 출렁이는 잡음(TV·거리)에선 어긋난다(합성 시험 ±2dB).
+
+## 6. 운영 로그로 켜기 전후 보기 (계획 0077, 사용자가 받아 맥에서)
+
+F128 이 들어간 이미지는 세션마다 `metric=stt_config session_id=… engine=chirp model=chirp_3 location=… denoise=True|False
+snr_threshold=…` 한 줄을 남긴다. `prod_compare.py` 는 세션을 이 값으로 묶는다: `off`(False) · `on`(True) · `none`(stt_config 없음 =
+스위치 이전 이미지) · `gemini`(engine=gemini_live) · `mixed`(한 세션에 값 둘).
+
+순서: F128 이미지(기본 꺼짐)로 며칠 = off → **켜기 직전 로그 받기** → (실발화 확인 뒤, 사용자) EC2 `.env` `GOOGLE_STT_DENOISE=true` +
+컨테이너 재생성 → 같은 길이만큼 운영 → 로그 받기 → 맥에서 집계.
+
+EC2에서 — 컨테이너를 재생성하기 **전에**(docker logs 는 재생성하면 사라진다):
+
+```
+docker logs bada-app-1 2>&1 \
+  | grep -E 'metric=(stt_config|voice_turn|final_dropped|session_usage) |STT 무요청|STT 스트리밍 실패|STT 스트림|STT 하드' \
+  > ~/stt-$(date +%m%d-%H%M).log
+wc -l ~/stt-*.log
+```
+
+- 사용자 발화 글자가 든 줄(`STT FINAL 수신 … text=…`)은 이 패턴에 안 걸린다. session_id·user_id·scenario_id 는 들어 있으니 받은 파일은
+  `.harness` 아래(gitignore)에만 둔다.
+- 이미 재생성돼 사라진 기간은 매시 백업(`scripts/backup_logs.sh` → S3 `logs/app/<YYYY>/<MM>/<DD>/*.log.gz`)을 `zcat` 해 같은 grep.
+
+로컬 맥에서:
+
+```
+mkdir -p .harness/stt-noise-2026-10/prod
+scp '<EC2 호스트>:~/stt-*.log' .harness/stt-noise-2026-10/prod/
+.venv/bin/python scripts/stt_noise/prod_compare.py .harness/stt-noise-2026-10/prod/*.log
+.venv/bin/python scripts/stt_noise/prod_compare.py .harness/stt-noise-2026-10/prod/*.log --since 2026-10-27 --until 2026-11-03 \
+    --json-out .harness/stt-noise-2026-10/prod/after.json
+```
+
+- 묶음마다: 세션 수 · voice_turn 수 · `final_dropped` 사유별(empty·state·time_up·closing) 건수·100턴당·하나라도 있던 세션 비율
+  (Wilson 95%), state 중 글자>0 · state 중 턴 FINAL 뒤 3초 안(`since_final_ms ≤ 3000`) · state 를 받은 상태(thinking·speaking) ·
+  `session_usage reason` 분포와 ERROR 종료 세션 비율(Wilson) · voice_turn `stt_ms`·`response_ms`·`turn_total_ms` p50/p90.
+  묶음이 둘 이상이면 비교 한 표. 끝에 세션에 못 붙이는 STT 줄 수(무요청 ABORTED · 스트리밍 실패 · 끊김 재오픈 · 백오프 재오픈 ·
+  복구 포기 · 하드 재활용).
+- `--since`(포함)·`--until`(제외)는 **세션 첫 줄의 로그 시각**으로 세션을 고르고(경계에 걸친 세션이 반으로 잘리지 않게), 세션 없는
+  줄은 그 줄 시각으로 거른다. 시각은 로그에 찍힌 그대로 비교한다 — Dockerfile·compose 에 TZ 가 없어 UTC 로 보인다(미확인).
+  그래서 **시간대 없이** 적는다(`2026-10-21`, `'2026-10-21 09:00'`). `Z`·`+09:00` 이 붙으면 어느 쪽으로 맞출지 모르니 거절한다
+  (docker `-t` 의 `…Z` 를 그대로 붙여 넣지 말고 `Z` 를 뺀다).
+- 여러 파일을 같이 넣어도 된다: 시각 있는 같은 줄은 파일마다 센 개수의 최댓값만 센다(백업과 docker logs 가 겹쳐도 한 번).
+- 텍스트 로그(운영은 ENV=dev 라 텍스트)와 JSON 로그 둘 다 읽는다. `docker logs -t` 의 앞 시각이 있으면 그 시각을 쓴다.
+
+읽을 때 주의:
+
+- **켜기 전후는 다른 시간대다** — 요일·시간대·사용자 층(시연·새 테스터)·시나리오 구성·앱 버전이 달라 묶음 차이를 denoiser 탓으로
+  단정하지 않는다. 기간 길이를 맞추고 세션 수가 적으면 CI 부터 본다.
+- 한 세션의 턴끼리는 독립이 아니다 — 100턴당 값보다 '하나라도 있던 세션' 비율(세션 수가 표본)의 CI 가 정직하다.
+- `empty` 는 잡음이 STT 를 깨워 빈 FINAL 이 나온 횟수에 가깝다(denoiser 로 줄길 기대). `state` 3초 안은 끊긴 FINAL 의 나머지가
+  AI 차례에 온 신호(10/20 벤치의 u02 숫자 중간 끊김). 지금 코드에선 빈 FINAL 이 먼저 `empty` 로 분류돼 `state` 는 늘 글자>0 이다
+  (`pipeline._handle_stt_event`) — 'state 중 글자>0' 줄은 state 와 같게 나온다.
+- `stt_ms` 는 '마지막 오디오 청크 → FINAL' 이라 마이크가 계속 흐르는 운영에선 청크 간격 정도다. 말끝→FINAL(denoiser 지연 +110ms 가
+  보일 곳)은 운영 로그에 없고, `response_ms` 는 STT 뒤라 denoiser 와 무관하다 — 지연은 벤치(§2·§5)로 본다.
+- ERROR 종료는 STT 말고도(LLM·TTS·백그라운드 예외) 나온다. 'STT 스트리밍 실패' 줄 수와 같이 보고, 그 줄은 세션에 안 붙으니
+  켜기 전후를 `--since`/`--until` 로 나눠 각각 돌린다.
