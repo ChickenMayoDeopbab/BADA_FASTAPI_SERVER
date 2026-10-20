@@ -147,6 +147,16 @@ def test_detect_at_low_snr_shrinks_span_and_warns() -> None:
     assert any(w.startswith("추정 SNR") for w in real_manifest.margin_warnings(d, len(x) / SR))
 
 
+def test_detect_digital_silence_gives_finite_snr_not_none() -> None:
+    """잡음 전력 0.0 은 '값 없음' 이 아니라 진짜 무음 — noise_db 와 같은 하한으로 아주 큰 SNR"""
+    u = mix_noise.to_level(_talk(1), -26.0)
+    x = np.concatenate([np.zeros(SR), u, np.zeros(2 * SR)])
+    d = real_manifest.detect(x)
+    assert d["noise_db"] == -100.0
+    assert d["snr_est_db"] is not None and d["snr_est_db"] > 60
+    assert real_manifest.margin_warnings(d, len(x) / SR) == []
+
+
 def test_detect_ignores_clicks_and_flags_a_separate_sound_without_moving_the_span() -> None:
     x, truth = _mix("pink", 20.0, lead_s=2.5)
     click = np.zeros_like(x)
