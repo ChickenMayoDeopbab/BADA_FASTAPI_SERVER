@@ -1359,9 +1359,14 @@ async def reject_preset(scenario_id: int, restore_key: str) -> dict:
             storage.put_marker(_rejected_key(current_ns))
         row.example_audio_url = restore_key
         await db.commit()
-    storage.delete(current_ns)
-    log_metric("example_tts", scenario_id=scenario_id, trigger="reject", prev_key=current, key=restore_key)
-    return {"rejected": current_ns, "restored": restore_key}
+    try:
+        deleted = storage.delete(current_ns)
+    except Exception:
+        logger.warning("탈락 ns 객체 삭제 실패(행·표지는 반영됨): %s", current_ns, exc_info=True)
+        deleted = False
+    log_metric("example_tts", scenario_id=scenario_id, trigger="reject", prev_key=current, key=restore_key,
+               deleted=deleted)
+    return {"rejected": current_ns, "restored": restore_key, "deleted": deleted}
 
 
 _LLM_TIMEOUT_SEC = 60.0
