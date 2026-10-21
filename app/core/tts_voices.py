@@ -71,6 +71,19 @@ def pick_example_user_voice(ai_voice_id: str | None) -> str:
     return EXAMPLE_USER_VOICE_ID
 
 
+# 예시 '나' Qwen 보이스(voices.json 키)
+EXAMPLE_QWEN_USER_VOICE = "user"
+EXAMPLE_QWEN_USER_VOICE_FEMALE = "user_female"
+
+
+def pick_example_qwen_user_voice(ai_voice: str | None) -> str:
+    """예시 '나' Qwen 보이스, AI 칸이 남자면 여자 목소리"""
+    profile = profile_for(ai_voice)
+    if profile is not None and profile.gender == SpeakerGender.MALE:
+        return EXAMPLE_QWEN_USER_VOICE_FEMALE
+    return EXAMPLE_QWEN_USER_VOICE
+
+
 def profile_for(voice_id: str | None) -> VoiceProfile | None:
     """레지스트리 보이스, 옛 ElevenLabs id 면 그 칸"""
     if not voice_id:
