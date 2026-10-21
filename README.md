@@ -138,10 +138,13 @@ CSM은 실험 후 운영 적용을 보류했습니다. 위 실험·평가 모델
 | [한국어 음성](https://www.aihub.or.kr/aihubdata/data/view.do?currMenu=115&topMenu=100&dataSetSn=123) | AI 허브 | CSM 대화형 음성 합성 학습 실험, 합성 품질 평가 문장 |
 | [상담 음성](https://www.aihub.or.kr/aihubdata/data/view.do?currMenu=115&topMenu=100&dataSetSn=100) | AI 허브 | CSM 대화 문맥 학습 실험, 평가 |
 | [감정이 태깅된 자유대화 (성인)](https://www.aihub.or.kr/aihubdata/data/view.do?currMenu=115&topMenu=100&dataSetSn=71631) | AI 허브 | CSM 재학습 실험, 시나리오 화자별 참조 음성 후보 추출·청취 평가 |
+| [The Korean Corpus of Spontaneous Speech (Seoul Corpus)](https://www.openslr.org/113/) | OpenSLR (SLR113) | 젊은 남성 화자 칸의 Qwen3-TTS 참조 음성 |
 
 이 프로젝트는 과학기술정보통신부의 재원으로 한국지능정보사회진흥원의 지원을 받아 구축된 "한국어 음성", "상담 음성", "감정이 태깅된 자유대화 (성인)"을 활용하여 수행되었습니다. 활용된 데이터는 AI 허브(aihub.or.kr)에서 다운로드할 수 있습니다.
 
 AI 허브 데이터 이용정책에 따라 이 저장소에는 데이터 원본과 원본을 자르거나 가공한 음성·전사를 포함하지 않습니다. `scripts/csm_experiments`, `scripts/tts_bench`의 데이터 처리 스크립트를 실행하려면 AI 허브에서 이용 승인을 받아 데이터를 직접 내려받아야 합니다.
+
+젊은 남성 화자 칸의 참조 음성은 Seoul Corpus 화자 s11의 발화 일부(약 10초)를 잘라 잡음을 정리해 사용합니다. 출처: Yun, W., Yoon, K., Park, S., Lee, J., Cho, S., Kang, D., Byun, K., Hahn, H., Kim, J. (2015). The Korean Corpus of Spontaneous Speech. *Journal of the Korean Society of Speech Sciences*, 7(2), 103–109. Seoul Corpus는 [CC BY-NC 2.0](https://creativecommons.org/licenses/by-nc/2.0/) 라이선스를 따르며 비상업적 목적으로만 이용합니다. 이 저장소에는 해당 음성을 포함하지 않습니다.
 
 <br>
 
