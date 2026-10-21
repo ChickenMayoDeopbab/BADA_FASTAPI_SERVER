@@ -44,11 +44,12 @@ def test_legacy_elevenlabs_ids_resolve_to_the_same_speaker_slot(legacy, slot, di
 
 
 @pytest.mark.parametrize("slot", [v.voice_id for v in VOICE_REGISTRY])
-def test_difficulty_picks_tone_and_medium_keeps_stored_tone(slot):
+def test_difficulty_picks_tone_and_medium_is_soft_like_low(slot):
     base = slot.rsplit("_", 1)[0]
     assert resolve_voice(slot, Difficulty.LOW) == f"{base}_soft"
+    assert resolve_voice(slot, Difficulty.MEDIUM) == f"{base}_soft", "중은 하와 같은 부드러운 칸"
     assert resolve_voice(slot, Difficulty.HIGH) == f"{base}_rough"
-    assert resolve_voice(slot, Difficulty.MEDIUM) == slot and resolve_voice(slot, None) == slot
+    assert resolve_voice(slot, None) == slot
 
 
 def test_missing_tone_slot_keeps_the_normalized_slot(monkeypatch):

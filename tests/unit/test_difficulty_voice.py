@@ -40,13 +40,17 @@ def registry(monkeypatch):
     return _FULL_REGISTRY
 
 
-@pytest.mark.parametrize("difficulty", [None, Difficulty.MEDIUM])
-def test_no_difficulty_keeps_assigned_voice(registry, difficulty) -> None:
-    assert resolve_voice("v-fy-neutral", difficulty) == "v-fy-neutral"
+def test_no_difficulty_keeps_assigned_voice(registry) -> None:
+    assert resolve_voice("v-fy-neutral", None) == "v-fy-neutral"
 
 
 def test_low_difficulty_picks_soft_voice_of_same_speaker(registry) -> None:
     assert resolve_voice("v-fy-neutral", Difficulty.LOW) == "v-fy-soft"
+
+
+@pytest.mark.parametrize("assigned", ["v-fy-neutral", "v-fy-rough"])
+def test_medium_difficulty_picks_soft_voice_like_low(registry, assigned) -> None:
+    assert resolve_voice(assigned, Difficulty.MEDIUM) == "v-fy-soft"
 
 
 def test_high_difficulty_picks_rough_voice_of_same_speaker(registry) -> None:
@@ -246,6 +250,15 @@ def _pipeline_with(monkeypatch, session: dict, switch: bool) -> VoicePipeline:
 def test_switch_on_sends_difficulty_slot_to_qwen_and_el_id_to_elevenlabs(monkeypatch) -> None:
     p = _pipeline_with(monkeypatch, {"difficulty": "high", "scenario": {"ttsVoiceId": "female_old_soft"}}, True)
     assert p._qwen_voice == "female_old_rough" and p._voice_id_override == "fNmw8sukfGuvWVOp33Ge"
+
+
+@pytest.mark.parametrize(
+    ("difficulty", "slot"),
+    [("low", "male_young_soft"), ("medium", "male_young_soft"), ("high", "male_young_rough")],
+)
+def test_rough_custom_slot_turns_soft_at_low_and_medium(monkeypatch, difficulty, slot) -> None:
+    p = _pipeline_with(monkeypatch, {"difficulty": difficulty, "scenario": {"ttsVoiceId": "male_young_rough"}}, True)
+    assert p._qwen_voice == slot and p._voice_id_override == tts_voices.el_voice_for(slot)
 
 
 def test_switch_on_without_assigned_voice_uses_default_slot(monkeypatch) -> None:
