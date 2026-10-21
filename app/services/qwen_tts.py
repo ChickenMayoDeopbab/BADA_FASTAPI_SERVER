@@ -7,6 +7,7 @@ import math
 import re
 import time
 import weakref
+from collections import deque
 from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -472,7 +473,7 @@ def _turn_metrics(log: list[dict], speed: float) -> dict:
     raw = sum(r["raw_ms"] for r in log)
     gen = sum(r["wall_ms"] - (r["ttfb_ms"] or 0.0) for r in log if r["ttfb_ms"] is not None)
     gaps = [
-        (_heard_trail_ms(a) + b.get("lead_ms", 0.0)) / max(speed, 1e-6)
+        (_heard_trail_ms(a) + b.get("lead_ms", 0.0)) / max(speed, 1e-6) + b.get("gap_pad_ms", 0.0)
         for a, b in zip(shaped, shaped[1:], strict=False)
     ]
     ttfbs = [r["ttfb_ms"] for r in log if r["ttfb_ms"] is not None]
@@ -508,6 +509,11 @@ class _PauseConfig:
 
 def _ns_voices(settings: Settings) -> frozenset[str]:
     raw = getattr(settings, "qwen_tts_non_streaming_voices", "ai") or ""
+    return frozenset(v.strip() for v in str(raw).split(",") if v.strip())
+
+
+def _gap_voices(settings: Settings) -> frozenset[str]:
+    raw = getattr(settings, "qwen_tts_gap_voices", "") or ""
     return frozenset(v.strip() for v in str(raw).split(",") if v.strip())
 
 
@@ -560,6 +566,84 @@ class _PcmGain:
     def flush(self) -> bytes:
         out, self._carry = self._carry, b""
         return out
+
+
+_GAP_BLOCK, _GAP_QUIET_DB = 32, -45.0  # RequestMeter 와 같은 2ms 블록·조용 판정
+
+
+def _blocks(data: bytes) -> np.ndarray:
+    x = np.frombuffer(data[: len(data) - len(data) % 2], dtype="<i2")
+    n = len(x) // _GAP_BLOCK
+    if not n:
+        return np.zeros(0, dtype=np.int32)
+    return np.abs(x[: n * _GAP_BLOCK].astype(np.int32)).reshape(n, _GAP_BLOCK).max(1)
+
+
+class _GapPad:
+    """턴 안 요청 사이 들리는 쉼이 gap_ms 보다 짧으면 다음 요청 첫 소리 앞에 0 을 채움"""
+
+    def __init__(self, gap_ms: float) -> None:
+        self.gap_ms = gap_ms
+        self.pad_ms: float | None = None
+        self._prev: tuple[float, float] | None = None
+        self._pending = False
+        self._tail: deque[int] = deque(maxlen=math.ceil(gap_ms / 2) + 1)
+        self._carry = b""
+        self._peak = 0
+        self._blocks_n = 0
+
+    def begin(self) -> None:
+        self._pending = self._prev is not None
+        self.pad_ms = None
+        self._tail.clear()
+        self._carry = b""
+        self._peak = self._blocks_n = 0
+
+    def push(self, out: bytes) -> bytes:
+        """첫 소리 전에는 다 찬 2ms 블록만 내보내고 덜 찬 블록은 붙잡는다"""
+        data = self._carry + out
+        cut = len(data) - len(data) % (2 * _GAP_BLOCK)
+        self._carry = data[cut:]
+        b = _blocks(data[:cut])
+        emit = out
+        if self._pending:
+            emit = data[:cut]
+            if len(b):
+                peak, trail = self._prev
+                loud = np.nonzero(b >= peak * 10 ** (_GAP_QUIET_DB / 20))[0]
+                if len(loud):
+                    self._pending = False
+                    at = int(loud[0]) * 2 * _GAP_BLOCK
+                    lead = (self._blocks_n + int(loud[0])) * 2.0
+                    self.pad_ms = round(max(0.0, self.gap_ms - trail - lead), 1)
+                    emit = data[:at] + bytes(int(self.pad_ms * BYTES_PER_MS) // 2 * 2) + data[at:]
+                elif trail + (self._blocks_n + len(b)) * 2.0 >= self.gap_ms:
+                    self._pending, self.pad_ms = False, 0.0
+                    emit = data
+        if len(b):
+            self._peak = max(self._peak, int(b.max()))
+            self._blocks_n += len(b)
+            self._tail.extend(b.tolist())
+        return emit
+
+    def release(self) -> bytes:
+        """첫 소리 없이 끝난 요청이 붙잡고 있던 덜 찬 블록"""
+        if not self._pending:
+            return b""
+        held, self._carry = self._carry, b""
+        return held
+
+    def end(self) -> None:
+        if self._peak > 0:
+            thr = self._peak * 10 ** (_GAP_QUIET_DB / 20)
+            quiet = 0
+            for v in reversed(self._tail):
+                if v >= thr:
+                    break
+                quiet += 1
+            self._prev = (float(self._peak), quiet * 2.0)
+        elif self._prev is not None:
+            self._prev = (self._prev[0], self._prev[1] + self._blocks_n * 2.0)
 
 
 def _pause_config(settings: Settings) -> _PauseConfig:
@@ -655,6 +739,7 @@ class QwenRealtimeTTSSession:
         call: _CallState | None = None,
         pause: _PauseConfig | None = None,
         ns_gain_db: float = 0.0,
+        gap_ms: float = 0.0,
     ) -> None:
         self._client = client
         self._base_url = base_url
@@ -671,6 +756,7 @@ class QwenRealtimeTTSSession:
         self._call = call if call is not None else _CallState()
         self._pause = pause or _PauseConfig()
         self._ns_gain_db = ns_gain_db
+        self._gap = _GapPad(gap_ms) if gap_ms > 0 else None
         self._buffer = ClientBuffer(_APP_PREBUFFER_MS) if ns == "want" else None
         self._ttfb_max = 0.0
         self._end_ahead: float | None = None
@@ -722,6 +808,11 @@ class QwenRealtimeTTSSession:
             return None
 
     def _sent(self, out: bytes) -> bytes:
+        if self._gap is not None:
+            out = self._gap.push(out)
+        return self._mark(out) if out else b""
+
+    def _mark(self, out: bytes) -> bytes:
         self._audio_started = True
         if self._buffer is not None:
             self._buffer.on_yield(len(out), self._now_ms())
@@ -729,6 +820,8 @@ class QwenRealtimeTTSSession:
 
     async def _synth_sentence(self, text: str) -> AsyncIterator[bytes]:
         self.chars_sent += len(text)
+        if self._gap is not None:
+            self._gap.begin()
         cap_ms = runaway_cap_ms(text)
         received = 0
         started = time.monotonic()
@@ -787,20 +880,22 @@ class QwenRealtimeTTSSession:
                     out = stretcher.push(data) if data else b""
                     if gain is not None:
                         out = gain.push(out)
-                    if out:
-                        yield self._sent(out)
+                    if out and (out := self._sent(out)):
+                        yield out
                 if stage is not None:
                     rest = stage.finish(self._spare_ms())
                     out = stretcher.push(rest) if rest else b""
                     if gain is not None:
                         out = gain.push(out)
-                    if out:
-                        yield self._sent(out)
+                    if out and (out := self._sent(out)):
+                        yield out
                 tail = stretcher.flush()
                 if gain is not None:
                     tail = gain.push(tail) + gain.flush()
-                if tail:
-                    yield self._sent(tail)
+                if tail and (tail := self._sent(tail)):
+                    yield tail
+                if self._gap is not None and (held := self._gap.release()):
+                    yield self._mark(held)
                 if self._buffer is not None:
                     self._end_ahead = self._buffer.raw_ahead_ms(self._now_ms())
             outcome = "eos"
@@ -814,6 +909,9 @@ class QwenRealtimeTTSSession:
             outcome = "error"
             raise QwenTTSUnavailableError(f"{type(exc).__name__}: {exc}") from exc
         finally:
+            if self._gap is not None:
+                with contextlib.suppress(Exception):
+                    self._gap.end()
             if stage is not None and outcome != "eos":
                 stage.abort()
             if stage is not None and stage.failed:
@@ -827,6 +925,8 @@ class QwenRealtimeTTSSession:
                         entry.update(stage.record())
                     if gain is not None:
                         entry["gain_db"] = self._ns_gain_db
+                    if self._gap is not None and self._gap.pad_ms is not None:
+                        entry["gap_pad_ms"] = self._gap.pad_ms
                     self.request_log.append(entry)
 
     def turn_metrics(self) -> dict:
@@ -873,6 +973,8 @@ class QwenRealtimeTTSClient:
         self._ns_voices = _ns_voices(settings)
         self._pause = _pause_config(settings) if self._ns_on else _PauseConfig()
         self._ns_gain_db = _ns_gain_db(settings) if self._ns_on else 0.0
+        self._gap_voices = _gap_voices(settings)
+        self._gap_ms = _pause_ms(settings, "qwen_tts_gap_min_ms", 250.0)
 
     async def open(self, voice_id: str | None = None) -> QwenRealtimeTTSSession:
         """턴마다 호출"""
@@ -894,6 +996,7 @@ class QwenRealtimeTTSClient:
             call=self._call,
             pause=self._pause,
             ns_gain_db=self._ns_gain_db,
+            gap_ms=self._gap_ms if voice in self._gap_voices else 0.0,
         )
 
     def release_slot(self) -> None:

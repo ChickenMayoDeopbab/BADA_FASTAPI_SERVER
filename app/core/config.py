@@ -87,6 +87,8 @@ class Settings(BaseSettings):
     qwen_tts_pause_cap_to_ms: float = 250.0  # 이 길이로 줄임
     qwen_tts_pause_min_buffer_ms: float = 300.0  # 앱 버퍼가 이보다 얇으면 쉼을 덜 줄임
     qwen_tts_ns_gain_db: float = -3.0  # N 적용 요청에 곱할 크기(dB, ai 기준 실측)
+    qwen_tts_gap_voices: str = ""  # 요청 사이 쉼을 채울 보이스(쉼표 구분)
+    qwen_tts_gap_min_ms: float = 250.0  # 그 보이스의 요청 사이 들리는 쉼 하한
     example_qwen_ns: bool = False  # 프리셋·새 커스텀 예시를 Qwen non_streaming_mode 로 굽기
     example_request_wait_sec: float = 20.0  # 예시 요청이 굽기를 기다리는 상한(앱 30초 타임아웃 안)
     example_turn_prior_sec: float = 6.0  # 남은 굽기 시간 추정용 턴당 사전값
