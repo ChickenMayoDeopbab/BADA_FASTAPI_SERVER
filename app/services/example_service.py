@@ -410,7 +410,10 @@ async def _resolve_and_bake(
         if dialogue:
             hit = _cache_hit(settings, row, scenario_id, dialogue)
             if hit:
-                return dialogue, hit
+                if trigger != "request" or not await _stale_custom(settings, row, scenario_id, dialogue, hit):
+                    return dialogue, hit
+                fresh, key = await _request_ns(db, settings, row, seed, scenario_id, force=True)
+                return fresh, key or hit
     if trigger == "request" and storage is not None and _ns_target(settings, scenario_id, row):
         return await _request_ns(db, settings, row, seed, scenario_id)
     lock = _generation_locks.setdefault(scenario_id, asyncio.Lock())
@@ -426,6 +429,20 @@ async def _resolve_and_bake(
             db, settings, row, scenario_id, dialogue, storage, trigger=trigger
         )
         return dialogue, key
+
+
+async def _stale_custom(
+    settings: Settings, row: ScenarioORM, scenario_id: int, dialogue: list[dict], hit: str
+) -> bool:
+    """N 굽기 커스텀 예시가 지금 워커 참조로 구운 게 아니면 True, 참조를 못 읽으면 False"""
+    if not (row.is_custom and _ns_target(settings, scenario_id, row)):
+        return False
+    voices = _ns_voices(settings, row, scenario_id, dialogue)
+    state = await QwenTTSClient(settings).health_refs(sorted(set(voices.values())))
+    if state.state != "ok":
+        return False
+    refs = {"ai": state.refs[voices["ai"]], "user": state.refs[voices["user"]]}
+    return not hit.endswith(_ns_key(scenario_id, dialogue, _ns_v8(voices, refs, _levels(settings))))
 
 
 @dataclass(frozen=True)
@@ -930,7 +947,7 @@ async def _bake_ns(
     except (QwenTTSUnavailableError, TimeoutError) as exc:
         reason = job.fail_reason = _ns_reason(exc)
         logger.warning("시나리오 %s N 굽기 실패(%s): %s", scenario_id, reason, exc)
-        if preset:
+        if preset or force:  # 다시 굽기 실패는 옛 예시를 두고 미룬다
             if job.attempts:
                 _loop_cooldown()[scenario_id] = time.monotonic() + _COOLDOWN_SEC
             log_metric("example_tts_deferred", scenario_id=scenario_id, trigger=trigger, reason=reason,
@@ -1038,13 +1055,15 @@ async def _request_ns(
     row: ScenarioORM,
     seed: dict | None,
     scenario_id: int,
+    *,
+    force: bool = False,
 ) -> tuple[list[dict], str | None]:
     """굽기 작업을 잠깐 기다리고, 오래 걸리면 대본만 준다"""
     fallback_dialogue = seed["example_dialogue"] if seed is not None else (row.example_dialogue or [])
     if _cooling(scenario_id):
         return fallback_dialogue, None
     await db.commit()
-    job = _ensure_job(scenario_id, "request")
+    job = _ensure_job(scenario_id, "request", force=force)
     await asyncio.sleep(0)
     wait = float(getattr(settings, "example_request_wait_sec", 20.0))
     started = now_ms()
