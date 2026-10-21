@@ -15,6 +15,7 @@
   python scripts/ws_listen.py ws --base-url ws://localhost:8000 --session-id SID --token JWT \
       --audio tests/output/tts_check_output.wav --play
   python scripts/ws_listen.py ws ... --audio t1.wav --audio t2.wav --audio t3.wav   # 한 통화에서 3턴
+  python scripts/ws_listen.py ws ... --greeting --audio t1.wav   # AI 가 먼저 말하는 통화
 """
 
 from __future__ import annotations
@@ -41,6 +42,8 @@ from app.core.audio_stats import (  # noqa: E402
 _SR = 16000
 _SAMPLE_BYTES = 2
 _BYTES_PER_S = _SR * _SAMPLE_BYTES
+# 재생 완료 신호가 없는 클라이언트면 서버는 첫마디 예상 재생 끝 + 1초 뒤 듣는다(pipeline._PLAYBACK_GRACE_MS)
+_GREETING_RESUME_GRACE_S = 1.3
 
 
 class Recorder:
@@ -168,6 +171,10 @@ async def _run_ws(args: argparse.Namespace, rec: Recorder) -> None:
 
     async with websockets.connect(base, max_size=None, open_timeout=args.timeout) as ws:
         await ws.send(json.dumps({"type": "auth", "token": args.token}))
+        if args.greeting:
+            print("-- 첫마디(서버가 먼저 말함)")
+            if not await _run_ws_greeting(args, rec, ws, chunk_bytes):
+                return
         # --audio 를 여러 번 주면 한 연결(한 통화) 안에서 턴을 이어 간다: 보내고 → speaking_end 까지 듣고 → 다음.
         # 같은 통화라야 TTS 워커의 세션 문맥(앞 턴들)이 유지되는지 볼 수 있다.
         for turn, audio in enumerate(audios, start=1):
@@ -177,6 +184,57 @@ async def _run_ws(args: argparse.Namespace, rec: Recorder) -> None:
             done = await _run_ws_turn(args, rec, ws, audio, chunk_bytes)
             if not done:
                 return
+
+
+async def _run_ws_greeting(args: argparse.Namespace, rec: Recorder, ws, chunk_bytes: int) -> bool:
+    """앱처럼 무음을 보내 서버 첫마디를 깨우고 그 소리가 다 들릴 만큼 기다린다. 통화가 이어질 수 있으면 True."""
+    import websockets
+
+    silence = b"\x00" * chunk_bytes
+    first_pcm_at: float | None = None
+    pcm_bytes = 0
+
+    async def send_silence() -> None:
+        while True:
+            await ws.send(silence)
+            await asyncio.sleep(args.chunk_ms / 1000.0)
+
+    sender = asyncio.create_task(send_silence())
+    try:
+        while True:
+            try:
+                msg = await asyncio.wait_for(ws.recv(), timeout=args.turn_timeout)
+            except TimeoutError:
+                print("  첫마디 타임아웃")
+                return False
+            except websockets.ConnectionClosed as exc:
+                print(f"  서버가 연결을 닫음 (code {exc.code}, reason {exc.reason!r}) — 앱 로그에서 이유 확인")
+                return False
+            if isinstance(msg, bytes):
+                sender.cancel()  # 앱은 AI 소리가 나는 동안 마이크를 막는다
+                if first_pcm_at is None:
+                    first_pcm_at = time.perf_counter()
+                    print("  첫마디 첫 PCM")
+                pcm_bytes += len(msg)
+                rec.add(msg)
+                continue
+            frame = json.loads(msg)
+            print(f"  [첫마디] {frame}")
+            if frame.get("type") == "emotion":
+                sender.cancel()
+            elif frame.get("type") == "speaking_end":
+                break
+            elif frame.get("type") in ("end", "error"):
+                return False
+    finally:
+        sender.cancel()
+        with suppress(asyncio.CancelledError):
+            await sender
+    if first_pcm_at is not None:
+        wait = first_pcm_at + pcm_bytes / _BYTES_PER_S + _GREETING_RESUME_GRACE_S - time.perf_counter()
+        if wait > 0:
+            await asyncio.sleep(wait)
+    return True
 
 
 async def _run_ws_turn(args: argparse.Namespace, rec: Recorder, ws, audio: bytes, chunk_bytes: int) -> bool:
@@ -265,6 +323,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_ws.add_argument("--chunk-ms", type=int, default=100)
     p_ws.add_argument("--tail-silence-ms", type=int, default=800)
     p_ws.add_argument("--timeout", type=float, default=10.0)
+    p_ws.add_argument("--greeting", action="store_true",
+                      help="서버가 먼저 말하는 통화(AI_GREETING): 무음으로 첫마디를 깨우고 다 들은 뒤 턴 1 을 보낸다")
     return parser
 
 

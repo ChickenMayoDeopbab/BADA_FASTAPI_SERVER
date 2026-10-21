@@ -100,6 +100,10 @@ class Settings(BaseSettings):
     csm_tts_health_timeout: float = 1.0
     tts_coalesce_ms: int = 320
 
+    # 통화 첫마디
+    ai_greeting: bool = False  # 연결 직후 AI 가 먼저 말하기
+    ai_greeting_user_ids: str = ""  # 먼저 말할 userId(쉼표 구분, 비우면 전체)
+
     # Internal callback
     spring_boot_internal_url: str
 
