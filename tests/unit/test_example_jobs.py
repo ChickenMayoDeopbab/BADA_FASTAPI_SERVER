@@ -985,3 +985,86 @@ async def test_reject_reports_a_successful_cleanup(monkeypatch) -> None:
     rows = {1: _row(1, url=current)}
     _wire(monkeypatch, rows, storage=_Storage({current: b"bad", "examples/1-8c9047e7.wav": b"el"}))
     assert (await es.reject_preset(1, "examples/1-8c9047e7.wav"))["deleted"] is True
+
+
+_OLD_REFS = {"ai": "99999999", "user": "bbbbbbbb"}
+
+
+def _old_key(kind: str, sid: int = 42, dialogue=_DC) -> str:
+    if kind == "ns":
+        return _expected(sid, dialogue, _OLD_REFS)
+    if kind == "plain":
+        return es._audio_key(sid, dialogue, "ai", "user", qwen=True)
+    return es._audio_key(sid, dialogue, "voice-default", es.pick_example_user_voice("voice-default"))
+
+
+async def _ask(rows: dict, sid: int = 42):
+    return await asyncio.wait_for(es.get_example_conversation(_DB(rows), sid, user_id=7), 2)
+
+
+@pytest.mark.parametrize("kind", ["ns", "plain", "eleven"])
+async def test_custom_example_from_other_refs_is_rebaked_with_current_refs(monkeypatch, kind) -> None:
+    old = _old_key(kind)
+    rows = {42: _row(42, custom=True, dialogue=_DC, url=old)}
+    env = _wire(monkeypatch, rows)
+    await _ask(rows)
+    await _job(42)
+    assert rows[42].example_audio_url == _expected(42, _DC) == env.storage.uploads[-1]
+    assert env.qwen.calls and env.el.opens == 0
+
+
+async def test_rebake_serves_the_old_example_until_the_new_one_is_ready(monkeypatch) -> None:
+    old = _old_key("ns")
+    rows = {42: _row(42, custom=True, dialogue=_DC, url=old)}
+    _wire(monkeypatch, rows, qwen=_Qwen(delay=0.15), settings=_settings(example_request_wait_sec=0.05))
+    resp = await _ask(rows)
+    assert resp.audio_url.endswith(old), "다 구워질 때까지 옛 예시"
+    assert await _job(42) == _expected(42, _DC) == rows[42].example_audio_url
+
+
+async def test_custom_example_with_current_refs_is_served_without_rebake(monkeypatch) -> None:
+    current = _expected(42, _DC)
+    rows = {42: _row(42, custom=True, dialogue=_DC, url=current)}
+    env = _wire(monkeypatch, rows)
+    resp = await _ask(rows)
+    assert resp.audio_url.endswith(current) and env.qwen.calls == [] and es._loop_jobs() == {}
+    assert env.qwen.health_calls == 1
+
+
+@pytest.mark.parametrize("state", ["down", "rolling", "missing", "no_refs"])
+async def test_custom_example_is_kept_when_worker_refs_are_unknown(monkeypatch, state) -> None:
+    old = _old_key("ns")
+    rows = {42: _row(42, custom=True, dialogue=_DC, url=old)}
+    env = _wire(monkeypatch, rows, qwen=_Qwen(states=(state,)))
+    resp = await _ask(rows)
+    assert resp.audio_url.endswith(old) and env.qwen.calls == [] and es._loop_jobs() == {}
+
+
+async def test_failed_rebake_keeps_the_old_example_and_cools_down(monkeypatch) -> None:
+    old = _old_key("plain")
+    rows = {42: _row(42, custom=True, dialogue=_DC, url=old)}
+    env = _wire(monkeypatch, rows, qwen=_Qwen(ns=False))
+    resp = await _ask(rows)
+    await _job(42)
+    assert resp.audio_url.endswith(old) and rows[42].example_audio_url == old
+    assert env.storage.uploads == [] and env.el.opens == 0, "예전 굽기로 덮지 않고 미룬다"
+    assert _named(env.metrics, "example_tts_deferred")[0]["reason"] == "no_ns"
+    calls = len(env.qwen.calls)
+    again = await _ask(rows)
+    assert again.audio_url.endswith(old) and len(env.qwen.calls) == calls and es._loop_jobs() == {}
+
+
+async def test_preset_example_from_other_refs_is_left_to_the_prebake_driver(monkeypatch) -> None:
+    old = _expected(1, _D1, _OLD_REFS)
+    rows = {1: _row(1, url=old)}
+    env = _wire(monkeypatch, rows)
+    resp = await _ask(rows, 1)
+    assert resp.audio_url.endswith(old) and env.qwen.calls == [] and env.qwen.health_calls == 0
+
+
+async def test_switch_off_keeps_the_custom_example_without_reading_refs(monkeypatch) -> None:
+    old = _old_key("plain")
+    rows = {42: _row(42, custom=True, dialogue=_DC, url=old)}
+    env = _wire(monkeypatch, rows, settings=_settings(example_qwen_ns=False))
+    resp = await _ask(rows)
+    assert resp.audio_url.endswith(old) and env.qwen.calls == [] and env.qwen.health_calls == 0
