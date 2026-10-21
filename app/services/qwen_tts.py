@@ -587,7 +587,6 @@ class _GapPad:
         self.pad_ms: float | None = None
         self._prev: tuple[float, float] | None = None
         self._pending = False
-        self._quiet_ms = 0.0
         self._tail: deque[int] = deque(maxlen=math.ceil(gap_ms / 2) + 1)
         self._carry = b""
         self._peak = 0
@@ -595,38 +594,44 @@ class _GapPad:
 
     def begin(self) -> None:
         self._pending = self._prev is not None
-        self._quiet_ms = 0.0
         self.pad_ms = None
         self._tail.clear()
         self._carry = b""
         self._peak = self._blocks_n = 0
 
     def push(self, out: bytes) -> bytes:
-        pad = b""
-        if self._pending and out:
-            peak, trail = self._prev
-            loud = np.nonzero(_blocks(out) >= peak * 10 ** (_GAP_QUIET_DB / 20))[0]
-            if len(loud):
-                self._pending = False
-                lead = self._quiet_ms + float(loud[0]) * 2.0
-                self.pad_ms = round(max(0.0, self.gap_ms - trail - lead), 1)
-                pad = bytes(int(self.pad_ms * BYTES_PER_MS) // 2 * 2)
-            else:
-                self._quiet_ms += len(out) / BYTES_PER_MS
-                if trail + self._quiet_ms >= self.gap_ms:
-                    self._pending, self.pad_ms = False, 0.0
-        self._track(out)
-        return pad + out
-
-    def _track(self, out: bytes) -> None:
+        """첫 소리 전에는 다 찬 2ms 블록만 내보내고 덜 찬 블록은 붙잡는다"""
         data = self._carry + out
         cut = len(data) - len(data) % (2 * _GAP_BLOCK)
         self._carry = data[cut:]
         b = _blocks(data[:cut])
+        emit = out
+        if self._pending:
+            emit = data[:cut]
+            if len(b):
+                peak, trail = self._prev
+                loud = np.nonzero(b >= peak * 10 ** (_GAP_QUIET_DB / 20))[0]
+                if len(loud):
+                    self._pending = False
+                    at = int(loud[0]) * 2 * _GAP_BLOCK
+                    lead = (self._blocks_n + int(loud[0])) * 2.0
+                    self.pad_ms = round(max(0.0, self.gap_ms - trail - lead), 1)
+                    emit = data[:at] + bytes(int(self.pad_ms * BYTES_PER_MS) // 2 * 2) + data[at:]
+                elif trail + (self._blocks_n + len(b)) * 2.0 >= self.gap_ms:
+                    self._pending, self.pad_ms = False, 0.0
+                    emit = data
         if len(b):
             self._peak = max(self._peak, int(b.max()))
             self._blocks_n += len(b)
             self._tail.extend(b.tolist())
+        return emit
+
+    def release(self) -> bytes:
+        """첫 소리 없이 끝난 요청이 붙잡고 있던 덜 찬 블록"""
+        if not self._pending:
+            return b""
+        held, self._carry = self._carry, b""
+        return held
 
     def end(self) -> None:
         if self._peak > 0:
@@ -805,6 +810,9 @@ class QwenRealtimeTTSSession:
     def _sent(self, out: bytes) -> bytes:
         if self._gap is not None:
             out = self._gap.push(out)
+        return self._mark(out) if out else b""
+
+    def _mark(self, out: bytes) -> bytes:
         self._audio_started = True
         if self._buffer is not None:
             self._buffer.on_yield(len(out), self._now_ms())
@@ -872,20 +880,22 @@ class QwenRealtimeTTSSession:
                     out = stretcher.push(data) if data else b""
                     if gain is not None:
                         out = gain.push(out)
-                    if out:
-                        yield self._sent(out)
+                    if out and (out := self._sent(out)):
+                        yield out
                 if stage is not None:
                     rest = stage.finish(self._spare_ms())
                     out = stretcher.push(rest) if rest else b""
                     if gain is not None:
                         out = gain.push(out)
-                    if out:
-                        yield self._sent(out)
+                    if out and (out := self._sent(out)):
+                        yield out
                 tail = stretcher.flush()
                 if gain is not None:
                     tail = gain.push(tail) + gain.flush()
-                if tail:
-                    yield self._sent(tail)
+                if tail and (tail := self._sent(tail)):
+                    yield tail
+                if self._gap is not None and (held := self._gap.release()):
+                    yield self._mark(held)
                 if self._buffer is not None:
                     self._end_ahead = self._buffer.raw_ahead_ms(self._now_ms())
             outcome = "eos"
