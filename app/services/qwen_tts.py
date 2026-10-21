@@ -7,6 +7,7 @@ import math
 import re
 import time
 import weakref
+from collections import deque
 from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -579,40 +580,65 @@ def _blocks(data: bytes) -> np.ndarray:
 
 
 class _GapPad:
-    """턴 안 요청 사이 들리는 쉼이 gap_ms 보다 짧으면 다음 요청 첫 출력 앞에 0 을 채움"""
+    """턴 안 요청 사이 들리는 쉼이 gap_ms 보다 짧으면 다음 요청 첫 소리 앞에 0 을 채움"""
 
     def __init__(self, gap_ms: float) -> None:
         self.gap_ms = gap_ms
         self.pad_ms: float | None = None
         self._prev: tuple[float, float] | None = None
-        self._out = bytearray()
         self._pending = False
+        self._quiet_ms = 0.0
+        self._tail: deque[int] = deque(maxlen=math.ceil(gap_ms / 2) + 1)
+        self._carry = b""
+        self._peak = 0
+        self._blocks_n = 0
 
     def begin(self) -> None:
-        self._out.clear()
         self._pending = self._prev is not None
+        self._quiet_ms = 0.0
         self.pad_ms = None
+        self._tail.clear()
+        self._carry = b""
+        self._peak = self._blocks_n = 0
 
     def push(self, out: bytes) -> bytes:
         pad = b""
         if self._pending and out:
-            self._pending = False
             peak, trail = self._prev
             loud = np.nonzero(_blocks(out) >= peak * 10 ** (_GAP_QUIET_DB / 20))[0]
-            lead = float(loud[0] if len(loud) else len(out) // (2 * _GAP_BLOCK)) * 2.0
-            self.pad_ms = round(max(0.0, self.gap_ms - trail - lead), 1)
-            pad = bytes(int(self.pad_ms * BYTES_PER_MS) // 2 * 2)
-        self._out += out
+            if len(loud):
+                self._pending = False
+                lead = self._quiet_ms + float(loud[0]) * 2.0
+                self.pad_ms = round(max(0.0, self.gap_ms - trail - lead), 1)
+                pad = bytes(int(self.pad_ms * BYTES_PER_MS) // 2 * 2)
+            else:
+                self._quiet_ms += len(out) / BYTES_PER_MS
+                if trail + self._quiet_ms >= self.gap_ms:
+                    self._pending, self.pad_ms = False, 0.0
+        self._track(out)
         return pad + out
 
+    def _track(self, out: bytes) -> None:
+        data = self._carry + out
+        cut = len(data) - len(data) % (2 * _GAP_BLOCK)
+        self._carry = data[cut:]
+        b = _blocks(data[:cut])
+        if len(b):
+            self._peak = max(self._peak, int(b.max()))
+            self._blocks_n += len(b)
+            self._tail.extend(b.tolist())
+
     def end(self) -> None:
-        b = _blocks(bytes(self._out))
-        if len(b) and b.max() > 0:
-            loud = np.nonzero(b >= b.max() * 10 ** (_GAP_QUIET_DB / 20))[0]
-            self._prev = (float(b.max()), float(len(b) - 1 - loud[-1]) * 2.0)
+        if self._peak > 0:
+            thr = self._peak * 10 ** (_GAP_QUIET_DB / 20)
+            quiet = 0
+            for v in reversed(self._tail):
+                if v >= thr:
+                    break
+                quiet += 1
+            self._prev = (float(self._peak), quiet * 2.0)
         elif self._prev is not None:
-            self._prev = (self._prev[0], self._prev[1] + len(b) * 2.0)
-        self._out.clear()
+            self._prev = (self._prev[0], self._prev[1] + self._blocks_n * 2.0)
 
 
 def _pause_config(settings: Settings) -> _PauseConfig:
