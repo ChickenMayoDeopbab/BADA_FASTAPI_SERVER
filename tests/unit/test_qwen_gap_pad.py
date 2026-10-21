@@ -20,18 +20,22 @@ LEAD80 = pcm(np.concatenate([np.zeros(ms(80)), speech(400), np.zeros(ms(50))]))
 LEAD300 = pcm(np.concatenate([np.zeros(ms(300)), speech(400), np.zeros(ms(50))]))
 LONG_SPEECH = pcm(np.concatenate([speech(3000), np.zeros(ms(50))]))
 TAIL600 = pcm(np.concatenate([speech(400), np.zeros(ms(600))]))
+HUM = np.random.default_rng(0).normal(0.0, 5e-5, ms(80))  # 조용함 문턱보다 훨씬 작은 잡음
+NOISY_LEAD80 = pcm(np.concatenate([HUM, speech(400), np.zeros(ms(50))]))
 
 
 class _SeqWorker:
     """요청마다 다음 body 를 흘리는 가짜 워커, fail_at 번째 요청은 다 흘린 뒤 끊김"""
 
     def __init__(
-        self, *bodies: bytes, header: str | None = None, fail_at: int | None = None, first: int = 4480
+        self, *bodies: bytes, header: str | None = None, fail_at: int | None = None, first: int = 4480,
+        rest: int = 5120,
     ) -> None:
         self.bodies = list(bodies)
         self.header = header
         self.fail_at = fail_at
         self.first = first
+        self.rest = rest
         self.requests: list[dict] = []
 
     def transport(self) -> httpx.MockTransport:
@@ -41,7 +45,7 @@ class _SeqWorker:
             fail = len(self.requests) == self.fail_at
 
             async def gen():
-                for c in chunked(body, first=self.first):
+                for c in chunked(body, first=self.first, rest=self.rest):
                     yield c
                 if fail:
                     raise httpx.ReadError("worker gone")
@@ -106,6 +110,25 @@ async def test_onset_after_the_first_chunk_still_counts_its_whole_lead() -> None
     out = await _turn(session, TWO)
     assert session.request_log[1]["gap_pad_ms"] == pytest.approx(120, abs=2)
     assert _inner_quiet_ms(out) == [pytest.approx(250, abs=2)]
+
+
+@pytest.mark.parametrize(("first", "rest"), [(650, 5010), (641, 5001), (30, 46), (31, 47)])
+async def test_unaligned_odd_or_tiny_chunks_keep_the_floor(first, rest) -> None:
+    session = _session(_SeqWorker(BODY, NOISY_LEAD80, first=first, rest=rest))
+    out = await _turn(session, TWO)
+    assert session.request_log[1]["gap_pad_ms"] == pytest.approx(120, abs=2)
+    assert _inner_quiet_ms(out) == [pytest.approx(250, abs=2)]
+    onset = ms(80) * 2  # 첫 소리 블록 시작(2ms 블록 경계)
+    assert out == BODY + NOISY_LEAD80[:onset] + bytes(ms(120) * 2) + NOISY_LEAD80[onset:]
+
+
+@pytest.mark.parametrize(("first", "rest"), [(4480, 5120), (31, 47)])
+async def test_request_without_sound_gives_back_held_bytes(first, rest) -> None:
+    quiet = pcm(np.zeros(ms(100) + 13))  # 2ms 블록으로 안 나눠떨어지는 끝
+    session = _session(_SeqWorker(BODY, quiet, first=first, rest=rest))
+    out = await _turn(session, TWO)
+    assert out == BODY + quiet
+    assert "gap_pad_ms" not in session.request_log[1]
 
 
 async def test_lead_over_several_chunks_that_passes_the_floor_needs_no_pad() -> None:
