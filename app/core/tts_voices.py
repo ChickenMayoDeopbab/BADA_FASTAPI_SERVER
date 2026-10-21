@@ -48,10 +48,10 @@ _LEGACY_EL_SLOT: dict[str, str] = {
 DEFAULT_VOICE = "male_young_soft"
 
 
-# 난이도따라서 톤 다르게
+# 난이도따라서 톤 다르게, 하·중은 부드러운 칸
 _DIFFICULTY_TONE: dict[Difficulty, SpeakerTone | None] = {
     Difficulty.LOW: SpeakerTone.SOFT,
-    Difficulty.MEDIUM: None,
+    Difficulty.MEDIUM: SpeakerTone.SOFT,
     Difficulty.HIGH: SpeakerTone.ROUGH,
 }
 
@@ -69,6 +69,19 @@ def pick_example_user_voice(ai_voice_id: str | None) -> str:
         if el != ai_voice_id:
             return el
     return EXAMPLE_USER_VOICE_ID
+
+
+# 예시 '나' Qwen 보이스(voices.json 키)
+EXAMPLE_QWEN_USER_VOICE = "user"
+EXAMPLE_QWEN_USER_VOICE_FEMALE = "user_female"
+
+
+def pick_example_qwen_user_voice(ai_voice: str | None) -> str:
+    """예시 '나' Qwen 보이스, AI 칸이 남자면 여자 목소리"""
+    profile = profile_for(ai_voice)
+    if profile is not None and profile.gender == SpeakerGender.MALE:
+        return EXAMPLE_QWEN_USER_VOICE_FEMALE
+    return EXAMPLE_QWEN_USER_VOICE
 
 
 def profile_for(voice_id: str | None) -> VoiceProfile | None:

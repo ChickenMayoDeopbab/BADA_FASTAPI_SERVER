@@ -24,7 +24,14 @@ from app.core.config import Settings, get_settings
 from app.core.enums import Difficulty
 from app.core.metrics import log_metric, now_ms
 from app.core.preset_scenarios import PRESET_MAP
-from app.core.tts_voices import el_voice_for, pick_example_user_voice, profile_for, qwen_voice_for, resolve_voice
+from app.core.tts_voices import (
+    el_voice_for,
+    pick_example_qwen_user_voice,
+    pick_example_user_voice,
+    profile_for,
+    qwen_voice_for,
+    resolve_voice,
+)
 from app.core.usage import log_llm_usage, log_tts_usage
 from app.db.base import AsyncSessionLocal
 from app.db.models import ScenarioORM, is_deleted
@@ -201,12 +208,14 @@ async def _synthesize(
     return _TURN_GAP_PCM.join(parts)
 
 
-async def _synthesize_qwen(qwen_client: QwenTTSClient, dialogue: list[dict], ai_voice: str = "ai") -> bytes:
+async def _synthesize_qwen(
+    qwen_client: QwenTTSClient, dialogue: list[dict], ai_voice: str = "ai", user_voice: str = "user"
+) -> bytes:
     """GPU 서버로 합성"""
     parts: list[bytes] = []
     async with qwen_client.connect() as session:  # 턴마다 TCP 재연결하지 않게
         for turn in dialogue:
-            voice = ai_voice if turn["speaker"] == "ai" else "user"
+            voice = ai_voice if turn["speaker"] == "ai" else user_voice
             parts.append(await session.synth(voice, turn["text"]))
     return _TURN_GAP_PCM.join(parts)
 
@@ -401,7 +410,10 @@ async def _resolve_and_bake(
         if dialogue:
             hit = _cache_hit(settings, row, scenario_id, dialogue)
             if hit:
-                return dialogue, hit
+                if trigger != "request" or not await _stale_custom(settings, row, scenario_id, dialogue, hit):
+                    return dialogue, hit
+                fresh, key = await _request_ns(db, settings, row, seed, scenario_id, force=True)
+                return fresh, key or hit
     if trigger == "request" and storage is not None and _ns_target(settings, scenario_id, row):
         return await _request_ns(db, settings, row, seed, scenario_id)
     lock = _generation_locks.setdefault(scenario_id, asyncio.Lock())
@@ -419,9 +431,24 @@ async def _resolve_and_bake(
         return dialogue, key
 
 
+async def _stale_custom(
+    settings: Settings, row: ScenarioORM, scenario_id: int, dialogue: list[dict], hit: str
+) -> bool:
+    """N 굽기 커스텀 예시가 지금 워커 참조로 구운 게 아니면 True, 참조를 못 읽으면 False"""
+    if not (row.is_custom and _ns_target(settings, scenario_id, row)):
+        return False
+    voices = _ns_voices(settings, row, scenario_id, dialogue)
+    state = await QwenTTSClient(settings).health_refs(sorted(set(voices.values())))
+    if state.state != "ok":
+        return False
+    refs = {"ai": state.refs[voices["ai"]], "user": state.refs[voices["user"]]}
+    return not hit.endswith(_ns_key(scenario_id, dialogue, _ns_v8(voices, refs, _levels(settings))))
+
+
 @dataclass(frozen=True)
 class _PlainKeys:
     qwen_ai: str
+    qwen_user: str
     ai_voice: str
     user_voice: str
     qwen: str
@@ -436,13 +463,15 @@ def _plain_keys(settings: Settings, row: ScenarioORM | None, scenario_id: int, d
     ai_voice = el_voice_for(voice) or settings.elevenlabs_voice_id
     user_voice = pick_example_user_voice(ai_voice)
     qwen_ai = qwen_voice_for(voice, Difficulty.LOW) if getattr(settings, "qwen_scenario_voices", False) else "ai"
+    qwen_user = pick_example_qwen_user_voice(qwen_ai)
     slot = profile_for(stored)
     legacy_ai = (None if slot is not None and slot.voice_id == stored else stored) or settings.elevenlabs_voice_id
     return _PlainKeys(
         qwen_ai=qwen_ai,
+        qwen_user=qwen_user,
         ai_voice=ai_voice,
         user_voice=user_voice,
-        qwen=_audio_key(scenario_id, dialogue, qwen_ai, "user", qwen=True),
+        qwen=_audio_key(scenario_id, dialogue, qwen_ai, qwen_user, qwen=True),
         eleven=_audio_key(scenario_id, dialogue, ai_voice, user_voice),
         qwen_legacy=_audio_key(scenario_id, dialogue, "ai", "user", qwen=True),
         eleven_legacy=_audio_key(scenario_id, dialogue, legacy_ai, pick_example_user_voice(legacy_ai)),
@@ -531,7 +560,7 @@ async def _bake_locked(
     engine, reason, pcm = "eleven", None, None
     if use_qwen:
         try:
-            pcm = await _synthesize_qwen(qwen_client, dialogue, qwen_ai)
+            pcm = await _synthesize_qwen(qwen_client, dialogue, qwen_ai, keys.qwen_user)
             engine = "qwen"
         except QwenVoiceMissingError as exc:
             reason = "voice_missing"
@@ -760,7 +789,8 @@ async def cancel_example_jobs() -> None:
 
 
 def _ns_voices(settings: Settings, row: ScenarioORM, scenario_id: int, dialogue: list[dict]) -> dict[str, str]:
-    return {"ai": _plain_keys(settings, row, scenario_id, dialogue).qwen_ai, "user": "user"}
+    keys = _plain_keys(settings, row, scenario_id, dialogue)
+    return {"ai": keys.qwen_ai, "user": keys.qwen_user}
 
 
 def _ns_reason(exc: BaseException) -> str:
@@ -917,7 +947,7 @@ async def _bake_ns(
     except (QwenTTSUnavailableError, TimeoutError) as exc:
         reason = job.fail_reason = _ns_reason(exc)
         logger.warning("시나리오 %s N 굽기 실패(%s): %s", scenario_id, reason, exc)
-        if preset:
+        if preset or force:  # 다시 굽기 실패는 옛 예시를 두고 미룬다
             if job.attempts:
                 _loop_cooldown()[scenario_id] = time.monotonic() + _COOLDOWN_SEC
             log_metric("example_tts_deferred", scenario_id=scenario_id, trigger=trigger, reason=reason,
@@ -1025,13 +1055,15 @@ async def _request_ns(
     row: ScenarioORM,
     seed: dict | None,
     scenario_id: int,
+    *,
+    force: bool = False,
 ) -> tuple[list[dict], str | None]:
     """굽기 작업을 잠깐 기다리고, 오래 걸리면 대본만 준다"""
     fallback_dialogue = seed["example_dialogue"] if seed is not None else (row.example_dialogue or [])
     if _cooling(scenario_id):
         return fallback_dialogue, None
     await db.commit()
-    job = _ensure_job(scenario_id, "request")
+    job = _ensure_job(scenario_id, "request", force=force)
     await asyncio.sleep(0)
     wait = float(getattr(settings, "example_request_wait_sec", 20.0))
     started = now_ms()

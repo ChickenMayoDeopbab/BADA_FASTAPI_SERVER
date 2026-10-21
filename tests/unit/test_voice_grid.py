@@ -44,11 +44,12 @@ def test_legacy_elevenlabs_ids_resolve_to_the_same_speaker_slot(legacy, slot, di
 
 
 @pytest.mark.parametrize("slot", [v.voice_id for v in VOICE_REGISTRY])
-def test_difficulty_picks_tone_and_medium_keeps_stored_tone(slot):
+def test_difficulty_picks_tone_and_medium_is_soft_like_low(slot):
     base = slot.rsplit("_", 1)[0]
     assert resolve_voice(slot, Difficulty.LOW) == f"{base}_soft"
+    assert resolve_voice(slot, Difficulty.MEDIUM) == f"{base}_soft", "중은 하와 같은 부드러운 칸"
     assert resolve_voice(slot, Difficulty.HIGH) == f"{base}_rough"
-    assert resolve_voice(slot, Difficulty.MEDIUM) == slot and resolve_voice(slot, None) == slot
+    assert resolve_voice(slot, None) == slot
 
 
 def test_missing_tone_slot_keeps_the_normalized_slot(monkeypatch):
@@ -85,6 +86,17 @@ def test_example_user_voice_is_an_elevenlabs_id_and_avoids_the_ai_voice(monkeypa
     monkeypatch.setattr(tts_voices, "VOICE_REGISTRY", list(reversed(VOICE_REGISTRY)))
     picked = pick_example_user_voice(EXAMPLE_USER_VOICE_ID)
     assert picked != EXAMPLE_USER_VOICE_ID and picked in _LEGACY and "_" not in picked
+
+
+@pytest.mark.parametrize("slot", [v.voice_id for v in VOICE_REGISTRY])
+def test_example_qwen_user_voice_is_the_other_gender(slot):
+    expected = "user_female" if slot.startswith("male_") else "user"
+    assert tts_voices.pick_example_qwen_user_voice(slot) == expected
+
+
+@pytest.mark.parametrize("ai", ["ai", None, "", "hand-made-el-id"])
+def test_example_qwen_user_voice_defaults_to_user(ai):
+    assert tts_voices.pick_example_qwen_user_voice(ai) == "user"
 
 
 def test_presets_are_cast_to_soft_slots():
