@@ -1,4 +1,5 @@
 import json
+import math
 
 import httpx
 import numpy as np
@@ -15,15 +16,22 @@ LEAD30 = pcm(np.concatenate([np.zeros(ms(30)), speech(400), np.zeros(ms(50))]))
 LONG = pcm(np.concatenate([speech(400), np.zeros(ms(300))]))
 TAIL150 = pcm(np.concatenate([speech(400), np.zeros(ms(150))]))
 LOUD_END = pcm(speech(400))
+LEAD80 = pcm(np.concatenate([np.zeros(ms(80)), speech(400), np.zeros(ms(50))]))
+LEAD300 = pcm(np.concatenate([np.zeros(ms(300)), speech(400), np.zeros(ms(50))]))
+LONG_SPEECH = pcm(np.concatenate([speech(3000), np.zeros(ms(50))]))
+TAIL600 = pcm(np.concatenate([speech(400), np.zeros(ms(600))]))
 
 
 class _SeqWorker:
     """요청마다 다음 body 를 흘리는 가짜 워커, fail_at 번째 요청은 다 흘린 뒤 끊김"""
 
-    def __init__(self, *bodies: bytes, header: str | None = None, fail_at: int | None = None) -> None:
+    def __init__(
+        self, *bodies: bytes, header: str | None = None, fail_at: int | None = None, first: int = 4480
+    ) -> None:
         self.bodies = list(bodies)
         self.header = header
         self.fail_at = fail_at
+        self.first = first
         self.requests: list[dict] = []
 
     def transport(self) -> httpx.MockTransport:
@@ -33,7 +41,7 @@ class _SeqWorker:
             fail = len(self.requests) == self.fail_at
 
             async def gen():
-                for c in chunked(body):
+                for c in chunked(body, first=self.first):
                     yield c
                 if fail:
                     raise httpx.ReadError("worker gone")
@@ -91,6 +99,35 @@ async def test_quieter_next_request_still_measures_its_lead() -> None:
     out = await _turn(session, TWO)
     assert session.request_log[1]["gap_pad_ms"] == pytest.approx(170, abs=2)
     assert _inner_quiet_ms(out) == [pytest.approx(250, abs=2)]
+
+
+async def test_onset_after_the_first_chunk_still_counts_its_whole_lead() -> None:
+    session = _session(_SeqWorker(BODY, LEAD80, first=ms(20) * 2))
+    out = await _turn(session, TWO)
+    assert session.request_log[1]["gap_pad_ms"] == pytest.approx(120, abs=2)
+    assert _inner_quiet_ms(out) == [pytest.approx(250, abs=2)]
+
+
+async def test_lead_over_several_chunks_that_passes_the_floor_needs_no_pad() -> None:
+    session = _session(_SeqWorker(BODY, LEAD300, first=ms(20) * 2))
+    out = await _turn(session, TWO)
+    assert session.request_log[1]["gap_pad_ms"] == 0
+    assert out == BODY + LEAD300
+
+
+async def test_tail_is_tracked_in_a_short_window_only() -> None:
+    session = _session(_SeqWorker(LONG_SPEECH, BODY))
+    out = await _turn(session, TWO)
+    assert session.request_log[1]["gap_pad_ms"] == pytest.approx(200, abs=2)
+    assert _inner_quiet_ms(out) == [pytest.approx(250, abs=2)]
+    assert session._gap._tail.maxlen == math.ceil(250 / 2) + 1
+
+
+async def test_trailing_silence_longer_than_the_window_needs_no_pad() -> None:
+    session = _session(_SeqWorker(TAIL600, BODY))
+    out = await _turn(session, TWO)
+    assert session.request_log[1]["gap_pad_ms"] == 0
+    assert out == TAIL600 + BODY
 
 
 async def test_failed_request_still_sets_the_tail_for_the_next_one() -> None:
