@@ -904,8 +904,8 @@ def _flag_on(monkeypatch, on: bool = True) -> None:
                                                                                  qwen_scenario_voices=on))
 
 
-def _qkey(ai: str) -> str:
-    return example_service._audio_key(1, _DIALOGUE, ai, "user", qwen=True)
+def _qkey(ai: str, user: str = "user") -> str:
+    return example_service._audio_key(1, _DIALOGUE, ai, user, qwen=True)
 
 
 def _capture(monkeypatch) -> list:
@@ -914,17 +914,44 @@ def _capture(monkeypatch) -> list:
     return metrics
 
 
-async def test_slot_voices_bake_new_example_with_low_slot_and_user(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    ("stored", "ai", "user"),
+    [("male_middle_rough", "male_middle_soft", "user_female"), ("female_young_rough", "female_young_soft", "user")],
+)
+async def test_slot_voices_bake_new_example_with_low_slot_and_other_gender_user(monkeypatch, stored, ai, user) -> None:
     tts, storage = _wire(monkeypatch)
     _flag_on(monkeypatch)
     qwen = _wire_qwen(monkeypatch, _FakeQwenClient())
     metrics = _capture(monkeypatch)
 
-    await get_example_conversation(_FakeDB(_preset_row(tts_voice_id="male_middle_rough")), 1, user_id=7)
+    await get_example_conversation(_FakeDB(_preset_row(tts_voice_id=stored)), 1, user_id=7)
 
-    assert [v for v, _ in qwen.calls] == ["male_middle_soft", "user"], "예시는 난이도 하 칸"
-    assert storage.uploads[0][0] == _qkey("male_middle_soft") and tts.open_calls == []
-    assert metrics[0][1]["voice"] == "male_middle_soft" and metrics[0][1]["fallback_reason"] is None
+    assert [v for v, _ in qwen.calls] == [ai, user], "예시는 난이도 하 칸, 나는 AI 와 다른 성별"
+    assert storage.uploads[0][0] == _qkey(ai, user) and tts.open_calls == []
+    assert metrics[0][1]["voice"] == ai and metrics[0][1]["fallback_reason"] is None
+
+
+async def test_old_male_slot_key_with_user_is_rebaked_with_female_user(monkeypatch) -> None:
+    _, storage = _wire(monkeypatch)
+    _flag_on(monkeypatch)
+    qwen = _wire_qwen(monkeypatch, _FakeQwenClient())
+    row = _preset_row(tts_voice_id="male_middle_soft", example_audio_url=_qkey("male_middle_soft"))
+    await get_example_conversation(_FakeDB(row), 1, user_id=7)
+    assert [v for v, _ in qwen.calls] == ["male_middle_soft", "user_female"]
+    assert storage.uploads[0][0] == _qkey("male_middle_soft", "user_female")
+
+
+@pytest.mark.parametrize(
+    ("on", "stored", "voices"),
+    [
+        (True, "male_middle_rough", {"ai": "male_middle_soft", "user": "user_female"}),
+        (True, "female_young_soft", {"ai": "female_young_soft", "user": "user"}),
+        (False, "male_middle_soft", {"ai": "ai", "user": "user"}),
+    ],
+)
+def test_ns_voices_pick_the_other_gender_user(on, stored, voices) -> None:
+    settings = SimpleNamespace(**vars(_settings()), qwen_scenario_voices=on)
+    assert example_service._ns_voices(settings, _preset_row(tts_voice_id=stored), 1, _DIALOGUE) == voices
 
 
 async def test_switch_off_keeps_ai_user_on_qwen_and_elevenlabs_gets_slot_id(monkeypatch) -> None:
@@ -1009,13 +1036,14 @@ async def test_retry_failing_for_another_reason_reports_synth_failed(monkeypatch
     assert tts.open_calls and metrics[0][1]["fallback_reason"] == "synth_failed"
 
 
-async def test_missing_user_voice_does_not_retry_with_ai(monkeypatch) -> None:
+@pytest.mark.parametrize(("slot", "user"), [("male_middle_soft", "user_female"), ("female_young_soft", "user")])
+async def test_missing_user_voice_does_not_retry_with_ai(monkeypatch, slot, user) -> None:
     tts, _ = _wire(monkeypatch)
     _flag_on(monkeypatch)
-    qwen = _wire_qwen(monkeypatch, _MissingQwen({"user"}))
+    qwen = _wire_qwen(monkeypatch, _MissingQwen({user}))
     metrics = _capture(monkeypatch)
-    await get_example_conversation(_FakeDB(_preset_row(tts_voice_id="male_middle_soft")), 1, user_id=7)
-    assert [v for v, _ in qwen.calls] == ["male_middle_soft", "user"], "칸이 아니라 user 가 없으면 다시 굽지 않는다"
+    await get_example_conversation(_FakeDB(_preset_row(tts_voice_id=slot)), 1, user_id=7)
+    assert [v for v, _ in qwen.calls] == [slot, user], "칸이 아니라 나 보이스가 없으면 다시 굽지 않는다"
     assert tts.open_calls and metrics[0][1]["fallback_reason"] == "voice_missing"
 
 
@@ -1033,7 +1061,7 @@ async def test_example_baked_under_slot_qwen_key_is_a_cache_hit(monkeypatch) -> 
     _, storage = _wire(monkeypatch)
     _flag_on(monkeypatch)
     qwen = _wire_qwen(monkeypatch, _FakeQwenClient())
-    row = _preset_row(tts_voice_id="male_middle_rough", example_audio_url=_qkey("male_middle_soft"))
+    row = _preset_row(tts_voice_id="male_middle_rough", example_audio_url=_qkey("male_middle_soft", "user_female"))
     await get_example_conversation(_FakeDB(row), 1, user_id=7)
     assert qwen.calls == [] and storage.uploads == []
 

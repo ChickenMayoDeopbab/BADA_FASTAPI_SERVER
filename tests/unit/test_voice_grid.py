@@ -88,6 +88,17 @@ def test_example_user_voice_is_an_elevenlabs_id_and_avoids_the_ai_voice(monkeypa
     assert picked != EXAMPLE_USER_VOICE_ID and picked in _LEGACY and "_" not in picked
 
 
+@pytest.mark.parametrize("slot", [v.voice_id for v in VOICE_REGISTRY])
+def test_example_qwen_user_voice_is_the_other_gender(slot):
+    expected = "user_female" if slot.startswith("male_") else "user"
+    assert tts_voices.pick_example_qwen_user_voice(slot) == expected
+
+
+@pytest.mark.parametrize("ai", ["ai", None, "", "hand-made-el-id"])
+def test_example_qwen_user_voice_defaults_to_user(ai):
+    assert tts_voices.pick_example_qwen_user_voice(ai) == "user"
+
+
 def test_presets_are_cast_to_soft_slots():
     cast = {p["title"]: p["tts_voice_id"] for p in PRESET_SCENARIOS}
     assert cast == {
