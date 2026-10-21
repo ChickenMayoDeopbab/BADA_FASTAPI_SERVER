@@ -860,8 +860,6 @@ class QwenRealtimeTTSSession:
                     tail = gain.push(tail) + gain.flush()
                 if tail:
                     yield self._sent(tail)
-                if self._gap is not None:
-                    self._gap.end()
                 if self._buffer is not None:
                     self._end_ahead = self._buffer.raw_ahead_ms(self._now_ms())
             outcome = "eos"
@@ -875,6 +873,9 @@ class QwenRealtimeTTSSession:
             outcome = "error"
             raise QwenTTSUnavailableError(f"{type(exc).__name__}: {exc}") from exc
         finally:
+            if self._gap is not None:
+                with contextlib.suppress(Exception):
+                    self._gap.end()
             if stage is not None and outcome != "eos":
                 stage.abort()
             if stage is not None and stage.failed:
