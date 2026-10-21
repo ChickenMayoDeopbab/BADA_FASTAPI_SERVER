@@ -44,6 +44,7 @@ from app.services.feedback_points import (
     turn_points,
 )
 from app.services.feedback_service import save_feedback
+from app.services.greeting import greeting_enabled, pick_greeting
 from app.services.llm import LLMClient
 from app.services.pcm_coalescer import DEFAULT_TARGET_MS, coalesce_pcm, target_bytes_for
 from app.services.qwen_tts import (
@@ -106,10 +107,12 @@ _TURN_WATCHDOG_SECONDS = 30.0
 _SILENCE_MIN_SECONDS = 1.5
 _TURN_FALLBACK_TEXT = "죄송해요, 다시 한번 말씀해 주시겠어요?"
 _FALLBACK_TTS_TIMEOUT = 8.0
+_GREETING_TTS_TIMEOUT = 12.0  # 첫마디는 60자까지라 폴백 멘트보다 길게
 _AVTI_WAIT_SECONDS = 20.0
 # 구버전 앱은 재생 완료 ACK가 없으므로 PCM 재생 예상 시각에 기기 버퍼 여유를 더한다.
 _PLAYBACK_GRACE_MS = 1000.0
 _PLAYBACK_ACK_GRACE_MS = 15000.0
+_GREETING_ACK_GRACE_MS = 2000.0  # 첫마디는 재생 완료 신호를 이만큼만 기다린다
 _PLAYBACK_MAX_WAIT_SECONDS = 60.0
 # 구간 피드백
 _MAX_SEGMENTS = 3
@@ -179,6 +182,7 @@ class _State(StrEnum):
     LISTENING = "LISTENING" # 듣는중
     THINKING = "THINKING" # 생각중
     SPEAKING = "SPEAKING" # 말하는중
+    GREETING = "GREETING" # 첫마디 중
     CLOSING = "CLOSING" # 끝
 
 
@@ -237,6 +241,9 @@ class VoicePipeline:
     _drop_pending: bool = False
     # 상대(AI) 말이 기기에서 다 재생된 때의 녹음 위치(초). 그 뒤 첫 사용자 턴에 붙이고, 다음 AI 말이 시작되면 지운다.
     _ai_heard_at: float | None = None
+    _pending_greeting: str | None = None  # 첫 마이크 오디오가 오면 말할 첫마디
+    _greeting_source: str | None = None
+    _greeting_dropped: int = 0  # 첫마디 중 버린 FINAL 수
 
     def __init__(
         self,
@@ -316,6 +323,7 @@ class VoicePipeline:
     async def run(self) -> None:
         """진입점"""
         await self._init_qwen_tts()
+        await self._prepare_greeting()
         warmup_task = asyncio.create_task(self._llm.warmup())
         tasks: list[asyncio.Task] = [
             asyncio.create_task(self._recv_loop()),
@@ -371,6 +379,8 @@ class VoicePipeline:
                     await self._close(EndReason.USER_END, source="ws_disconnect", code=msg.get("code"))
                     return
                 if msg.get("bytes") is not None:
+                    if self._pending_greeting is not None:
+                        self._start_greeting()
                     if not self._muted:
                         self._last_audio_at = now_ms()
                         self._tremor_buf.extend(msg["bytes"])
@@ -645,7 +655,13 @@ class VoicePipeline:
                 finally:
                     self._start_turn(text, final_at=final_at)
             else:
-                reason = "empty" if not text else ("state" if self._state != _State.LISTENING else "time_up")
+                if not text:
+                    reason = "empty"
+                elif self._state == _State.GREETING:
+                    reason = "greeting"
+                    self._greeting_dropped += 1
+                else:
+                    reason = "state" if self._state != _State.LISTENING else "time_up"
                 self._log_final_dropped(reason, text)
         elif event.type == STTEventType.SPEECH_BEGIN and self._state == _State.LISTENING:
             self._bank_silence()
@@ -1190,18 +1206,23 @@ class VoicePipeline:
         return target_bytes_for(coalesce_ms)
 
     async def _speak_fallback(self) -> None:
+        await self._speak_line(_TURN_FALLBACK_TEXT, metric="fallback_audio", state=_State.SPEAKING)
+
+    async def _speak_line(self, text: str, *, metric: str, state: _State) -> float | None:
+        """정해진 한 줄을 말하고 첫 PCM 을 보낸 시각을 돌려준다"""
         self._begin_playback()
         session = await self._open_tts()
         audio = TurnAudioStats()
+        first_pcm_at: float | None = None
         try:
             await session.begin(AiEmotion.NEUTRAL)
             await self._drop_queued_audio()
             await self._send_json(emotion_frame(AiEmotion.NEUTRAL))
 
             async def _text():
-                yield _TURN_FALLBACK_TEXT
+                yield text
 
-            self._state = _State.SPEAKING
+            self._state = state
             merged = coalesce_pcm(
                 session.stream(_text()),
                 target_bytes=self._coalesce_target_bytes(),
@@ -1219,16 +1240,121 @@ class VoicePipeline:
                         self._ws_alive = False
                         break
                     audio.record(pcm)
+                    if first_pcm_at is None:
+                        first_pcm_at = now_ms()
         finally:
             chars = getattr(session, "chars_sent", None)
             if chars is None:
-                chars = len(_TURN_FALLBACK_TEXT)
-            log_metric(
-                "fallback_audio", session_id=self._session_id, chars=chars, **audio.as_metrics()
-            )
+                chars = len(text)
+            log_metric(metric, session_id=self._session_id, chars=chars, **audio.as_metrics())
             self._account_fallback(chars, audio)
             with suppress(Exception):
                 await session.aclose()
+        return first_pcm_at
+
+    async def _prepare_greeting(self) -> None:
+        """이 통화에서 먼저 말할 첫마디를 골라 둔다"""
+        try:
+            if not greeting_enabled(getattr(self, "_settings", None), parse_user_id(self._session)):
+                return
+            self._pending_greeting, self._greeting_source = await pick_greeting(parse_scenario_id(self._session))
+        except Exception:
+            logger.warning("첫마디 준비 실패 — 첫마디 없이 진행", exc_info=True, extra={"session_id": self._session_id})
+
+    def _start_greeting(self) -> None:
+        """첫 마이크 오디오가 오면 사용자보다 먼저 말한다"""
+        text, self._pending_greeting = self._pending_greeting, None
+        if text is None or self._state != _State.LISTENING or self._turn_task is not None:
+            return
+        self._state = _State.GREETING
+        self._turn_task = asyncio.create_task(self._greet(text))
+
+    async def _greet(self, text: str) -> None:
+        """첫마디를 말하고 기기에서 다 들린 뒤 첫 사용자 턴을 연다"""
+        started = now_ms()
+        first_pcm_at: float | None = None
+        heard = False
+        try:
+            first_pcm_at = await self._speak_greeting(text)
+            if first_pcm_at is not None:
+                self._history.append({"role": "assistant", "text": text})
+                await self._send_json(transcript_frame(TranscriptRole.AI, text))
+            await self._send_speaking_end()
+            if first_pcm_at is not None:
+                heard = await self._wait_greeting_heard()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.warning("첫마디 실패 — 바로 듣기로", exc_info=True, extra={"session_id": self._session_id})
+        log_metric(
+            "greeting",
+            session_id=self._session_id,
+            source=self._greeting_source,
+            chars=len(text),
+            engine=self._current_tts_engine(),
+            spoken=first_pcm_at is not None,
+            heard=heard,
+            ack=self._playback_ack_supported,
+            first_pcm_ms=None if first_pcm_at is None else round(first_pcm_at - started, 1),
+            total_ms=round(now_ms() - started, 1),
+            dropped_finals=self._greeting_dropped,
+        )
+        if self._state == _State.GREETING and not self._closing.is_set():
+            self._resume_listening()
+
+    async def _speak_greeting(self, text: str) -> float | None:
+        """Qwen 이 실패하면 ElevenLabs 로 한 번 더 말한다. 못 하면 None"""
+        for _attempt in range(2):
+            sent_before = self._ai_pcm_bytes
+            try:
+                return await asyncio.wait_for(
+                    self._speak_line(text, metric="greeting_audio", state=_State.GREETING),
+                    _GREETING_TTS_TIMEOUT,
+                )
+            except QwenTTSUnavailableError as exc:
+                if getattr(self, "_qwen_tts", None) is None:
+                    break
+                if self._ai_pcm_bytes > sent_before:
+                    self._drop_pending = True
+                    if self._playback is not None:
+                        self._playback.done.set()
+                runaway = isinstance(exc, QwenTTSRunawayError)
+                self._switch_to_eleven("greeting_runaway" if runaway else "greeting_failed")
+                logger.warning(
+                    "첫마디 Qwen 실패 — ElevenLabs 로 다시: %s", exc, extra={"session_id": self._session_id}
+                )
+            except TimeoutError:
+                logger.warning("첫마디 TTS 시간 초과 — 첫마디 없이 진행", extra={"session_id": self._session_id})
+                break
+            except Exception:
+                logger.warning(
+                    "첫마디 TTS 실패 — 첫마디 없이 진행", exc_info=True, extra={"session_id": self._session_id}
+                )
+                break
+        await self._drop_queued_audio()
+        return None
+
+    def _greeting_heard_timeout(self) -> float:
+        """첫마디가 기기에서 다 들릴 때까지 기다릴 초(신호 없는 앱은 예상 재생 끝 + 여유)"""
+        playback = self._playback
+        if playback is None or playback.expected_end_ms is None:
+            return 0.0
+        grace_ms = _GREETING_ACK_GRACE_MS if self._playback_ack_supported else _PLAYBACK_GRACE_MS
+        return min(
+            _PLAYBACK_MAX_WAIT_SECONDS,
+            max(0.0, (playback.expected_end_ms + grace_ms - now_ms()) / 1000.0),
+        )
+
+    async def _wait_greeting_heard(self) -> bool:
+        """재생 완료 신호를 받으면 True"""
+        playback = self._playback
+        if playback is None:
+            return False
+        timeout = self._greeting_heard_timeout()
+        if not playback.done.is_set() and timeout > 0:
+            with suppress(TimeoutError):
+                await asyncio.wait_for(playback.done.wait(), timeout)
+        return playback.done.is_set()
 
     async def _maybe_send_script_hint(
         self, ctx: TurnContext, suggestion: str | None
@@ -1732,7 +1858,7 @@ class VoicePipeline:
     def _late_by_turn(self, tremor_result) -> dict[int, float]:
         """턴 번호 → 상대 말이 다 들린 뒤 대답을 꺼내기까지 걸린 시간(초). 늦은 턴만 키가 있다.
 
-        재생 완료 신호를 받은 턴만 잰다 — 통화 첫마디, 끼어든 턴, 신호를 안 보내는 구버전 앱은 빠진다.
+        재생 완료 신호를 받은 턴만 잰다 — AI 첫마디 없는 통화의 첫 턴, 끼어든 턴, 신호를 안 보내는 구버전 앱은 빠진다.
         """
         spans = getattr(tremor_result, "voiced_spans", None)
         heard_at_by_turn = getattr(self, "_heard_at_by_turn", {})
