@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 from app.services import qwen_tts as qwen_mod
-from app.services.qwen_tts import NS_HEADER, QwenRealtimeTTSClient
+from app.services.qwen_tts import NS_HEADER, QwenRealtimeTTSClient, QwenTTSUnavailableError
 from tests.unit.test_qwen_realtime_pause import _Clock, _settings, _turn, _Worker, chunked, ms, pcm, speech
 from tests.unit.test_qwen_realtime_tts import _real_settings
 
@@ -14,24 +14,29 @@ BODY = pcm(np.concatenate([speech(400), np.zeros(ms(50))]))
 LEAD30 = pcm(np.concatenate([np.zeros(ms(30)), speech(400), np.zeros(ms(50))]))
 LONG = pcm(np.concatenate([speech(400), np.zeros(ms(300))]))
 TAIL150 = pcm(np.concatenate([speech(400), np.zeros(ms(150))]))
+LOUD_END = pcm(speech(400))
 
 
 class _SeqWorker:
-    """요청마다 다음 body 를 흘리는 가짜 워커"""
+    """요청마다 다음 body 를 흘리는 가짜 워커, fail_at 번째 요청은 다 흘린 뒤 끊김"""
 
-    def __init__(self, *bodies: bytes, header: str | None = None) -> None:
+    def __init__(self, *bodies: bytes, header: str | None = None, fail_at: int | None = None) -> None:
         self.bodies = list(bodies)
         self.header = header
+        self.fail_at = fail_at
         self.requests: list[dict] = []
 
     def transport(self) -> httpx.MockTransport:
         def handler(request: httpx.Request) -> httpx.Response:
             self.requests.append(json.loads(request.read()))
             body = self.bodies[min(len(self.requests), len(self.bodies)) - 1]
+            fail = len(self.requests) == self.fail_at
 
             async def gen():
                 for c in chunked(body):
                     yield c
+                if fail:
+                    raise httpx.ReadError("worker gone")
 
             headers = {} if self.header is None else {NS_HEADER: self.header}
             return httpx.Response(200, content=gen(), headers=headers)
@@ -78,6 +83,34 @@ async def test_lead_silence_of_the_next_request_counts() -> None:
     out = await _turn(session, TWO)
     assert _inner_quiet_ms(out) == [pytest.approx(250, abs=2)]
     assert session.request_log[1]["gap_pad_ms"] == pytest.approx(170, abs=2)
+
+
+async def test_quieter_next_request_still_measures_its_lead() -> None:
+    quieter = pcm(np.concatenate([np.zeros(ms(30)), speech(400, db=-30.0), np.zeros(ms(50))]))
+    session = _session(_SeqWorker(BODY, quieter))
+    out = await _turn(session, TWO)
+    assert session.request_log[1]["gap_pad_ms"] == pytest.approx(170, abs=2)
+    assert _inner_quiet_ms(out) == [pytest.approx(250, abs=2)]
+
+
+async def test_failed_request_still_sets_the_tail_for_the_next_one() -> None:
+    session = _session(_SeqWorker(BODY, LOUD_END, BODY, fail_at=2))
+    await session.begin()
+
+    async def source(*texts):
+        for text in texts:
+            yield text
+
+    try:
+        with pytest.raises(QwenTTSUnavailableError):
+            async for _ in session.stream(source(*TWO)):
+                pass
+        out = b"".join([c async for c in session.stream(source("다시 말할게요."))])
+    finally:
+        await session.aclose()
+    assert session.request_log[1]["outcome"] == "error"
+    assert session.request_log[2]["gap_pad_ms"] == pytest.approx(250, abs=2)
+    assert out[: ms(250) * 2] == bytes(ms(250) * 2)
 
 
 async def test_already_long_pause_is_left_alone() -> None:
