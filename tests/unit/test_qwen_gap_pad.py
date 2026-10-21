@@ -1,0 +1,167 @@
+import json
+
+import httpx
+import numpy as np
+import pytest
+
+from app.services import qwen_tts as qwen_mod
+from app.services.qwen_tts import NS_HEADER, QwenRealtimeTTSClient
+from tests.unit.test_qwen_realtime_pause import _Clock, _settings, _turn, _Worker, chunked, ms, pcm, speech
+from tests.unit.test_qwen_realtime_tts import _real_settings
+
+TWO = ("안녕하세요. ", "반갑습니다.")
+BODY = pcm(np.concatenate([speech(400), np.zeros(ms(50))]))
+LEAD30 = pcm(np.concatenate([np.zeros(ms(30)), speech(400), np.zeros(ms(50))]))
+LONG = pcm(np.concatenate([speech(400), np.zeros(ms(300))]))
+TAIL150 = pcm(np.concatenate([speech(400), np.zeros(ms(150))]))
+
+
+class _SeqWorker:
+    """요청마다 다음 body 를 흘리는 가짜 워커"""
+
+    def __init__(self, *bodies: bytes, header: str | None = None) -> None:
+        self.bodies = list(bodies)
+        self.header = header
+        self.requests: list[dict] = []
+
+    def transport(self) -> httpx.MockTransport:
+        def handler(request: httpx.Request) -> httpx.Response:
+            self.requests.append(json.loads(request.read()))
+            body = self.bodies[min(len(self.requests), len(self.bodies)) - 1]
+
+            async def gen():
+                for c in chunked(body):
+                    yield c
+
+            headers = {} if self.header is None else {NS_HEADER: self.header}
+            return httpx.Response(200, content=gen(), headers=headers)
+
+        return httpx.MockTransport(handler)
+
+
+def _session(worker, *, gap_ms: float = 250.0, speed: float = 1.0, voice: str = "female_young_soft", **kw):
+    client = httpx.AsyncClient(transport=worker.transport())
+    return qwen_mod.QwenRealtimeTTSSession(
+        client, "http://tts.test", speed, voice, gap_ms=gap_ms, clock=kw.pop("clock", None) or _Clock(), **kw
+    )
+
+
+def _inner_quiet_ms(out: bytes) -> list[float]:
+    """출력 안쪽 조용한 구간 길이 — 2ms 블록, 전체 최대값 대비 -45dB 아래, 앞뒤 끝 구간은 뺌"""
+    x = np.frombuffer(out, dtype="<i2")
+    n = len(x) // 32
+    blocks = np.abs(x[: n * 32].astype(np.int32)).reshape(n, 32).max(1)
+    quiet = blocks < blocks.max() * 10 ** (-45 / 20)
+    runs, i = [], 0
+    while i < n:
+        if not quiet[i]:
+            i += 1
+            continue
+        j = i
+        while j < n and quiet[j]:
+            j += 1
+        if i > 0 and j < n:
+            runs.append((j - i) * 2.0)
+        i = j
+    return runs
+
+
+async def test_short_pause_between_requests_is_filled_to_the_floor() -> None:
+    session = _session(_SeqWorker(BODY, BODY))
+    out = await _turn(session, TWO)
+    assert _inner_quiet_ms(out) == [pytest.approx(250, abs=2)]
+    assert len(out) == 2 * len(BODY) + ms(200) * 2
+
+
+async def test_lead_silence_of_the_next_request_counts() -> None:
+    session = _session(_SeqWorker(BODY, LEAD30))
+    out = await _turn(session, TWO)
+    assert _inner_quiet_ms(out) == [pytest.approx(250, abs=2)]
+    assert session.request_log[1]["gap_pad_ms"] == pytest.approx(170, abs=2)
+
+
+async def test_already_long_pause_is_left_alone() -> None:
+    session = _session(_SeqWorker(LONG, LONG))
+    out = await _turn(session, TWO)
+    assert out == LONG + LONG
+    assert session.request_log[1]["gap_pad_ms"] == 0
+
+
+async def test_first_request_of_a_turn_gets_no_pad() -> None:
+    session = _session(_SeqWorker(BODY))
+    out = await _turn(session, ("안녕하세요.",))
+    assert out == BODY
+    assert "gap_pad_ms" not in session.request_log[0]
+
+
+async def test_floor_is_in_heard_time_after_speed() -> None:
+    session = _session(_SeqWorker(TAIL150, TAIL150), speed=1.1)
+    out = await _turn(session, TWO)
+    assert _inner_quiet_ms(out) == [pytest.approx(250, abs=3)]
+
+
+async def test_turn_gap_metric_counts_the_pad() -> None:
+    session = _session(_SeqWorker(BODY, BODY))
+    await _turn(session, TWO)
+    assert session.request_log[1]["gap_pad_ms"] == pytest.approx(200, abs=2)
+    assert session.turn_metrics()["tts_gap_max_ms"] == pytest.approx(250, abs=4)
+
+
+async def test_floor_applies_after_e_compression() -> None:
+    worker = _Worker(clock=_Clock())
+    session = _session(
+        worker, voice="ai", ns="want", call=qwen_mod._CallState(), pause=qwen_mod._PauseConfig(), clock=worker.clock
+    )
+    out = await _turn(session, TWO)
+    assert [r["e"] for r in session.request_log] == ["on", "on"]
+    assert _inner_quiet_ms(out) == [pytest.approx(250, abs=4)]
+    assert session.request_log[1]["gap_pad_ms"] == pytest.approx(70, abs=4)
+
+
+async def test_listed_voice_through_client_gets_the_floor() -> None:
+    worker = _SeqWorker(BODY, BODY)
+    settings = _settings(False, 1.0, qwen_tts_gap_voices="female_young_soft, female_young_rough")
+    client = QwenRealtimeTTSClient(settings, transport=worker.transport())
+    out = await _turn(await client.open("female_young_rough"), TWO)
+    assert _inner_quiet_ms(out) == [pytest.approx(250, abs=2)]
+
+
+@pytest.mark.parametrize(
+    ("voices", "voice", "floor"),
+    [
+        ("female_young_soft", "ai", 250.0),
+        ("", "female_young_soft", 250.0),
+        ("female_young_soft", "female_young_soft", 0.0),
+    ],
+)
+async def test_unlisted_voice_or_zero_floor_passes_bytes_through(voices, voice, floor) -> None:
+    worker = _SeqWorker(BODY, BODY)
+    settings = _settings(False, 1.0, qwen_tts_gap_voices=voices, qwen_tts_gap_min_ms=floor)
+    client = QwenRealtimeTTSClient(settings, transport=worker.transport())
+    session = await client.open(voice)
+    out = await _turn(session, TWO)
+    assert out == BODY + BODY
+    assert all("gap_pad_ms" not in r for r in session.request_log)
+
+
+def test_gap_voices_default_empty_and_parse() -> None:
+    assert QwenRealtimeTTSClient(_settings())._gap_voices == frozenset()
+    client = QwenRealtimeTTSClient(_settings(qwen_tts_gap_voices=" female_young_soft , ,female_young_rough "))
+    assert client._gap_voices == frozenset({"female_young_soft", "female_young_rough"})
+
+
+@pytest.mark.parametrize("bad", ["abc", -5, float("nan"), None])
+def test_unusable_floor_falls_back_to_default(bad) -> None:
+    assert QwenRealtimeTTSClient(_settings(qwen_tts_gap_min_ms=bad))._gap_ms == 250.0
+
+
+def test_env_reaches_realtime_client(monkeypatch) -> None:
+    for name in ("QWEN_TTS_GAP_VOICES", "QWEN_TTS_GAP_MIN_MS"):
+        monkeypatch.delenv(name, raising=False)
+    default = QwenRealtimeTTSClient(_real_settings())
+    assert default._gap_voices == frozenset() and default._gap_ms == 250.0
+    monkeypatch.setenv("QWEN_TTS_GAP_VOICES", "female_young_soft,female_young_rough")
+    monkeypatch.setenv("QWEN_TTS_GAP_MIN_MS", "300")
+    client = QwenRealtimeTTSClient(_real_settings())
+    assert client._gap_voices == frozenset({"female_young_soft", "female_young_rough"})
+    assert client._gap_ms == 300.0
