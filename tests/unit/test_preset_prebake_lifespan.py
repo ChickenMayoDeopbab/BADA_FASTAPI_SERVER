@@ -22,6 +22,7 @@ def _wire(monkeypatch, *, gate: bool, prebake, cancelled: list) -> None:
     monkeypatch.setattr(main, "prebake_presets", prebake)
     monkeypatch.setattr(main, "_prebake_gate", lambda _s: gate)
     monkeypatch.setattr(main, "cancel_example_jobs", _cancel_jobs)
+    monkeypatch.setattr(main, "warm_tremor", lambda: None)
 
 
 async def test_lifespan_starts_prebake_when_gate_open_and_cancels_on_shutdown(monkeypatch) -> None:
