@@ -149,6 +149,14 @@ def _wire_stream(monkeypatch, llm: _FakeLLM, *, qwen=None, el=None, rows=None):
     return env, rows
 
 
+async def _until(predicate, timeout: float = 5.0) -> None:
+    async def _poll() -> None:
+        while not predicate():
+            await asyncio.sleep(0.005)
+
+    await asyncio.wait_for(_poll(), timeout)
+
+
 def test_parser_is_chunking_invariant_and_handles_strings() -> None:
     text = _text(tail="\n")
     expected = json.loads(json.dumps(_TURNS, ensure_ascii=False))
@@ -231,8 +239,7 @@ async def test_request_after_commit_waits_for_the_last_turns(monkeypatch) -> Non
     env, rows = _wire_stream(monkeypatch, llm, qwen=qwen)
     env.settings.example_request_wait_sec = 5.0
     baker = asyncio.ensure_future(_bake(42, 5))
-    while rows[42].example_dialogue is None or es._loop_jobs()[42].turns_done < 2:
-        await asyncio.sleep(0.005)
+    await _until(lambda: rows[42].example_dialogue is not None and es._loop_jobs()[42].turns_done >= 2)
     resp = await asyncio.wait_for(es.get_example_conversation(_DB(rows), 42, user_id=7), 3)
     assert resp.audio_url and resp.audio_url.endswith("-qn.wav")
     wait = [kw for name, kw in env.metrics if name == "example_wait"][0]
@@ -359,8 +366,7 @@ async def test_request_while_baking_but_dialogue_still_streaming_returns_at_once
     llm = _FakeLLM(_text(), delay=0.02)
     env, rows = _wire_stream(monkeypatch, llm)
     baker = asyncio.ensure_future(_bake(42, 5))
-    while es._loop_jobs().get(42) is None or es._loop_jobs()[42].phase != "baking":
-        await asyncio.sleep(0.005)
+    await _until(lambda: es._loop_jobs().get(42) is not None and es._loop_jobs()[42].phase == "baking")
     assert not es._loop_jobs()[42].dialogue.done()
     resp = await asyncio.wait_for(es.get_example_conversation(_DB(rows), 42, user_id=7), 2)
     assert resp.audio_url is None
