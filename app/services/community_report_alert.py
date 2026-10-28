@@ -2,6 +2,7 @@ import logging
 
 import httpx
 
+from app.core.http import shared_ssl_context
 from app.core.timeutil import as_kst
 from app.schemas.community import CommunityReportResponse
 
@@ -29,7 +30,9 @@ class CommunityReportAlertService:
             "관리자 신고 목록에서 24시간 이내 처리해 주세요."
         )
         try:
-            async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS, transport=self._transport) as client:
+            async with httpx.AsyncClient(
+                timeout=_REQUEST_TIMEOUT_SECONDS, transport=self._transport, verify=shared_ssl_context()
+            ) as client:
                 response = await client.post(self._webhook_url, params={"wait": "true"}, json={"content": text})
                 response.raise_for_status()
             return True

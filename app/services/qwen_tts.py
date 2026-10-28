@@ -18,6 +18,7 @@ import numpy as np
 from app.core.audio_shape import RequestMeter
 from app.core.audio_stats import BYTES_PER_MS
 from app.core.config import Settings
+from app.core.http import shared_ssl_context
 from app.core.metrics import log_metric
 from app.schemas.llm import AiEmotion
 from app.services.pause_compress import FRAME_BYTES, ClientBuffer, PauseCompressor
@@ -211,7 +212,7 @@ class QwenTTSClient:
         return bool(self._base_url)
 
     def _client(self, timeout: float) -> httpx.AsyncClient:
-        return httpx.AsyncClient(timeout=timeout, transport=self._transport)
+        return httpx.AsyncClient(timeout=timeout, transport=self._transport, verify=shared_ssl_context())
 
     @asynccontextmanager
     async def connect(self, exclude: Iterable[str] = ()) -> AsyncIterator[QwenTTSClient]:
@@ -983,6 +984,7 @@ class QwenRealtimeTTSClient:
                 _REALTIME_READ_TIMEOUT, connect=_REALTIME_CONNECT_TIMEOUT
             ),
             transport=self._transport,
+            verify=shared_ssl_context(),
         )
         voice = voice_id or _REALTIME_VOICE
         ns = "off" if not self._ns_on else ("want" if voice in self._ns_voices else "voice")

@@ -6,6 +6,7 @@ import httpx
 
 from app.core.config import Settings
 from app.core.enums import CommunityNotificationType, ReactionKind, UserModerationStatus
+from app.core.http import shared_ssl_context
 from app.schemas.frames import EndReason
 from app.schemas.speech_metrics import SpeechMetricsPayload
 from app.schemas.training_analysis import TrainingAnalysisPayload
@@ -45,7 +46,9 @@ class SpringInternalClient:
         last_error: Exception | None = None
         for attempt in range(_RETRY_ATTEMPTS):
             try:
-                async with httpx.AsyncClient(timeout=5.0, transport=self._transport) as client:
+                async with httpx.AsyncClient(
+                    timeout=5.0, transport=self._transport, verify=shared_ssl_context()
+                ) as client:
                     response = await client.patch(
                         url, json=payload, headers={"X-Internal-Secret": self._secret}
                     )
@@ -106,7 +109,7 @@ class SpringInternalClient:
         for attempt in range(_RETRY_ATTEMPTS):
             try:
                 async with httpx.AsyncClient(
-                    timeout=5.0, transport=self._transport
+                    timeout=5.0, transport=self._transport, verify=shared_ssl_context()
                 ) as client:
                     resp = await client.post(
                         url,
@@ -193,7 +196,7 @@ class SpringInternalClient:
         for attempt in range(_RETRY_ATTEMPTS):
             try:
                 async with httpx.AsyncClient(
-                    timeout=5.0, transport=self._transport
+                    timeout=5.0, transport=self._transport, verify=shared_ssl_context()
                 ) as client:
                     response = await client.post(
                         url,
