@@ -10,6 +10,7 @@ from collections.abc import AsyncIterator
 import httpx
 
 from app.core.config import Settings
+from app.core.http import shared_ssl_context
 from app.schemas.llm import AiEmotion
 from app.services.qwen_tts import QwenTTSUnavailableError
 from app.services.tts import _SentenceBuffer
@@ -147,6 +148,7 @@ class CsmRealtimeTTSClient:
         return httpx.AsyncClient(
             timeout=httpx.Timeout(_READ_TIMEOUT, connect=_CONNECT_TIMEOUT),
             transport=self._transport,
+            verify=shared_ssl_context(),
         )
 
     async def open(self, voice_id: str | None = None) -> CsmRealtimeTTSSession:
@@ -196,7 +198,7 @@ class CsmRealtimeTTSClient:
 async def _healthy(base_url: str, settings: Settings, transport) -> bool:
     timeout = httpx.Timeout(getattr(settings, "csm_tts_health_timeout", 1.0), connect=1.0)
     try:
-        async with httpx.AsyncClient(timeout=timeout, transport=transport) as client:
+        async with httpx.AsyncClient(timeout=timeout, transport=transport, verify=shared_ssl_context()) as client:
             response = await client.get(f"{base_url}/health")
             response.raise_for_status()
             return bool(response.json().get("ready"))
