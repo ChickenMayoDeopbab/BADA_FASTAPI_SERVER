@@ -2,8 +2,7 @@ import asyncio
 import threading
 import time
 
-import librosa.core.pitch
-import librosa.feature.spectral
+import librosa
 from fastapi import FastAPI
 
 from app import main
@@ -19,7 +18,7 @@ def _metrics(monkeypatch) -> list:
 
 def test_warm_up_runs_the_real_yin_and_rms_path(monkeypatch) -> None:
     calls: list = []
-    real_yin, real_rms = librosa.core.pitch.yin, librosa.feature.spectral.rms
+    real_yin, real_rms = librosa.yin, librosa.feature.rms
 
     def _yin(*a, **k):
         calls.append("yin")
@@ -29,8 +28,9 @@ def test_warm_up_runs_the_real_yin_and_rms_path(monkeypatch) -> None:
         calls.append("rms")
         return real_rms(*a, **k)
 
-    monkeypatch.setattr(librosa.core.pitch, "yin", _yin)
-    monkeypatch.setattr(librosa.feature.spectral, "rms", _rms)
+    # tremor 가 찾는 이름에 건다, lazy_loader 0.6 은 찾은 속성을 패키지에 캐시해 정의 모듈 패치를 우회한다
+    monkeypatch.setitem(vars(librosa), "yin", _yin)
+    monkeypatch.setitem(vars(librosa.feature), "rms", _rms)
     seen = _metrics(monkeypatch)
 
     tremor.warm_up()
