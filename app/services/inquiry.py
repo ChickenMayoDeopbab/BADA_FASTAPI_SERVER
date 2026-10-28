@@ -4,6 +4,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.http import shared_ssl_context
 from app.db.external import users_table
 from app.schemas.inquiry import InquiryCreateRequest
 
@@ -42,7 +43,9 @@ class InquiryService:
             ],
         }
         try:
-            async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS, transport=self._transport) as client:
+            async with httpx.AsyncClient(
+                timeout=_REQUEST_TIMEOUT_SECONDS, transport=self._transport, verify=shared_ssl_context()
+            ) as client:
                 # 문의를 저장하지 않으므로 Discord의 메시지 생성 확인 후에만 성공 처리한다.
                 response = await client.post(self._webhook_url, params={"wait": "true"}, json=payload)
                 response.raise_for_status()
