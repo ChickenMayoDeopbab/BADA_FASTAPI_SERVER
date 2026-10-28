@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from collections.abc import Callable
 
 from app.core.config import Settings
 from app.services.recording_storage import RecordingStorageService
@@ -27,6 +28,7 @@ def ensure_morphed(
     storage: RecordingStorageService,
     recording_key: str,
     semitones: float = DEFAULT_SEMITONES,
+    morph: Callable[[bytes, int, float], bytes] = morph_pcm,
 ) -> str | None:
     """변조본이 없으면 만들고 키 반환"""
     key = morphed_key(recording_key, semitones)
@@ -38,7 +40,7 @@ def ensure_morphed(
         logger.warning("원본 녹음을 못 읽어 변조 생략", extra={"recording_key": recording_key})
         return None
 
-    return storage.upload_wav(key, morph_pcm(pcm, _SAMPLE_RATE, semitones))
+    return storage.upload_wav(key, morph(pcm, _SAMPLE_RATE, semitones))
 
 
 def morphed_url(
