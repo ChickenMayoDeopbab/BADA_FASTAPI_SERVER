@@ -160,7 +160,7 @@ async def main() -> None:
     ap.add_argument("--praise-delay-ms", type=float, default=0, help="praise LLM 지연 시뮬레이션")
     args = ap.parse_args()
 
-    # librosa/numba 콜드스타트가 첫 샘플을 왜곡하지 않도록 워밍업 1회
+    # 첫 호출 비용(import·메모리 첫 접근)이 첫 샘플을 왜곡하지 않도록 워밍업 1회
     await run_once(5.0, 0, 0)
 
     for dur in [float(d) for d in args.durations.split(",")]:

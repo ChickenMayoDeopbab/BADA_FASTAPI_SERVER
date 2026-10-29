@@ -1,15 +1,11 @@
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass, field
 
-import librosa
 import numpy as np
 from scipy.signal import butter, medfilt, sosfiltfilt
 
-from app.core.metrics import log_metric, now_ms
-
-logger = logging.getLogger(__name__)
+from app.services import librosa_port
 
 # librosa.yin 기본값. 바꾸면 F0 값이 달라져 떨림 임계값을 다시 맞춰야 한다.
 _YIN_FRAME_LENGTH = 2048
@@ -92,7 +88,7 @@ class TremorAnalyzer:
         config = self.config
         hop = max(1, int(round(config.sample_rate / config.contour_fs)))
         f0 = self._yin(y, hop)
-        rms = librosa.feature.rms(y=y, frame_length=4 * hop, hop_length=hop)[0]
+        rms = librosa_port.rms(y, frame_length=4 * hop, hop_length=hop)
         m = min(len(f0), len(rms))
         f0, rms = f0[:m], rms[:m]
         if m < 2 or rms.max() <= 0:
@@ -122,7 +118,7 @@ class TremorAnalyzer:
         chunk = max(1, int(round(config.f0_chunk_sec * config.contour_fs)))
         n_frames = 1 + len(y) // hop  # center=True 일 때 프레임 수
         if n_frames <= chunk:
-            return librosa.yin(y, **params)
+            return librosa_port.yin(y, **params)
 
         # center=True 가 하는 0 채우기를 한 번만 해 두고, 묶음마다 필요한 샘플만 잘라 넘긴다.
         padded = np.pad(y, _YIN_FRAME_LENGTH // 2)
@@ -130,7 +126,7 @@ class TremorAnalyzer:
         for start in range(0, n_frames, chunk):
             stop = min(start + chunk, n_frames)
             seg = padded[start * hop:(stop - 1) * hop + _YIN_FRAME_LENGTH]
-            parts.append(librosa.yin(seg, center=False, **params))
+            parts.append(librosa_port.yin(seg, center=False, **params))
         return np.concatenate(parts)
 
     def _octave_fix(self, f0: np.ndarray) -> np.ndarray:
@@ -321,18 +317,3 @@ class TremorAnalyzer:
         peak = float(np.mean([r["fpk"] for r in run]))
         amp = float(np.mean([r["amp"] for r in run]))
         return [(round(start, 3), round(end, 3), round(peak, 2), round(amp, 1))]
-
-
-def warm_up() -> None:
-    """첫 분석이 치르던 numba 컴파일을 미리 끝낸다"""
-    start = now_ms()
-    try:
-        analyzer = TremorAnalyzer()
-        sr = analyzer.config.sample_rate
-        t = np.arange(sr) / sr
-        analyzer.analyze((0.3 * 32767 * np.sin(2 * np.pi * 150 * t)).astype(np.int16).tobytes())
-        ok = True
-    except Exception:
-        logger.warning("떨림 분석 워밍업 실패", exc_info=True)
-        ok = False
-    log_metric("tremor_warmup", ok=ok, duration_ms=round(now_ms() - start, 1))

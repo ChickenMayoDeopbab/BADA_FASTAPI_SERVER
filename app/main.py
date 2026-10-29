@@ -1,5 +1,4 @@
 import asyncio
-import threading
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -18,7 +17,6 @@ from app.db.base import init_db
 from app.deps.redis import close_redis, init_redis
 from app.services import usage_service
 from app.services.example_service import _prebake_gate, cancel_example_jobs, prebake_presets
-from app.services.tremor import warm_up as warm_tremor
 from app.workers.avti_worker import drain as drain_avti
 from app.workers.voice_morph_worker import drain as drain_morphs
 
@@ -34,7 +32,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     await init_db()
     usage_service.install()
-    threading.Thread(target=warm_tremor, name="tremor-warmup", daemon=True).start()
     prebake = asyncio.create_task(prebake_presets()) if _prebake_gate(settings) else None
 
     try:

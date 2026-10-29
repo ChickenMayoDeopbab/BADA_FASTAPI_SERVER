@@ -189,9 +189,11 @@ Qwen3-TTS는 `Qwen/Qwen3-TTS-12Hz-1.7B-Base` 모델을 사용합니다.
 | --- | --- | --- |
 | 음성 분석 프로그램 | Praat | 음성 분석 스크립트 실행 |
 | 음성 떨림 분석 | tremor.praat 3.05 | 음성 떨림 지표 및 AVTI 분석 |
+| 음성 F0·에너지 추출 | librosa 0.10.2.post1 | `yin`·`feature.rms` 를 numba 없이 옮겨 떨림 분석에 사용 |
 
 `tremor.praat 3.05`는 GNU GPL v3를 따릅니다.
 관련 코드와 라이선스 원문은 `vendor/tremor3.05`에 포함되어 있습니다.
+librosa 에서 옮긴 코드는 ISC 라이선스를 따르며, 저작권·허가 문구를 `app/services/librosa_port.py` 맨 위에 함께 실었습니다.
 
 <br>
 
