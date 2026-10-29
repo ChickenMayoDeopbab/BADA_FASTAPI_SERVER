@@ -1,15 +1,10 @@
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass, field
 
 import librosa
 import numpy as np
 from scipy.signal import butter, medfilt, sosfiltfilt
-
-from app.core.metrics import log_metric, now_ms
-
-logger = logging.getLogger(__name__)
 
 # librosa.yin 기본값. 바꾸면 F0 값이 달라져 떨림 임계값을 다시 맞춰야 한다.
 _YIN_FRAME_LENGTH = 2048
@@ -322,17 +317,3 @@ class TremorAnalyzer:
         amp = float(np.mean([r["amp"] for r in run]))
         return [(round(start, 3), round(end, 3), round(peak, 2), round(amp, 1))]
 
-
-def warm_up() -> None:
-    """첫 분석이 치르던 numba 컴파일을 미리 끝낸다"""
-    start = now_ms()
-    try:
-        analyzer = TremorAnalyzer()
-        sr = analyzer.config.sample_rate
-        t = np.arange(sr) / sr
-        analyzer.analyze((0.3 * 32767 * np.sin(2 * np.pi * 150 * t)).astype(np.int16).tobytes())
-        ok = True
-    except Exception:
-        logger.warning("떨림 분석 워밍업 실패", exc_info=True)
-        ok = False
-    log_metric("tremor_warmup", ok=ok, duration_ms=round(now_ms() - start, 1))
