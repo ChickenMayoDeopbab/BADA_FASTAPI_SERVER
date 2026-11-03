@@ -1068,3 +1068,59 @@ async def test_switch_off_keeps_the_custom_example_without_reading_refs(monkeypa
     env = _wire(monkeypatch, rows, settings=_settings(example_qwen_ns=False))
     resp = await _ask(rows)
     assert resp.audio_url.endswith(old) and env.qwen.calls == [] and env.qwen.health_calls == 0
+
+
+class _LoopSpy(_Storage):
+    def __init__(self, objects: dict | None = None) -> None:
+        super().__init__(objects)
+        self.on_loop: list[str] = []
+        self.off_loop: list[str] = []
+
+
+def _spied(name: str):
+    def method(self, *args):
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            self.off_loop.append(name)
+        else:
+            self.on_loop.append(name)
+        return getattr(_Storage, name)(self, *args)
+
+    return method
+
+
+for _name in ("upload_wav", "exists", "strict_exists", "put_marker", "copy", "delete"):
+    setattr(_LoopSpy, _name, _spied(_name))
+
+
+@pytest.mark.parametrize("present", [False, True], ids=["bake", "reuse"])
+async def test_prebake_touches_s3_off_the_event_loop(monkeypatch, present) -> None:
+    want = _expected(1, _D1)
+    rows = {1: _row(1, url="examples/1-8c9047e7.wav")}
+    env = _wire(monkeypatch, rows, storage=_LoopSpy({want: b"x"} if present else {}))
+    await asyncio.wait_for(es.prebake_presets(), 2)
+    assert rows[1].example_audio_url == want and env.storage.on_loop == []
+    assert set(env.storage.off_loop) == ({"strict_exists"} if present else {"strict_exists", "upload_wav"})
+
+
+async def test_internal_ops_touch_s3_off_the_event_loop(monkeypatch) -> None:
+    want = _expected(1, _D1)
+    prev = f"examples/prev/{want.rsplit('/', 1)[-1]}.T0"
+    rows = {1: _row(1, url=want)}
+    env = _wire(monkeypatch, rows, storage=_LoopSpy({want: b"new", prev: b"old", "examples/1-8c9047e7.wav": b"el"}))
+    await es.restore_preset(1, prev, stamp="T1")
+    await es.rebake_preset(1, stamp="T2")
+    await _job(1)
+    await es.reject_preset(1, "examples/1-8c9047e7.wav")
+    assert env.storage.deleted == [want] and env.storage.on_loop == []
+    assert {"copy", "upload_wav", "exists", "delete"} <= set(env.storage.off_loop)
+
+
+async def test_reject_marker_is_written_off_the_event_loop(monkeypatch) -> None:
+    current = _expected(1, _D1)
+    rows = {1: _row(1, url=current)}
+    env = _wire(monkeypatch, rows, storage=_LoopSpy({"examples/1-8c9047e7.wav": b"el"}))
+    await es.reject_preset(1, "examples/1-8c9047e7.wav")
+    assert env.storage.markers == [es._rejected_key(current)] and env.storage.on_loop == []
+    assert "put_marker" in env.storage.off_loop
