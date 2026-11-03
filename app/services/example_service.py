@@ -518,7 +518,7 @@ async def _store_example(
             if after_upload is not None:
                 after_upload(None)
             return None, None
-    stored_key = storage.upload_wav(key, pcm)
+    stored_key = await asyncio.to_thread(storage.upload_wav, key, pcm)
     if after_upload is not None:
         after_upload(stored_key)
     prev_key = row.example_audio_url if row is not None else None
@@ -527,7 +527,7 @@ async def _store_example(
         try:
             await db.commit()
         except StaleDataError:
-            storage.delete(stored_key)
+            await asyncio.to_thread(storage.delete, stored_key)
             raise
     return stored_key, prev_key
 
@@ -1174,8 +1174,8 @@ async def _prebake_round(settings: Settings, state: dict) -> str:
             summary["deferred"] += 1
             continue
         try:
-            rejected = storage.strict_exists(_rejected_key(want))
-            present = not rejected and storage.strict_exists(want)
+            rejected = await asyncio.to_thread(storage.strict_exists, _rejected_key(want))
+            present = not rejected and await asyncio.to_thread(storage.strict_exists, want)
         except Exception:
             logger.warning("프리셋 %s S3 확인 실패, 미룸", sid, exc_info=True)
             s3_errors.append(str(sid))
@@ -1219,7 +1219,7 @@ async def _reuse(scenario_id: int, want: str, storage: RecordingStorageService) 
     """이미 있는 기대 키로 행을 바꾼다, 그사이 탈락됐으면 바꾸지 않는다"""
     lock = _generation_locks.setdefault(scenario_id, asyncio.Lock())
     async with lock:
-        if storage.strict_exists(_rejected_key(want)):
+        if await asyncio.to_thread(storage.strict_exists, _rejected_key(want)):
             return False
         await _point_row(scenario_id, want, "preset_prebake")
     return True
@@ -1325,7 +1325,7 @@ async def rebake_preset(scenario_id: int, *, stamp: str) -> dict:
     storage = RecordingStorageService(settings)
     backup = _backup_path(want, stamp)
     try:
-        backed_up = storage.copy(want, backup)
+        backed_up = await asyncio.to_thread(storage.copy, want, backup)
     except Exception as exc:
         raise ExampleOpError(503, f"백업 복사 실패: {exc}") from exc
     _loop_cooldown().pop(scenario_id, None)
@@ -1347,8 +1347,8 @@ async def restore_preset(scenario_id: int, prev: str, *, stamp: str) -> dict:
     async with lock:
         _check_op(settings, scenario_id)
         try:
-            backed_up = storage.copy(want, _backup_path(want, stamp))
-            restored = storage.copy(prev, want)
+            backed_up = await asyncio.to_thread(storage.copy, want, _backup_path(want, stamp))
+            restored = await asyncio.to_thread(storage.copy, prev, want)
         except Exception as exc:
             raise ExampleOpError(503, f"복사 실패: {exc}") from exc
         if not restored:
@@ -1385,14 +1385,14 @@ async def reject_preset(scenario_id: int, restore_key: str) -> dict:
             raise ExampleOpError(409, "지금 행이 ns 키가 아니다")
         if restore_key == current_ns:
             raise ExampleOpError(400, "restore_key 가 지금 탈락시킬 키와 같다")
-        if not storage.exists(restore_key):
+        if not await asyncio.to_thread(storage.exists, restore_key):
             raise ExampleOpError(409, f"되돌릴 객체 없음: {restore_key}")
-        if not storage.copy(current_ns, _rejected_key(current_ns)):
-            storage.put_marker(_rejected_key(current_ns))
+        if not await asyncio.to_thread(storage.copy, current_ns, _rejected_key(current_ns)):
+            await asyncio.to_thread(storage.put_marker, _rejected_key(current_ns))
         row.example_audio_url = restore_key
         await db.commit()
     try:
-        deleted = storage.delete(current_ns)
+        deleted = await asyncio.to_thread(storage.delete, current_ns)
     except Exception:
         logger.warning("탈락 ns 객체 삭제 실패(행·표지는 반영됨): %s", current_ns, exc_info=True)
         deleted = False
