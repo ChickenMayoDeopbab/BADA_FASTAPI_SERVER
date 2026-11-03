@@ -11,6 +11,7 @@ from google import genai
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.aws import shared_boto_client
 from app.core.concurrency import loop_semaphore
 from app.core.config import Settings, get_settings
 from app.core.enums import FileType
@@ -74,16 +75,7 @@ def _extract_image(response: object) -> tuple[bytes, str]:
 
 
 def _s3_client(settings: Settings) -> Any:
-    import boto3
-
-    if settings.aws_access_key and settings.aws_secret_key:
-        return boto3.client(
-            "s3",
-            aws_access_key_id=settings.aws_access_key,
-            aws_secret_access_key=settings.aws_secret_key,
-            region_name=settings.aws_region,
-        )
-    return boto3.client("s3", region_name=settings.aws_region)
+    return shared_boto_client("s3", settings)
 
 
 def _upload_image(settings: Settings, key: str, data: bytes, mime: str) -> str | None:
