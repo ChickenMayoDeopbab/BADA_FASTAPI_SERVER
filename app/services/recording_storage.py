@@ -4,6 +4,7 @@ import uuid
 import wave
 from typing import Any
 
+from app.core.aws import shared_boto_client
 from app.core.config import Settings
 from app.services import recording_crypto
 
@@ -12,19 +13,6 @@ logger = logging.getLogger(__name__)
 _SAMPLE_RATE = 16_000
 _CHANNELS = 1
 _SAMPLE_WIDTH_BYTES = 2
-
-
-def _boto_client(service: str, settings: Settings) -> Any:
-    import boto3
-
-    if settings.aws_access_key and settings.aws_secret_key:
-        return boto3.client(
-            service,
-            aws_access_key_id=settings.aws_access_key,
-            aws_secret_access_key=settings.aws_secret_key,
-            region_name=settings.aws_region,
-        )
-    return boto3.client(service, region_name=settings.aws_region)
 
 
 _MISSING_CODES = frozenset({"NoSuchKey", "404", "NotFound"})
@@ -48,7 +36,7 @@ class RecordingStorageService:
         self._kms = kms_client
         self._kms_key_id = getattr(settings, "recording_kms_key_id", None)
         if self._bucket and self._client is None:
-            self._client = _boto_client("s3", settings)
+            self._client = shared_boto_client("s3", settings)
 
     def upload_pcm(self, session_id: str, pcm: bytes) -> str | None:
         """녹음 원본은 KMS로 잠가서 올린다. 키가 없으면 평문으로 올리지 않고 실패한다."""
@@ -160,7 +148,7 @@ class RecordingStorageService:
 
     def _kms_client(self) -> Any:
         if self._kms is None:
-            self._kms = _boto_client("kms", self._settings)
+            self._kms = shared_boto_client("kms", self._settings)
         return self._kms
 
     @staticmethod
