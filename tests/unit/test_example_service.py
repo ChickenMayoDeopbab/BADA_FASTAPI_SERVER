@@ -1484,3 +1484,47 @@ async def test_ns_bake_residual_cut_follows_the_chosen_render() -> None:
     client = _FakeNsClient({text: [short_clean] + [long_cut] * 7})
     _, info, _ = await _ns(client, [{"speaker": "ai", "text": text}])
     assert info["residual_cuts"] == 0 and info["length_fails"] == 8
+
+
+class _LoopNotingStorage(_DeletingStorage):
+    def __init__(self) -> None:
+        super().__init__()
+        self.on_loop: list[str] = []
+
+    def _note(self, name: str) -> None:
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        self.on_loop.append(name)
+
+    def upload_wav(self, key: str, pcm: bytes) -> str | None:
+        self._note("upload_wav")
+        return super().upload_wav(key, pcm)
+
+    def delete(self, key: str) -> bool:
+        self._note("delete")
+        return super().delete(key)
+
+
+async def test_store_example_uploads_and_cleans_up_off_the_event_loop() -> None:
+    from sqlalchemy import delete
+    from sqlalchemy.orm.exc import StaleDataError
+
+    from app.db.models import ScenarioORM
+
+    storage = _LoopNotingStorage()
+    async with _scenario_db() as factory, factory() as db:
+        row = await db.get(ScenarioORM, 42)
+        real_commit = db.commit
+
+        async def _commit_after_vanish() -> None:
+            async with factory() as other:
+                await other.execute(delete(ScenarioORM).where(ScenarioORM.scenario_id == 42))
+                await other.commit()
+            await real_commit()
+
+        db.commit = _commit_after_vanish
+        with pytest.raises(StaleDataError):
+            await example_service._store_example(db, row, storage, "examples/42-k.wav", b"\x01\x02")
+    assert storage.deleted == ["examples/42-k.wav"] and storage.on_loop == []
