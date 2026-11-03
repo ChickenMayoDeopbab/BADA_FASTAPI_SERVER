@@ -21,9 +21,9 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from app.core.aws import shared_boto_client  # noqa: E402
 from app.core.config import get_settings  # noqa: E402
 from app.services import recording_crypto  # noqa: E402
-from app.services.recording_storage import _boto_client  # noqa: E402
 
 PREFIX = "recordings/"
 
@@ -88,8 +88,8 @@ def main() -> int:
         return 2
 
     tally = migrate(
-        _boto_client("s3", settings),
-        _boto_client("kms", settings),
+        shared_boto_client("s3", settings),
+        shared_boto_client("kms", settings),
         bucket=settings.s3_bucket,
         key_id=settings.recording_kms_key_id,
         prefix=args.prefix,
