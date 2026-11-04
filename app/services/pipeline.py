@@ -1488,6 +1488,20 @@ class VoicePipeline:
             pass
         self._ws_alive = False
 
+    async def _upload_recording(self, pcm: bytes) -> tuple[str | None, float]:
+        """녹음 원본을 올리고 (키, 걸린 ms)를 돌려줌"""
+        started = now_ms()
+        try:
+            key = await asyncio.to_thread(self._recording_storage.upload_pcm, self._session_id, pcm)
+        except Exception:
+            logger.warning(
+                "녹음본 업로드 실패",
+                extra={"session_id": self._session_id},
+                exc_info=True,
+            )
+            key = None
+        return key, round(now_ms() - started, 1)
+
     async def _close_session(self) -> None:
         reason = self._end_reason or EndReason.USER_END
 
@@ -1497,23 +1511,13 @@ class VoicePipeline:
         good_candidates: list = []
         recording_key: str | None = None
         recording_pcm = b""
+        upload: asyncio.Task | None = None
         sustained_spans: list = []
         tremor_result = None
         analysis_failed = False
         if self._tremor_buf:
             recording_pcm = bytes(self._tremor_buf)
-            try:
-                recording_key = await asyncio.to_thread(
-                    self._recording_storage.upload_pcm,
-                    self._session_id,
-                    recording_pcm,
-                )
-            except Exception:
-                logger.warning(
-                    "녹음본 업로드 실패",
-                    extra={"session_id": self._session_id},
-                    exc_info=True,
-                )
+            upload = asyncio.create_task(self._upload_recording(recording_pcm))
 
             try:
                 tremor_result = await asyncio.to_thread(
@@ -1595,6 +1599,18 @@ class VoicePipeline:
             # 선택 지표의 실패로 기존 통화 기록 저장까지 유실되지 않도록 한다.
             logger.warning("음성 요약 생성 실패 — 요약 없이 종료 콜백 진행",
                            exc_info=True, extra={"session_id": self._session_id})
+
+        if upload is not None:
+            waited = now_ms()
+            recording_key, upload_ms = await upload
+            log_metric(
+                "recording_upload",
+                session_id=self._session_id,
+                upload_ms=upload_ms,
+                waited_ms=round(now_ms() - waited, 1),
+                pcm_bytes=len(recording_pcm),
+                stored=recording_key is not None,
+            )
 
         session_closed = await self._spring.notify_session_closed(
             self._session_id,
