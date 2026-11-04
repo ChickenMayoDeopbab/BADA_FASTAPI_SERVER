@@ -646,7 +646,7 @@ async def bake_example_audio(scenario_id: int, trigger: str = "prebake") -> asyn
     return None
 
 
-_CUSTOM_NS_BUDGET_SEC = 200.0
+_CUSTOM_NS_BUDGET_SEC = 300.0
 _PRESET_NS_BUDGET_SEC = 600.0
 _FALLBACK_BUDGET_SEC = 180.0
 _COOLDOWN_SEC = 600.0
