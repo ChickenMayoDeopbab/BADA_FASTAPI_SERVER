@@ -28,14 +28,18 @@ async def delete_training_data(
         training_records_table.c.recording_key,
     ).where(training_records_table.c.session_id == session_id)
     record = (await db.execute(record_stmt)).first()
+    raw_stmt = select(CallBiosignalORM.raw_key).where(
+        CallBiosignalORM.session_id == session_id, CallBiosignalORM.raw_key.is_not(None)
+    )
+    raw_keys = list((await db.execute(raw_stmt)).scalars())
 
     try:
-        if record is not None and record.recording_key:
+        keys = [morphed_key(record.recording_key)] if record is not None and record.recording_key else []
+        keys += raw_keys
+        if keys:
             recording_storage = storage or build_storage(get_settings())
-            await asyncio.to_thread(
-                recording_storage.delete,
-                morphed_key(record.recording_key),
-            )
+            for key in keys:
+                await asyncio.to_thread(recording_storage.delete, key)
 
         await db.execute(delete(FeedbackORM).where(FeedbackORM.session_id == session_id))
         await db.execute(
