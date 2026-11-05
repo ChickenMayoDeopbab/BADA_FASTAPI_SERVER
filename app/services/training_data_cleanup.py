@@ -28,10 +28,8 @@ async def delete_training_data(
         training_records_table.c.recording_key,
     ).where(training_records_table.c.session_id == session_id)
     record = (await db.execute(record_stmt)).first()
-    raw_stmt = select(CallBiosignalORM.raw_key).where(
-        CallBiosignalORM.session_id == session_id, CallBiosignalORM.raw_key.is_not(None)
-    )
-    raw_keys = list((await db.execute(raw_stmt)).scalars())
+    raw_stmt = select(CallBiosignalORM.raw_key).where(CallBiosignalORM.session_id == session_id).with_for_update()
+    raw_keys = [key for key in (await db.execute(raw_stmt)).scalars() if key]
 
     try:
         keys = [morphed_key(record.recording_key)] if record is not None and record.recording_key else []
