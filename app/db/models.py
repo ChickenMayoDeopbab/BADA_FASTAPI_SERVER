@@ -97,6 +97,19 @@ class VoiceTremorMetricORM(Base):
     script_version: Mapped[str] = mapped_column(String(16), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
+class CallBiosignalORM(Base):
+    __tablename__ = "call_biosignal"
+
+    biosignal_id: Mapped[int] = mapped_column(_AUTO_PK, primary_key=True, autoincrement=True)
+    session_id: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    scenario_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    session_type: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    difficulty: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    timeline: Mapped[dict] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
 class FileORM(Base):
     __tablename__ = "file"
 
