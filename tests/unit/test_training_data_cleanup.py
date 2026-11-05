@@ -5,6 +5,7 @@ from app.core.enums import AttachmentKind
 from app.core.timeutil import now_utc
 from app.db.external import training_records_table
 from app.db.models import (
+    CallBiosignalORM,
     FeedbackORM,
     PostAttachmentORM,
     PostORM,
@@ -25,6 +26,17 @@ class _Storage:
             raise RuntimeError("s3 down")
         self.deleted.append(key)
         return True
+
+
+def _biosignal(biosignal_id: int, session_id: str) -> CallBiosignalORM:
+    return CallBiosignalORM(
+        biosignal_id=biosignal_id,
+        session_id=session_id,
+        user_id=7,
+        status="AWAITING_DATA",
+        timeline={"v": 1},
+        created_at=now_utc(),
+    )
 
 
 async def _count(session, model) -> int:
@@ -66,6 +78,8 @@ async def test_delete_training_data_removes_session_rows_attachment_and_morphed_
                     script_version="v1",
                     created_at=now_utc(),
                 ),
+                _biosignal(1, "sess-1"),
+                _biosignal(2, "sess-2"),
                 PostORM(
                     post_id=10,
                     user_id=7,
@@ -91,6 +105,8 @@ async def test_delete_training_data_removes_session_rows_attachment_and_morphed_
         assert await _count(session, FeedbackORM) == 0
         assert await _count(session, VoiceTremorMetricORM) == 0
         assert await _count(session, PostAttachmentORM) == 0
+        remaining = set((await session.execute(select(CallBiosignalORM.session_id))).scalars())
+        assert remaining == {"sess-2"}
 
     assert storage.deleted == [morphed_key(recording_key)]
 
@@ -140,6 +156,8 @@ async def test_s3_failure_keeps_training_data_for_retry() -> None:
                     script_version="v1",
                     created_at=now_utc(),
                 ),
+                _biosignal(1, "sess-1"),
+                _biosignal(2, "sess-2"),
                 PostORM(
                     post_id=10,
                     user_id=7,
@@ -166,3 +184,4 @@ async def test_s3_failure_keeps_training_data_for_retry() -> None:
         assert await _count(session, FeedbackORM) == 1
         assert await _count(session, VoiceTremorMetricORM) == 1
         assert await _count(session, PostAttachmentORM) == 1
+        assert await _count(session, CallBiosignalORM) == 2
