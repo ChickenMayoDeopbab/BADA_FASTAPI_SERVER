@@ -9,6 +9,7 @@ from app.db.models import ScenarioORM, is_deleted
 from app.deps.db import get_db
 from app.schemas.scenario import ScenarioContextResponse, ScriptTurnContext
 from app.services import example_service
+from app.services.biosignal_service import delete_user_biosignals as svc_delete_user_biosignals
 from app.services.feedback_service import delete_feedback as svc_delete_feedback
 from app.services.training_data_cleanup import delete_training_data as svc_delete_training_data
 from app.services.user_data_cleanup import delete_user_data as svc_delete_user_data
@@ -148,6 +149,22 @@ async def delete_user_data(
     db: AsyncSession = Depends(get_db),
 ) -> None:
     await svc_delete_user_data(db, user_id)
+
+
+@router.delete(
+    "/users/{user_id}/biosignals",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="생체신호 동의 철회 데이터 파기",
+    description=(
+        "Spring이 생체신호 처리 동의 철회를 기록하기 전에 그 사용자의 통화 생체신호 분석 결과, 사건표와 "
+        "원시 신호를 파기한다. 진행 중인 업로드가 있으면 끝날 때까지 기다린다."
+    ),
+)
+async def delete_user_biosignals(
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    await svc_delete_user_biosignals(db, user_id)
 
 
 def _custom_context(row: ScenarioORM) -> ScenarioContextResponse:
