@@ -129,6 +129,8 @@ class Settings(BaseSettings):
     avti_min_sustained_sec: float = 2.5
     avti_timeout_sec: float = 30.0
 
+    biosignal_enabled: bool = False
+
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
