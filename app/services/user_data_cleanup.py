@@ -10,6 +10,7 @@ from app.core.config import get_settings
 from app.core.enums import AttachmentKind
 from app.db.external import files_table, training_records_table
 from app.db.models import (
+    CallBiosignalORM,
     FeedbackORM,
     FileORM,
     PostAttachmentORM,
@@ -104,6 +105,7 @@ async def delete_user_data(
         await db.execute(delete(PostReactionORM).where(PostReactionORM.user_id == user_id))
 
         await db.execute(delete(FeedbackORM).where(FeedbackORM.user_id == user_id))
+        await db.execute(delete(CallBiosignalORM).where(CallBiosignalORM.user_id == user_id))
         if session_ids:
             await db.execute(
                 delete(VoiceTremorMetricORM).where(
