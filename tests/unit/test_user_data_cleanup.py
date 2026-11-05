@@ -5,6 +5,7 @@ from app.core.enums import AttachmentKind
 from app.core.timeutil import now_utc
 from app.db.external import files_table, training_records_table
 from app.db.models import (
+    CallBiosignalORM,
     CommunityReportORM,
     CommunityUserBlockORM,
     FeedbackORM,
@@ -178,6 +179,18 @@ async def _seed_user_data(session) -> None:
                 script_version="v1",
                 created_at=now,
             ),
+            CallBiosignalORM(
+                biosignal_id=72, session_id="sess-1", user_id=7,
+                status="AWAITING_DATA", timeline={"v": 1}, created_at=now,
+            ),
+            CallBiosignalORM(
+                biosignal_id=73, session_id="sess-warmup", user_id=7,
+                status="AWAITING_DATA", timeline={"v": 1}, created_at=now,
+            ),
+            CallBiosignalORM(
+                biosignal_id=74, session_id="sess-other", user_id=8,
+                status="AWAITING_DATA", timeline={"v": 1}, created_at=now,
+            ),
             CommunityReportORM(
                 report_id=80,
                 reporter_user_id=7,
@@ -221,6 +234,10 @@ async def test_delete_user_data_purges_owned_data_and_keeps_community_text() -> 
         assert await _count(session, FeedbackORM) == 0
         assert await _count(session, VoiceTremorMetricORM) == 0
         assert await _count(session, PostAttachmentORM) == 0
+        remaining_biosignal_users = set(
+            (await session.execute(select(CallBiosignalORM.user_id))).scalars()
+        )
+        assert remaining_biosignal_users == {8}
 
         # 글·댓글은 남고, 탈퇴자가 누른 공감만 빠진다
         assert await _count(session, PostORM) == 2
@@ -261,3 +278,4 @@ async def test_s3_failure_keeps_database_rows_for_retry() -> None:
         assert await _count(session, ScenarioORM) == 1
         assert await _count(session, PostORM) == 2
         assert await _count(session, FeedbackORM) == 1
+        assert await _count(session, CallBiosignalORM) == 3
