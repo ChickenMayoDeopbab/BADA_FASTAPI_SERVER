@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.enums import AttachmentKind
 from app.db.external import training_records_table
-from app.db.models import FeedbackORM, PostAttachmentORM, VoiceTremorMetricORM
+from app.db.models import CallBiosignalORM, FeedbackORM, PostAttachmentORM, VoiceTremorMetricORM
 from app.services.morphed_recording import build_storage, morphed_key
 from app.services.recording_storage import RecordingStorageService
 
@@ -43,6 +43,7 @@ async def delete_training_data(
                 VoiceTremorMetricORM.session_id == session_id
             )
         )
+        await db.execute(delete(CallBiosignalORM).where(CallBiosignalORM.session_id == session_id))
         if record is not None:
             await db.execute(
                 delete(PostAttachmentORM).where(
