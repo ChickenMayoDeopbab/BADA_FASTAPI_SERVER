@@ -51,7 +51,7 @@ async def upload_biosignal(
     now = now_utc()
     await svc.expire_stale(db, now)
     try:
-        row = svc.check_uploadable(await svc.find_owned(db, session_id, user_id))
+        row = svc.check_uploadable(await svc.find_owned(db, session_id, user_id, for_update=True))
     except svc.BiosignalError as error:
         await db.commit()
         raise _http_error(error) from error
