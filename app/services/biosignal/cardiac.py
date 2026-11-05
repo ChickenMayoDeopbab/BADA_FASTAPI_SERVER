@@ -6,13 +6,22 @@ import numpy as np
 from app.services.biosignal.clock import estimate_clock, number, watch_to_server
 from app.services.biosignal.ibi import hrv_metrics, prepare_beats
 from app.services.biosignal.motion import MOTION_SD_G, prepare_motion
-from app.services.biosignal.segments import Interval, Segments, build_segments
+from app.services.biosignal.segments import Segments, build_segments
+from app.services.biosignal.stats import (
+    UNAVAILABLE,
+    difference,
+    inside,
+    report_bins,
+    rounded,
+    seconds,
+    slope_per_min,
+    window_mean,
+)
 
 VERSION = "BIOSIGNAL_CARDIAC_V1"
 HR_MIN_BPM = 30
 HR_MAX_BPM = 220
 HR_VALID_STATUS = 1
-MIN_COVERAGE = 0.5
 MIN_HR_SAMPLES = 10
 PEAK_HALF_WINDOW_MS = 5000
 PEAK_MIN_SAMPLES = 6
@@ -25,47 +34,7 @@ TURN_MIN_SAMPLES = 3
 RECOVERY_TAIL_MS = 30_000
 RECOVERY_MIN_RISE_BPM = 2.0
 PREVIOUS_BASELINES_MAX = 5
-REPORT_BIN_MS = 5000
-REPORT_MIN_SAMPLES = 3
 HRV_WINDOWS = ("baseline", "anticipation", "listen", "speak", "recovery")
-
-UNAVAILABLE = {"status": "UNAVAILABLE"}
-
-
-def _r(value: float | None, digits: int = 1) -> float | None:
-    return None if value is None else round(float(value), digits)
-
-
-def _seconds(window: Interval | None) -> float | None:
-    return _r((window[1] - window[0]) / 1000) if window else None
-
-
-def _inside(t: np.ndarray, intervals: list[Interval]) -> np.ndarray:
-    mask = np.zeros(t.size, dtype=bool)
-    for s, e in intervals:
-        mask |= (t >= s) & (t < e)
-    return mask
-
-
-def _window_mean(t: np.ndarray, bpm: np.ndarray, intervals: list[Interval], min_samples: int = MIN_HR_SAMPLES) -> dict:
-    expected = sum(e - s for s, e in intervals) / 1000
-    mask = _inside(t, intervals)
-    samples = int(mask.sum())
-    if samples == 0 or expected <= 0:
-        return dict(UNAVAILABLE)
-    coverage = samples / expected
-    quality = {"samples": samples, "coverage_pct": _r(min(coverage, 1.0) * 100)}
-    if samples < min_samples or coverage < MIN_COVERAGE:
-        return {"status": "INSUFFICIENT_DATA", **quality}
-    return {"status": "MEASURED", "value": _r(bpm[mask].mean()), **quality}
-
-
-def _difference(a: dict, b: dict) -> dict:
-    if a["status"] == "MEASURED" and b["status"] == "MEASURED":
-        return {"status": "MEASURED", "value": _r(a["value"] - b["value"])}
-    if "UNAVAILABLE" in (a["status"], b["status"]):
-        return dict(UNAVAILABLE)
-    return {"status": "INSUFFICIENT_DATA"}
 
 
 def _heart_rate(rows: list, clock: dict, motion) -> tuple[np.ndarray, np.ndarray, dict]:
@@ -89,14 +58,17 @@ def _heart_rate(rows: list, clock: dict, motion) -> tuple[np.ndarray, np.ndarray
 
 
 def _baseline(t, bpm, segments: Segments, previous: Sequence[float]) -> dict:
-    rest = _window_mean(t, bpm, [segments.baseline]) if segments.baseline else None
+    rest = window_mean(t, bpm, [segments.baseline], min_samples=MIN_HR_SAMPLES) if segments.baseline else None
     if rest and rest["status"] == "MEASURED":
-        return {**rest, "source": "rest", "window_sec": _r((segments.baseline[1] - segments.baseline[0]) / 1000)}
+        return {**rest, "source": "rest", "window_sec": seconds(segments.baseline)}
     history = [v for v in (number(x) for x in previous) if v is not None and HR_MIN_BPM <= v <= HR_MAX_BPM]
     if history:
         recent = history[-PREVIOUS_BASELINES_MAX:]
         return {
-            "status": "MEASURED", "value": _r(median(recent)), "source": "previous_sessions", "sessions": len(recent),
+            "status": "MEASURED",
+            "value": rounded(median(recent)),
+            "source": "previous_sessions",
+            "sessions": len(recent),
         }
     if rest:
         return {**rest, "source": "none"}
@@ -104,7 +76,7 @@ def _baseline(t, bpm, segments: Segments, previous: Sequence[float]) -> dict:
 
 
 def _peak(t, bpm, segments: Segments, baseline: dict) -> dict:
-    mask = _inside(t, [segments.call])
+    mask = inside(t, [segments.call])
     tc, vc = t[mask], bpm[mask]
     if tc.size == 0:
         return dict(UNAVAILABLE)
@@ -120,9 +92,9 @@ def _peak(t, bpm, segments: Segments, baseline: dict) -> dict:
     delta = means[best] - baseline["value"] if baseline["status"] == "MEASURED" else None
     return {
         "status": "MEASURED",
-        "bpm": _r(means[best]),
-        "delta": _r(delta),
-        "at_sec": _r((tc[best] - segments.call[0]) / 1000),
+        "bpm": rounded(means[best]),
+        "delta": rounded(delta),
+        "at_sec": rounded((tc[best] - segments.call[0]) / 1000),
         "phase": phase,
         "turn": turn,
     }
@@ -130,14 +102,9 @@ def _peak(t, bpm, segments: Segments, baseline: dict) -> dict:
 
 def _trend(t, bpm, segments: Segments) -> dict:
     start, end = segments.call
-    mask = (t >= start + TREND_SKIP_MS) & (t < end)
-    if not mask.any():
-        return dict(UNAVAILABLE)
-    tt, vv = t[mask], bpm[mask]
-    if tt.size < TREND_MIN_SAMPLES or tt[-1] - tt[0] < TREND_MIN_SPAN_MS:
-        return {"status": "INSUFFICIENT_DATA", "samples": int(tt.size)}
-    slope = np.polyfit((tt - tt[0]) / 60_000, vv, 1)[0]
-    return {"status": "MEASURED", "value": _r(slope, 2), "samples": int(tt.size)}
+    return slope_per_min(
+        t, bpm, start + TREND_SKIP_MS, end, min_samples=TREND_MIN_SAMPLES, min_span_ms=TREND_MIN_SPAN_MS,
+    )
 
 
 def _first_vs_last(t, bpm, segments: Segments) -> dict:
@@ -146,12 +113,15 @@ def _first_vs_last(t, bpm, segments: Segments) -> dict:
     last = (end - EDGE_WINDOW_MS, end)
     if last[0] < first[1]:
         return {"status": "INSUFFICIENT_DATA", "reason": "call_too_short"}
-    return _difference(_window_mean(t, bpm, [last]), _window_mean(t, bpm, [first]))
+    return difference(
+        window_mean(t, bpm, [last], min_samples=MIN_HR_SAMPLES),
+        window_mean(t, bpm, [first], min_samples=MIN_HR_SAMPLES),
+    )
 
 
 def _recovery(t, bpm, segments: Segments, baseline: dict, call: dict) -> dict:
     r0, r1 = segments.recovery
-    tail = _window_mean(t, bpm, [(max(r0, r1 - RECOVERY_TAIL_MS), r1)], min_samples=TURN_MIN_SAMPLES)
+    tail = window_mean(t, bpm, [(max(r0, r1 - RECOVERY_TAIL_MS), r1)], min_samples=TURN_MIN_SAMPLES)
     if "UNAVAILABLE" in (tail["status"], baseline["status"], call["status"]):
         return dict(UNAVAILABLE)
     if "INSUFFICIENT_DATA" in (tail["status"], baseline["status"], call["status"]):
@@ -159,33 +129,20 @@ def _recovery(t, bpm, segments: Segments, baseline: dict, call: dict) -> dict:
     rise = call["value"] - baseline["value"]
     if rise < RECOVERY_MIN_RISE_BPM:
         return {"status": "INSUFFICIENT_DATA", "reason": "no_rise"}
-    return {"status": "MEASURED", "value": _r((call["value"] - tail["value"]) / rise * 100), "tail_bpm": tail["value"]}
+    pct = (call["value"] - tail["value"]) / rise * 100
+    return {"status": "MEASURED", "value": rounded(pct), "tail_bpm": tail["value"]}
 
 
 def _turns(t, bpm, segments: Segments, baseline: dict, call: dict) -> dict[str, dict]:
     turns: dict[str, dict] = {}
     for turn, s, e in segments.speak:
-        stat = _window_mean(t, bpm, [(s + TURN_LAG_MS, e + TURN_LAG_MS)], min_samples=TURN_MIN_SAMPLES)
+        stat = window_mean(t, bpm, [(s + TURN_LAG_MS, e + TURN_LAG_MS)], min_samples=TURN_MIN_SAMPLES)
         entry = {"status": stat["status"], "mean_bpm": stat.get("value")}
         if stat["status"] == "MEASURED":
-            entry["delta_vs_baseline"] = _difference(stat, baseline).get("value")
-            entry["delta_vs_call"] = _difference(stat, call).get("value")
+            entry["delta_vs_baseline"] = difference(stat, baseline).get("value")
+            entry["delta_vs_call"] = difference(stat, call).get("value")
         turns[str(turn)] = entry
     return turns
-
-
-def _report_timeline(t, bpm, segments: Segments) -> dict:
-    origin = segments.call[0]
-    starts = [w[0] for w in (segments.baseline, segments.anticipation) if w] + [origin]
-    first = origin + np.floor((min(starts) - origin) / REPORT_BIN_MS) * REPORT_BIN_MS
-    values, phases = [], []
-    edge = first
-    while edge < segments.recovery[1]:
-        mask = (t >= edge) & (t < edge + REPORT_BIN_MS)
-        values.append(_r(float(np.median(bpm[mask]))) if mask.sum() >= REPORT_MIN_SAMPLES else None)
-        phases.append(segments.phase_at(edge + REPORT_BIN_MS / 2)[0])
-        edge += REPORT_BIN_MS
-    return {"bin_sec": REPORT_BIN_MS // 1000, "start_sec": _r((first - origin) / 1000), "hr": values, "phase": phases}
 
 
 def analyze_cardiac(
@@ -206,7 +163,10 @@ def analyze_cardiac(
     windows = segments.windows()
 
     baseline = _baseline(t, bpm, segments, previous_baselines)
-    means = {name: _window_mean(t, bpm, ivs) if ivs else dict(UNAVAILABLE) for name, ivs in windows.items()}
+    means = {
+        name: window_mean(t, bpm, ivs, min_samples=MIN_HR_SAMPLES) if ivs else dict(UNAVAILABLE)
+        for name, ivs in windows.items()
+    }
     call = means["call"]
 
     beats = prepare_beats(ibi or [], aligned)
@@ -215,19 +175,19 @@ def analyze_cardiac(
     motion_levels = {name: motion.level(ivs) for name, ivs in windows.items() if ivs}
     return {
         "version": VERSION,
-        "clock": {k: (_r(v) if isinstance(v, float) else v) for k, v in aligned.items()},
+        "clock": {k: (rounded(v) if isinstance(v, float) else v) for k, v in aligned.items()},
         "segments": {
-            "call_sec": _seconds(segments.call),
+            "call_sec": seconds(segments.call),
             "speak_turns": len(segments.speak),
-            "baseline_sec": _seconds(segments.baseline),
-            "anticipation_sec": _seconds(segments.anticipation),
+            "baseline_sec": seconds(segments.baseline),
+            "anticipation_sec": seconds(segments.anticipation),
         },
         "baseline": baseline,
         "hr": {
             "means": means,
-            "anticipation_delta": _difference(means["anticipation"], baseline),
-            "call_delta": _difference(call, baseline),
-            "listen_minus_speak": _difference(means["listen"], means["speak"]),
+            "anticipation_delta": difference(means["anticipation"], baseline),
+            "call_delta": difference(call, baseline),
+            "listen_minus_speak": difference(means["listen"], means["speak"]),
             "peak": _peak(t, bpm, segments, baseline),
             "trend_bpm_per_min": _trend(t, bpm, segments),
             "first_vs_last_min": _first_vs_last(t, bpm, segments),
@@ -245,8 +205,8 @@ def analyze_cardiac(
             "ibi_rows": len(ibi or []),
             "ibi_checked": beats.checked,
             "ibi_removed": beats.removed,
-            "ibi_removed_pct": _r(beats.removed / beats.checked * 100) if beats.checked else None,
+            "ibi_removed_pct": rounded(beats.removed / beats.checked * 100) if beats.checked else None,
             "artifacts": beats.artifacts,
         },
-        "report_timeline": _report_timeline(t, bpm, segments),
+        "report_timeline": report_bins(t, bpm, segments, key="hr"),
     }
