@@ -12,7 +12,7 @@ from pathlib import Path
 import httpx
 import pytest
 from fastapi import FastAPI
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.api.v1.biosignal import get_biosignal_storage, router
@@ -24,6 +24,8 @@ from app.db.models import CallBiosignalORM
 from app.deps.auth import get_current_user_id
 from app.deps.db import get_db
 from app.services import biosignal_service as svc
+from app.services.training_data_cleanup import delete_training_data
+from app.services.user_data_cleanup import delete_user_data
 from tests.unit.test_biosignal_api import USERS, _payload, _Storage
 from tests.unit.test_biosignal_cardiac import _timeline
 
@@ -118,6 +120,10 @@ class RaceEnv:
             session.add(CallBiosignalORM(**row))
             await session.commit()
 
+    async def count(self) -> int:
+        async with self.sessions() as session:
+            return (await session.execute(select(func.count()).select_from(CallBiosignalORM))).scalar_one()
+
 
 @pytest.fixture
 async def race_env() -> AsyncIterator[RaceEnv]:
@@ -132,6 +138,7 @@ async def race_env() -> AsyncIterator[RaceEnv]:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
             await conn.run_sync(external_metadata.create_all)
+            await conn.execute(text("ALTER TABLE file ADD COLUMN user_id BIGINT"))
             await conn.execute(users_table.insert().values(**USERS[0]))
         sessions = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
         async with sessions() as session:
@@ -249,3 +256,55 @@ async def test_raw_sweep_runs_after_the_row_lock_is_released(race_env: RaceEnv, 
     assert gate.calls == 1
     assert race_env.storage.deleted == [expired_key]
     assert (await race_env.row("sess-raw")).raw_key is None
+
+
+async def _during_upload(env: RaceEnv, monkeypatch, cleanup) -> tuple[httpx.Response, object]:
+    gate = _GatedAnalysis()
+    monkeypatch.setattr(svc, "analyze_upload", gate)
+    upload = asyncio.create_task(env.client.post(_URL, json=_payload()))
+    task = None
+    try:
+        assert await asyncio.to_thread(gate.started.wait, 10)
+        task = asyncio.create_task(cleanup())
+        await asyncio.wait({task}, timeout=0.5)
+        assert not task.done()
+    finally:
+        gate.release.set()
+        await asyncio.gather(upload, *([task] if task else []), return_exceptions=True)
+    return upload.result(), task.result()
+
+
+async def test_withdrawal_purge_during_an_upload_removes_its_raw(race_env: RaceEnv, monkeypatch) -> None:
+    async def purge() -> int:
+        async with race_env.sessions() as session:
+            return await svc.delete_user_biosignals(session, 7, storage=race_env.storage)
+
+    upload, purged = await _during_upload(race_env, monkeypatch, purge)
+
+    assert (upload.status_code, purged) == (200, 1)
+    assert race_env.storage.deleted == [_RAW_KEY]
+    assert await race_env.count() == 0
+
+
+async def test_record_deletion_during_an_upload_removes_its_raw(race_env: RaceEnv, monkeypatch) -> None:
+    async def delete_record() -> None:
+        async with race_env.sessions() as session:
+            await delete_training_data(session, "sess-1", storage=race_env.storage)
+
+    upload, _ = await _during_upload(race_env, monkeypatch, delete_record)
+
+    assert upload.status_code == 200
+    assert race_env.storage.deleted == [_RAW_KEY]
+    assert await race_env.count() == 0
+
+
+async def test_account_deletion_during_an_upload_removes_its_raw(race_env: RaceEnv, monkeypatch) -> None:
+    async def delete_account() -> None:
+        async with race_env.sessions() as session:
+            await delete_user_data(session, 7, storage=race_env.storage)
+
+    upload, _ = await _during_upload(race_env, monkeypatch, delete_account)
+
+    assert upload.status_code == 200
+    assert race_env.storage.deleted == [_RAW_KEY]
+    assert await race_env.count() == 0
