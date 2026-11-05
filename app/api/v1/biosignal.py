@@ -50,6 +50,7 @@ async def upload_biosignal(
 
     now = now_utc()
     await svc.expire_stale(db, now)
+    await db.commit()
     try:
         row = svc.check_uploadable(await svc.find_owned(db, session_id, user_id, for_update=True))
     except svc.BiosignalError as error:
@@ -85,8 +86,13 @@ async def upload_biosignal(
             raw_expires_at = now + timedelta(days=settings.biosignal_raw_retention_days)
 
     svc.mark_analyzed(row, payload, metrics, now, raw_key, raw_expires_at)
-    await svc.sweep_expired_raw(db, storage, now)
     await db.commit()
+    result = svc.view(row)
+    try:
+        await svc.sweep_expired_raw(db, storage, now)
+        await db.commit()
+    except Exception:
+        logger.warning("만료 원시 생체신호 정리 실패", exc_info=True, extra={"session_id": session_id})
     log_metric(
         "biosignal_upload",
         session_id=session_id,
@@ -100,7 +106,7 @@ async def upload_biosignal(
         analyze_ms=analyze_ms,
         raw=raw_key is not None,
     )
-    return svc.view(row)
+    return result
 
 
 @router.get("/trend", summary="생체신호 회차 추세 조회")
