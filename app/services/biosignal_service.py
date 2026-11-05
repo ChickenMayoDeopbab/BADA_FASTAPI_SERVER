@@ -26,6 +26,7 @@ STATUS_REJECTED = "REJECTED"
 AWAITING_TTL = timedelta(hours=24)
 PREVIOUS_BASELINES = 5
 RAW_SWEEP_LIMIT = 10
+TREND_SESSIONS = 200
 _CONFLICTS = {STATUS_ANALYZED: "ALREADY_ANALYZED", STATUS_EXPIRED: "EXPIRED", STATUS_REJECTED: "REJECTED"}
 
 
@@ -43,6 +44,7 @@ async def save_call_timeline(
     session_type: str | None,
     difficulty: str | None,
     timeline: dict,
+    ai_personality: str | None = None,
     session_factory=AsyncSessionLocal,
 ) -> bool:
     """통화 사건표를 생체신호 업로드 대기 행으로 저장"""
@@ -55,6 +57,7 @@ async def save_call_timeline(
                 scenario_id=scenario_id,
                 session_type=session_type,
                 difficulty=difficulty,
+                ai_personality=ai_personality,
                 status=STATUS_AWAITING_DATA,
                 timeline=timeline,
                 created_at=now_utc(),
@@ -189,6 +192,29 @@ async def sweep_expired_raw(db: AsyncSession, storage, now: datetime) -> None:
             continue
         row.raw_key = None
         row.raw_expires_at = None
+
+
+async def trend_rows(db: AsyncSession, user_id: int) -> list[dict]:
+    """추세에 쓸 최근 분석 회차(날짜 오름차 순)"""
+    stmt = (
+        select(CallBiosignalORM)
+        .where(CallBiosignalORM.user_id == user_id, CallBiosignalORM.status == STATUS_ANALYZED)
+        .order_by(CallBiosignalORM.created_at.desc())
+        .limit(TREND_SESSIONS)
+    )
+    rows = (await db.execute(stmt)).scalars().all()
+    return [
+        {
+            "session_id": row.session_id,
+            "at": ensure_utc(row.created_at).isoformat(),
+            "scenario_id": row.scenario_id,
+            "difficulty": row.difficulty,
+            "ai_personality": row.ai_personality,
+            "session_type": row.session_type,
+            "metrics": row.metrics,
+        }
+        for row in reversed(rows)
+    ]
 
 
 def view(row: CallBiosignalORM) -> dict:
