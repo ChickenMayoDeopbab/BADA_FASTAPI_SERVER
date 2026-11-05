@@ -57,6 +57,16 @@ class RecordingStorageService:
         )
         return key
 
+    def upload_encrypted(self, key: str, data: bytes) -> str | None:
+        """KMS 로 암호화해서 올림 키가 없으면 평문으로 올리지 않고 실패한다"""
+        if not self._bucket or not data or self._client is None:
+            return None
+        if not self._kms_key_id:
+            raise RuntimeError("recording_kms_key_id 미설정 - 평문으로 올리지 않음")
+        body = recording_crypto.encrypt(data, s3_key=key, kms=self._kms_client(), key_id=self._kms_key_id)
+        self._client.put_object(Bucket=self._bucket, Key=key, Body=body, ContentType="application/octet-stream")
+        return key
+
     def upload_wav(self, key: str, pcm: bytes) -> str | None:
         if not self._bucket or not pcm:
             return None
