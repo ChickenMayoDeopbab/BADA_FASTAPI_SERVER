@@ -177,6 +177,15 @@ def _cap_history(history: list[dict]) -> list[dict]:
     return kept
 
 
+def parse_ai_personality(session: dict[str, Any]) -> AiPersonality:
+    raw_personality = session.get("aiPersonality", AiPersonality.NORMAL.value)
+    try:
+        return AiPersonality(str(raw_personality).upper())
+    except ValueError:
+        logger.warning("알 수 없는 aiPersonality, NORMAL로 대체: %r", raw_personality)
+        return AiPersonality.NORMAL
+
+
 def build_turn_context(
     session: dict[str, Any],
     *,
@@ -184,12 +193,7 @@ def build_turn_context(
     history: list[dict],
     user_utterance: str,
 ) -> TurnContext:
-    raw_personality = session.get("aiPersonality", AiPersonality.NORMAL.value)
-    try:
-        personality = AiPersonality(str(raw_personality).upper())
-    except ValueError:
-        logger.warning("알 수 없는 aiPersonality, NORMAL로 대체: %r", raw_personality)
-        personality = AiPersonality.NORMAL
+    personality = parse_ai_personality(session)
 
     scenario = session.get("scenario") or {}
     if not isinstance(scenario, dict):
