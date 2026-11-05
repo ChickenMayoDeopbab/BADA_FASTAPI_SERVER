@@ -66,7 +66,17 @@ async def delete_user_data(
         ).scalars()
     )
 
-    await _delete_owned_s3_objects(training_rows, scenario_rows, storage)
+    raw_keys = list(
+        (
+            await db.execute(
+                select(CallBiosignalORM.raw_key).where(
+                    CallBiosignalORM.user_id == user_id, CallBiosignalORM.raw_key.is_not(None)
+                )
+            )
+        ).scalars()
+    )
+
+    await _delete_owned_s3_objects(training_rows, scenario_rows, storage, extra_keys=raw_keys)
 
     training_ids = [row.record_id for row in training_rows]
     session_ids = [row.session_id for row in training_rows]
@@ -131,6 +141,8 @@ async def _delete_owned_s3_objects(
     training_rows,
     scenario_rows,
     storage: RecordingStorageService | None,
+    *,
+    extra_keys: list[str] = (),
 ) -> None:
     keys = {
         morphed_key(row.recording_key)
@@ -143,6 +155,7 @@ async def _delete_owned_s3_objects(
         for key in (row.scenario_image, row.example_audio_url)
         if key
     )
+    keys.update(extra_keys)
     if not keys:
         return
 
