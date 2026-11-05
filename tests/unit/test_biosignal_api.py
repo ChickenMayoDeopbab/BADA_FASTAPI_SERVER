@@ -9,6 +9,7 @@ import httpx
 import pytest
 from fastapi import FastAPI
 from sqlalchemy import select, text
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
@@ -21,6 +22,7 @@ from app.db.models import CallBiosignalORM, FeedbackORM
 from app.deps.auth import get_current_user_id
 from app.deps.db import get_db
 from app.schemas.biosignal import MAX_BODY_BYTES
+from app.services import biosignal_service as svc
 from app.services import recording_crypto
 from app.services.recording_storage import RecordingStorageService
 from app.services.training_data_cleanup import delete_training_data
@@ -361,6 +363,47 @@ async def test_record_and_account_deletion_remove_raw_objects() -> None:
 
         assert env.storage.deleted == ["biosignal-raw/sess-1.json.gz", "biosignal-raw/sess-2.json.gz"]
         assert remaining == ["sess-9"]
+
+
+class _CapturingDb:
+    def __init__(self) -> None:
+        self.statements = []
+
+    async def execute(self, stmt):
+        self.statements.append(stmt)
+        return self
+
+    def scalar_one_or_none(self) -> None:
+        return None
+
+
+async def test_find_owned_locks_the_row_only_when_asked() -> None:
+    db = _CapturingDb()
+
+    await svc.find_owned(db, "sess-1", 7, for_update=True)
+    await svc.find_owned(db, "sess-1", 7)
+
+    locked, plain = (str(stmt.compile(dialect=postgresql.dialect())) for stmt in db.statements)
+    assert locked.rstrip().endswith("FOR UPDATE")
+    assert "FOR UPDATE" not in plain
+
+
+async def test_upload_locks_the_row_and_get_does_not(monkeypatch) -> None:
+    locks = []
+    original = svc.find_owned
+
+    async def spy(db, session_id, user_id, **kwargs):
+        locks.append(kwargs.get("for_update", False))
+        return await original(db, session_id, user_id, **kwargs)
+
+    monkeypatch.setattr(svc, "find_owned", spy)
+    async with _env() as env:
+        await _seed(env)
+
+        assert (await env.client.post("/api/v1/biosignals/sess-1", json=_payload())).status_code == 200
+        assert (await env.client.get("/api/v1/biosignals/sess-1")).status_code == 200
+
+    assert locks == [True, False]
 
 
 def test_the_app_serves_the_biosignal_routes() -> None:
