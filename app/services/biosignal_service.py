@@ -4,10 +4,11 @@ import json
 import logging
 from datetime import datetime, timedelta
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.timeutil import ensure_utc, now_utc
 from app.db.base import AsyncSessionLocal
 from app.db.models import CallBiosignalORM, FeedbackORM
@@ -17,6 +18,8 @@ from app.services.biosignal.eda import analyze_eda
 from app.services.biosignal.fusion import fuse_turns
 from app.services.biosignal.ppg import analyze_ppg
 from app.services.biosignal.skin_temp import analyze_skin_temp
+from app.services.morphed_recording import build_storage
+from app.services.recording_storage import RecordingStorageService
 
 logger = logging.getLogger(__name__)
 
@@ -199,6 +202,22 @@ async def sweep_expired_raw(db: AsyncSession, storage, now: datetime) -> None:
             continue
         row.raw_key = None
         row.raw_expires_at = None
+
+
+async def delete_user_biosignals(
+    db: AsyncSession, user_id: int, *, storage: RecordingStorageService | None = None,
+) -> int:
+    """동의 철회 때 그 사용자의 생체신호 행과 원시 신호를 파기한다"""
+    stmt = select(CallBiosignalORM.raw_key).where(CallBiosignalORM.user_id == user_id).with_for_update()
+    raw_keys = list((await db.execute(stmt)).scalars())
+    keys = sorted({key for key in raw_keys if key})
+    if keys:
+        recording_storage = storage or build_storage(get_settings())
+        for key in keys:
+            await asyncio.to_thread(recording_storage.delete, key)
+    await db.execute(delete(CallBiosignalORM).where(CallBiosignalORM.user_id == user_id))
+    await db.commit()
+    return len(raw_keys)
 
 
 async def trend_rows(db: AsyncSession, user_id: int) -> list[dict]:
