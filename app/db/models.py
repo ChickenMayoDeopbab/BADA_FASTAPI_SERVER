@@ -106,6 +106,7 @@ class CallBiosignalORM(Base):
     scenario_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     session_type: Mapped[str | None] = mapped_column(String(16), nullable=True)
     difficulty: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    ai_personality: Mapped[str | None] = mapped_column(String(16), nullable=True)
     status: Mapped[str] = mapped_column(String(16), nullable=False)
     timeline: Mapped[dict] = mapped_column(JSON, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
