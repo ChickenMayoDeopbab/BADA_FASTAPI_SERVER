@@ -20,6 +20,7 @@ from app.db.external import external_metadata, users_table
 from app.db.models import CallBiosignalORM, FeedbackORM
 from app.deps.auth import get_current_user_id
 from app.deps.db import get_db
+from app.schemas.biosignal import MAX_BODY_BYTES
 from app.services import recording_crypto
 from app.services.recording_storage import RecordingStorageService
 from app.services.training_data_cleanup import delete_training_data
@@ -163,7 +164,8 @@ async def test_upload_analyzes_and_stores_the_session() -> None:
         body = response.json()
         assert (body["status"], body["source"]) == ("ANALYZED", "samsung_sensor_sdk")
         metrics = body["metrics"]
-        assert set(metrics) == {"cardiac", "eda", "skin_temp", "fusion"}
+        assert set(metrics) == {"cardiac", "eda", "skin_temp", "fusion", "ppg"}
+        assert metrics["ppg"]["status"] == "UNAVAILABLE"
         assert (metrics["cardiac"]["baseline"]["value"], metrics["cardiac"]["baseline"]["source"]) == (70.0, "rest")
         assert metrics["cardiac"]["hrv"]["baseline"]["status"] == "MEASURED"
         assert {t["change_vs_baseline_pct"] for t in metrics["eda"]["turns"].values()} == {40.0}
@@ -227,10 +229,12 @@ async def test_too_large_or_invalid_payloads_leave_the_timeline_waiting() -> Non
         await _seed(env)
 
         large = await env.client.post(
-            "/api/v1/biosignals/sess-1", content=b"x" * (512 * 1024 + 1), headers={"content-type": "application/json"},
+            "/api/v1/biosignals/sess-1",
+            content=b"x" * (MAX_BODY_BYTES + 1),
+            headers={"content-type": "application/json"},
         )
         wrong_version = await env.client.post("/api/v1/biosignals/sess-1", json=_payload(v=2))
-        extra_field = await env.client.post("/api/v1/biosignals/sess-1", json=_payload(ppg=[]))
+        extra_field = await env.client.post("/api/v1/biosignals/sess-1", json=_payload(spo2=[]))
         wrong_source = await env.client.post("/api/v1/biosignals/sess-1", json=_payload(source="fitbit"))
 
         assert (large.status_code, large.json()["detail"]) == (413, "PAYLOAD_TOO_LARGE")
