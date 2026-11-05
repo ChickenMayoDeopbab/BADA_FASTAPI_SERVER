@@ -6,6 +6,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1 import internal, websocket
+from app.api.v1.biosignal import router as biosignal_router
 from app.api.v1.community import router as community_router
 from app.api.v1.community_admin import router as community_admin_router
 from app.api.v1.inquiries import router as inquiry_router
@@ -99,6 +100,7 @@ def create_app() -> FastAPI:
     app.include_router(community_router)
     app.include_router(community_admin_router)
     app.include_router(inquiry_router)
+    app.include_router(biosignal_router)
     return app
 
 app = create_app()
