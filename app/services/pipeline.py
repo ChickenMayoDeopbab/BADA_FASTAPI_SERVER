@@ -59,6 +59,7 @@ from app.services.qwen_tts import (
 from app.services.recording_storage import RecordingStorageService
 from app.services.session import (
     build_turn_context,
+    parse_ai_personality,
     parse_difficulty,
     parse_scenario_id,
     parse_user_id,
@@ -1993,6 +1994,7 @@ class VoicePipeline:
                     session_type=session_type[:16] if isinstance(session_type, str) else None,
                     difficulty=getattr(getattr(self, "_difficulty", None), "value", None),
                     timeline=timeline.as_dict(),
+                    ai_personality=parse_ai_personality(self._session).value,
                 )
             except Exception:
                 logger.warning("생체신호 사건표 저장 실패", exc_info=True, extra={"session_id": self._session_id})
