@@ -13,6 +13,7 @@ from app.deps.auth import ensure_biosignal_consent, get_current_user_id
 from app.deps.db import get_db
 from app.schemas.biosignal import MAX_BODY_BYTES, BiosignalUpload
 from app.services import biosignal_service as svc
+from app.services.biosignal.trend import summarize_trend
 from app.services.recording_storage import RecordingStorageService
 
 logger = logging.getLogger(__name__)
@@ -100,6 +101,16 @@ async def upload_biosignal(
         raw=raw_key is not None,
     )
     return svc.view(row)
+
+
+@router.get("/trend", summary="생체신호 회차 추세 조회")
+async def get_biosignal_trend(
+    db: AsyncSession = Depends(get_db),
+    user_id: int = Depends(get_current_user_id),
+    settings: Settings = Depends(get_settings),
+) -> dict:
+    _require_enabled(settings)
+    return summarize_trend(await svc.trend_rows(db, user_id))
 
 
 @router.get("/{session_id}", summary="통화 생체신호 분석 결과 조회")
