@@ -133,6 +133,7 @@ class Settings(BaseSettings):
     biosignal_raw_user_ids: str = ""
     biosignal_raw_retention_days: int = 90
 
+
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
