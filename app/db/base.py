@@ -110,6 +110,7 @@ async def init_db() -> None:
                 "analyzed_at TIMESTAMPTZ NULL",
                 "raw_key VARCHAR(512) NULL",
                 "raw_expires_at TIMESTAMPTZ NULL",
+                "ai_personality VARCHAR(16) NULL",
             ):
                 await conn.execute(text(f"ALTER TABLE call_biosignal ADD COLUMN IF NOT EXISTS {column}"))
 
