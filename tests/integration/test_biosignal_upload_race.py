@@ -6,6 +6,7 @@ import re
 import threading
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
+from datetime import timedelta
 from pathlib import Path
 
 import httpx
@@ -60,10 +61,18 @@ class _CountingStorage(_Storage):
     def __init__(self) -> None:
         super().__init__()
         self.keys: list[str] = []
+        self.deleting = threading.Event()
+        self.allow_delete = threading.Event()
+        self.allow_delete.set()
 
     def upload_encrypted(self, key: str, data: bytes) -> str:
         self.keys.append(key)
         return super().upload_encrypted(key, data)
+
+    def delete(self, key: str) -> bool:
+        self.deleting.set()
+        self.allow_delete.wait(10)
+        return super().delete(key)
 
 
 class _GatedAnalysis:
@@ -94,10 +103,20 @@ class RaceEnv:
     sessions: async_sessionmaker
     storage: _CountingStorage
 
-    async def row(self) -> CallBiosignalORM:
+    async def row(self, session_id: str = "sess-1") -> CallBiosignalORM:
         async with self.sessions() as session:
-            stmt = select(CallBiosignalORM).where(CallBiosignalORM.session_id == "sess-1")
+            stmt = select(CallBiosignalORM).where(CallBiosignalORM.session_id == session_id)
             return (await session.execute(stmt)).scalar_one()
+
+    async def add(self, session_id: str, **fields) -> None:
+        row = {
+            "session_id": session_id, "user_id": 7, "scenario_id": 3, "session_type": "SCENARIO",
+            "status": "AWAITING_DATA", "timeline": _timeline(), "created_at": now_utc(),
+        }
+        row.update(fields)
+        async with self.sessions() as session:
+            session.add(CallBiosignalORM(**row))
+            await session.commit()
 
 
 @pytest.fixture
@@ -182,3 +201,51 @@ async def test_failed_upload_rolls_back_and_the_waiting_upload_analyzes(race_env
     assert gate.calls == 2
     assert race_env.storage.keys == [_RAW_KEY]
     assert (await race_env.row()).status == "ANALYZED"
+
+
+async def test_stale_cleanup_does_not_make_another_call_wait(race_env: RaceEnv, monkeypatch) -> None:
+    await race_env.add("sess-old", created_at=now_utc() - timedelta(hours=25))
+    await race_env.add("sess-2")
+    gate = _GatedAnalysis()
+    monkeypatch.setattr(svc, "analyze_upload", gate)
+
+    first = asyncio.create_task(race_env.client.post(_URL, json=_payload()))
+    other = None
+    try:
+        assert await asyncio.to_thread(gate.started.wait, 10)
+        other = asyncio.create_task(race_env.client.post("/api/v1/biosignals/sess-2", json=_payload()))
+        await asyncio.wait({other}, timeout=2)
+        assert other.done()
+    finally:
+        gate.release.set()
+        await asyncio.gather(first, *([other] if other else []), return_exceptions=True)
+
+    assert (first.result().status_code, other.result().status_code) == (200, 200)
+    assert (await race_env.row("sess-old")).status == "EXPIRED"
+
+
+async def test_raw_sweep_runs_after_the_row_lock_is_released(race_env: RaceEnv, monkeypatch) -> None:
+    expired_key = "biosignal-raw/sess-raw.json.gz"
+    await race_env.add(
+        "sess-raw", status="ANALYZED", metrics={}, raw_key=expired_key, raw_expires_at=now_utc() - timedelta(days=1),
+    )
+    gate = _GatedAnalysis()
+    gate.release.set()
+    monkeypatch.setattr(svc, "analyze_upload", gate)
+    race_env.storage.allow_delete.clear()
+
+    first = asyncio.create_task(race_env.client.post(_URL, json=_payload()))
+    duplicate = None
+    try:
+        assert await asyncio.to_thread(race_env.storage.deleting.wait, 10)
+        duplicate = asyncio.create_task(race_env.client.post(_URL, json=_payload()))
+        await asyncio.wait({duplicate}, timeout=2)
+        assert duplicate.done()
+    finally:
+        race_env.storage.allow_delete.set()
+        await asyncio.gather(first, *([duplicate] if duplicate else []), return_exceptions=True)
+
+    assert (first.result().status_code, duplicate.result().status_code) == (200, 409)
+    assert gate.calls == 1
+    assert race_env.storage.deleted == [expired_key]
+    assert (await race_env.row("sess-raw")).raw_key is None
