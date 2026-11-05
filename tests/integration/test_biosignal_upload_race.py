@@ -1,0 +1,310 @@
+from __future__ import annotations
+
+import asyncio
+import os
+import re
+import threading
+from collections.abc import AsyncIterator
+from dataclasses import dataclass
+from datetime import timedelta
+from pathlib import Path
+
+import httpx
+import pytest
+from fastapi import FastAPI
+from sqlalchemy import func, select, text
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+from app.api.v1.biosignal import get_biosignal_storage, router
+from app.core.config import get_settings
+from app.core.timeutil import now_utc
+from app.db.base import Base
+from app.db.external import external_metadata, users_table
+from app.db.models import CallBiosignalORM
+from app.deps.auth import get_current_user_id
+from app.deps.db import get_db
+from app.services import biosignal_service as svc
+from app.services.training_data_cleanup import delete_training_data
+from app.services.user_data_cleanup import delete_user_data
+from tests.unit.test_biosignal_api import USERS, _payload, _Storage
+from tests.unit.test_biosignal_cardiac import _timeline
+
+_ENV = Path(__file__).resolve().parents[2] / ".env"
+_TEMP_DB = f"bada_biosignal_race_{os.getpid()}"
+_URL = "/api/v1/biosignals/sess-1"
+_RAW_KEY = "biosignal-raw/sess-1.json.gz"
+
+
+def _admin_dsn() -> str | None:
+    if not _ENV.exists():
+        return None
+    found = re.search(r"^DATABASE_URL=(.+)$", _ENV.read_text(), re.M)
+    return found.group(1).strip() if found else None
+
+
+_DSN = _admin_dsn()
+
+pytestmark = pytest.mark.skipif(
+    _DSN is None, reason=".env 에 DATABASE_URL 이 없어 로컬 Postgres 로 검증할 수 없다"
+)
+
+
+async def _admin(*statements: str) -> None:
+    admin = create_async_engine(_DSN, isolation_level="AUTOCOMMIT")
+    try:
+        async with admin.connect() as conn:
+            for statement in statements:
+                await conn.execute(text(statement))
+    finally:
+        await admin.dispose()
+
+
+class _CountingStorage(_Storage):
+    def __init__(self) -> None:
+        super().__init__()
+        self.keys: list[str] = []
+        self.deleting = threading.Event()
+        self.allow_delete = threading.Event()
+        self.allow_delete.set()
+
+    def upload_encrypted(self, key: str, data: bytes) -> str:
+        self.keys.append(key)
+        return super().upload_encrypted(key, data)
+
+    def delete(self, key: str) -> bool:
+        self.deleting.set()
+        self.allow_delete.wait(10)
+        return super().delete(key)
+
+
+class _GatedAnalysis:
+    """첫 호출은 release 까지 붙잡고(fail_first 면 그 뒤 실패), 나머지는 바로 끝나는 분석 대역"""
+
+    def __init__(self, *, fail_first: bool = False) -> None:
+        self.calls = 0
+        self.started = threading.Event()
+        self.release = threading.Event()
+        self.fail_first = fail_first
+        self._lock = threading.Lock()
+
+    def __call__(self, timeline: dict, payload: dict, previous: list[float], turn_metrics: dict | None) -> dict:
+        with self._lock:
+            self.calls += 1
+            first = self.calls == 1
+        if first:
+            self.started.set()
+            self.release.wait(10)
+            if self.fail_first:
+                raise RuntimeError("분석 실패")
+        return {"cardiac": {"status": "MEASURED"}}
+
+
+@dataclass
+class RaceEnv:
+    client: httpx.AsyncClient
+    sessions: async_sessionmaker
+    storage: _CountingStorage
+
+    async def row(self, session_id: str = "sess-1") -> CallBiosignalORM:
+        async with self.sessions() as session:
+            stmt = select(CallBiosignalORM).where(CallBiosignalORM.session_id == session_id)
+            return (await session.execute(stmt)).scalar_one()
+
+    async def add(self, session_id: str, **fields) -> None:
+        row = {
+            "session_id": session_id, "user_id": 7, "scenario_id": 3, "session_type": "SCENARIO",
+            "status": "AWAITING_DATA", "timeline": _timeline(), "created_at": now_utc(),
+        }
+        row.update(fields)
+        async with self.sessions() as session:
+            session.add(CallBiosignalORM(**row))
+            await session.commit()
+
+    async def count(self) -> int:
+        async with self.sessions() as session:
+            return (await session.execute(select(func.count()).select_from(CallBiosignalORM))).scalar_one()
+
+
+@pytest.fixture
+async def race_env() -> AsyncIterator[RaceEnv]:
+    drop = f'DROP DATABASE IF EXISTS "{_TEMP_DB}" WITH (FORCE)'
+    try:
+        await _admin(drop, f'CREATE DATABASE "{_TEMP_DB}"')
+    except Exception as exc:
+        pytest.skip(f"로컬 Postgres 에 붙을 수 없다: {exc}")
+
+    engine = create_async_engine(_DSN.rsplit("/", 1)[0] + "/" + _TEMP_DB)
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+            await conn.run_sync(external_metadata.create_all)
+            await conn.execute(text("ALTER TABLE file ADD COLUMN user_id BIGINT"))
+            await conn.execute(users_table.insert().values(**USERS[0]))
+        sessions = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
+        async with sessions() as session:
+            session.add(CallBiosignalORM(
+                session_id="sess-1", user_id=7, scenario_id=3, session_type="SCENARIO",
+                status="AWAITING_DATA", timeline=_timeline(), created_at=now_utc(),
+            ))
+            await session.commit()
+
+        async def _get_db() -> AsyncIterator[AsyncSession]:
+            async with sessions() as session:
+                yield session
+
+        storage = _CountingStorage()
+        settings = get_settings().model_copy(update={"biosignal_enabled": True, "biosignal_raw_user_ids": "7"})
+        app = FastAPI()
+        app.include_router(router)
+        app.dependency_overrides[get_db] = _get_db
+        app.dependency_overrides[get_current_user_id] = lambda: 7
+        app.dependency_overrides[get_settings] = lambda: settings
+        app.dependency_overrides[get_biosignal_storage] = lambda: storage
+        transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            yield RaceEnv(client=client, sessions=sessions, storage=storage)
+    finally:
+        await engine.dispose()
+        await _admin(drop)
+
+
+async def _race(env: RaceEnv, gate: _GatedAnalysis) -> list[httpx.Response]:
+    first = asyncio.create_task(env.client.post(_URL, json=_payload()))
+    second = None
+    try:
+        assert await asyncio.to_thread(gate.started.wait, 10)
+        second = asyncio.create_task(env.client.post(_URL, json=_payload()))
+        await asyncio.sleep(0.5)
+        assert not second.done()
+        assert gate.calls == 1
+    finally:
+        gate.release.set()
+        results = await asyncio.gather(first, *([second] if second else []), return_exceptions=True)
+    return list(results)
+
+
+async def test_concurrent_uploads_of_one_call_analyze_once(race_env: RaceEnv, monkeypatch) -> None:
+    gate = _GatedAnalysis()
+    monkeypatch.setattr(svc, "analyze_upload", gate)
+
+    first, second = await _race(race_env, gate)
+
+    assert (first.status_code, second.status_code) == (200, 409)
+    assert second.json()["detail"] == "ALREADY_ANALYZED"
+    assert gate.calls == 1
+    assert race_env.storage.keys == [_RAW_KEY]
+    row = await race_env.row()
+    assert (row.status, row.raw_key) == ("ANALYZED", _RAW_KEY)
+
+
+async def test_failed_upload_rolls_back_and_the_waiting_upload_analyzes(race_env: RaceEnv, monkeypatch) -> None:
+    gate = _GatedAnalysis(fail_first=True)
+    monkeypatch.setattr(svc, "analyze_upload", gate)
+
+    first, second = await _race(race_env, gate)
+
+    assert (first.status_code, second.status_code) == (500, 200)
+    assert second.json()["status"] == "ANALYZED"
+    assert gate.calls == 2
+    assert race_env.storage.keys == [_RAW_KEY]
+    assert (await race_env.row()).status == "ANALYZED"
+
+
+async def test_stale_cleanup_does_not_make_another_call_wait(race_env: RaceEnv, monkeypatch) -> None:
+    await race_env.add("sess-old", created_at=now_utc() - timedelta(hours=25))
+    await race_env.add("sess-2")
+    gate = _GatedAnalysis()
+    monkeypatch.setattr(svc, "analyze_upload", gate)
+
+    first = asyncio.create_task(race_env.client.post(_URL, json=_payload()))
+    other = None
+    try:
+        assert await asyncio.to_thread(gate.started.wait, 10)
+        other = asyncio.create_task(race_env.client.post("/api/v1/biosignals/sess-2", json=_payload()))
+        await asyncio.wait({other}, timeout=2)
+        assert other.done()
+    finally:
+        gate.release.set()
+        await asyncio.gather(first, *([other] if other else []), return_exceptions=True)
+
+    assert (first.result().status_code, other.result().status_code) == (200, 200)
+    assert (await race_env.row("sess-old")).status == "EXPIRED"
+
+
+async def test_raw_sweep_runs_after_the_row_lock_is_released(race_env: RaceEnv, monkeypatch) -> None:
+    expired_key = "biosignal-raw/sess-raw.json.gz"
+    await race_env.add(
+        "sess-raw", status="ANALYZED", metrics={}, raw_key=expired_key, raw_expires_at=now_utc() - timedelta(days=1),
+    )
+    gate = _GatedAnalysis()
+    gate.release.set()
+    monkeypatch.setattr(svc, "analyze_upload", gate)
+    race_env.storage.allow_delete.clear()
+
+    first = asyncio.create_task(race_env.client.post(_URL, json=_payload()))
+    duplicate = None
+    try:
+        assert await asyncio.to_thread(race_env.storage.deleting.wait, 10)
+        duplicate = asyncio.create_task(race_env.client.post(_URL, json=_payload()))
+        await asyncio.wait({duplicate}, timeout=2)
+        assert duplicate.done()
+    finally:
+        race_env.storage.allow_delete.set()
+        await asyncio.gather(first, *([duplicate] if duplicate else []), return_exceptions=True)
+
+    assert (first.result().status_code, duplicate.result().status_code) == (200, 409)
+    assert gate.calls == 1
+    assert race_env.storage.deleted == [expired_key]
+    assert (await race_env.row("sess-raw")).raw_key is None
+
+
+async def _during_upload(env: RaceEnv, monkeypatch, cleanup) -> tuple[httpx.Response, object]:
+    gate = _GatedAnalysis()
+    monkeypatch.setattr(svc, "analyze_upload", gate)
+    upload = asyncio.create_task(env.client.post(_URL, json=_payload()))
+    task = None
+    try:
+        assert await asyncio.to_thread(gate.started.wait, 10)
+        task = asyncio.create_task(cleanup())
+        await asyncio.wait({task}, timeout=0.5)
+        assert not task.done()
+    finally:
+        gate.release.set()
+        await asyncio.gather(upload, *([task] if task else []), return_exceptions=True)
+    return upload.result(), task.result()
+
+
+async def test_withdrawal_purge_during_an_upload_removes_its_raw(race_env: RaceEnv, monkeypatch) -> None:
+    async def purge() -> int:
+        async with race_env.sessions() as session:
+            return await svc.delete_user_biosignals(session, 7, storage=race_env.storage)
+
+    upload, purged = await _during_upload(race_env, monkeypatch, purge)
+
+    assert (upload.status_code, purged) == (200, 1)
+    assert race_env.storage.deleted == [_RAW_KEY]
+    assert await race_env.count() == 0
+
+
+async def test_record_deletion_during_an_upload_removes_its_raw(race_env: RaceEnv, monkeypatch) -> None:
+    async def delete_record() -> None:
+        async with race_env.sessions() as session:
+            await delete_training_data(session, "sess-1", storage=race_env.storage)
+
+    upload, _ = await _during_upload(race_env, monkeypatch, delete_record)
+
+    assert upload.status_code == 200
+    assert race_env.storage.deleted == [_RAW_KEY]
+    assert await race_env.count() == 0
+
+
+async def test_account_deletion_during_an_upload_removes_its_raw(race_env: RaceEnv, monkeypatch) -> None:
+    async def delete_account() -> None:
+        async with race_env.sessions() as session:
+            await delete_user_data(session, 7, storage=race_env.storage)
+
+    upload, _ = await _during_upload(race_env, monkeypatch, delete_account)
+
+    assert upload.status_code == 200
+    assert race_env.storage.deleted == [_RAW_KEY]
+    assert await race_env.count() == 0

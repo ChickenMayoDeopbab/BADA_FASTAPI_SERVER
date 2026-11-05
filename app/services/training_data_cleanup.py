@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.enums import AttachmentKind
 from app.db.external import training_records_table
-from app.db.models import FeedbackORM, PostAttachmentORM, VoiceTremorMetricORM
+from app.db.models import CallBiosignalORM, FeedbackORM, PostAttachmentORM, VoiceTremorMetricORM
 from app.services.morphed_recording import build_storage, morphed_key
 from app.services.recording_storage import RecordingStorageService
 
@@ -28,14 +28,16 @@ async def delete_training_data(
         training_records_table.c.recording_key,
     ).where(training_records_table.c.session_id == session_id)
     record = (await db.execute(record_stmt)).first()
+    raw_stmt = select(CallBiosignalORM.raw_key).where(CallBiosignalORM.session_id == session_id).with_for_update()
+    raw_keys = [key for key in (await db.execute(raw_stmt)).scalars() if key]
 
     try:
-        if record is not None and record.recording_key:
+        keys = [morphed_key(record.recording_key)] if record is not None and record.recording_key else []
+        keys += raw_keys
+        if keys:
             recording_storage = storage or build_storage(get_settings())
-            await asyncio.to_thread(
-                recording_storage.delete,
-                morphed_key(record.recording_key),
-            )
+            for key in keys:
+                await asyncio.to_thread(recording_storage.delete, key)
 
         await db.execute(delete(FeedbackORM).where(FeedbackORM.session_id == session_id))
         await db.execute(
@@ -43,6 +45,7 @@ async def delete_training_data(
                 VoiceTremorMetricORM.session_id == session_id
             )
         )
+        await db.execute(delete(CallBiosignalORM).where(CallBiosignalORM.session_id == session_id))
         if record is not None:
             await db.execute(
                 delete(PostAttachmentORM).where(

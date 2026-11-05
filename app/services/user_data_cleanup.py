@@ -10,6 +10,7 @@ from app.core.config import get_settings
 from app.core.enums import AttachmentKind
 from app.db.external import files_table, training_records_table
 from app.db.models import (
+    CallBiosignalORM,
     FeedbackORM,
     FileORM,
     PostAttachmentORM,
@@ -65,7 +66,10 @@ async def delete_user_data(
         ).scalars()
     )
 
-    await _delete_owned_s3_objects(training_rows, scenario_rows, storage)
+    raw_stmt = select(CallBiosignalORM.raw_key).where(CallBiosignalORM.user_id == user_id).with_for_update()
+    raw_keys = [key for key in (await db.execute(raw_stmt)).scalars() if key]
+
+    await _delete_owned_s3_objects(training_rows, scenario_rows, storage, extra_keys=raw_keys)
 
     training_ids = [row.record_id for row in training_rows]
     session_ids = [row.session_id for row in training_rows]
@@ -104,6 +108,7 @@ async def delete_user_data(
         await db.execute(delete(PostReactionORM).where(PostReactionORM.user_id == user_id))
 
         await db.execute(delete(FeedbackORM).where(FeedbackORM.user_id == user_id))
+        await db.execute(delete(CallBiosignalORM).where(CallBiosignalORM.user_id == user_id))
         if session_ids:
             await db.execute(
                 delete(VoiceTremorMetricORM).where(
@@ -129,6 +134,8 @@ async def _delete_owned_s3_objects(
     training_rows,
     scenario_rows,
     storage: RecordingStorageService | None,
+    *,
+    extra_keys: list[str] = (),
 ) -> None:
     keys = {
         morphed_key(row.recording_key)
@@ -141,6 +148,7 @@ async def _delete_owned_s3_objects(
         for key in (row.scenario_image, row.example_audio_url)
         if key
     )
+    keys.update(extra_keys)
     if not keys:
         return
 

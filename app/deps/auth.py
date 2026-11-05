@@ -48,6 +48,18 @@ async def ensure_sensitive_information_consent(db: AsyncSession, user_id: int) -
         )
 
 
+async def ensure_biosignal_consent(db: AsyncSession, user_id: int) -> None:
+    stmt = select(
+        users_table.c.biosignal_agreed_at,
+        users_table.c.biosignal_withdrawn_at,
+    ).where(users_table.c.user_id == user_id)
+    row = (await db.execute(stmt)).first()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="USER_NOT_FOUND")
+    if row.biosignal_agreed_at is None or row.biosignal_withdrawn_at is not None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="BIOSIGNAL_CONSENT_REQUIRED")
+
+
 async def get_current_user_id(
     credentials: HTTPAuthorizationCredentials = Depends(_bearer), db: AsyncSession = Depends(get_db)
 ) -> int:

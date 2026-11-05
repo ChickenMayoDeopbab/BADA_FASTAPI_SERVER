@@ -31,6 +31,8 @@ from app.schemas.frames import (
     transcript_frame,
 )
 from app.schemas.llm import AiEmotion, LLMEventType, TurnContext
+from app.services.biosignal_service import save_call_timeline
+from app.services.call_timeline import CallTimeline
 from app.services.csm_tts import try_acquire_realtime_csm
 from app.services.feedback_points import (
     LATE_ANSWER_SEC,
@@ -57,6 +59,7 @@ from app.services.qwen_tts import (
 from app.services.recording_storage import RecordingStorageService
 from app.services.session import (
     build_turn_context,
+    parse_ai_personality,
     parse_difficulty,
     parse_scenario_id,
     parse_user_id,
@@ -244,6 +247,7 @@ class VoicePipeline:
     _pending_greeting: str | None = None  # 첫 마이크 오디오가 오면 말할 첫마디
     _greeting_source: str | None = None
     _greeting_dropped: int = 0  # 첫마디 중 버린 FINAL 수
+    _timeline: CallTimeline | None = None
 
     def __init__(
         self,
@@ -291,6 +295,7 @@ class VoicePipeline:
         self._server_wait_duration_ms = 0
         self._completed_script_steps = 0
         self._usage = SessionUsage()
+        self._timeline = CallTimeline() if getattr(settings, "biosignal_enabled", False) else None
 
         self._user_turn_intervals: list[tuple[float, float]] = []
         self._user_turn_texts: list[str] = []
@@ -322,6 +327,7 @@ class VoicePipeline:
 
     async def run(self) -> None:
         """진입점"""
+        self._mark("call_open")
         await self._init_qwen_tts()
         await self._prepare_greeting()
         warmup_task = asyncio.create_task(self._llm.warmup())
@@ -383,6 +389,8 @@ class VoicePipeline:
                         self._start_greeting()
                     if not self._muted:
                         self._last_audio_at = now_ms()
+                        if self._timeline is not None:
+                            self._timeline.audio(self._buf_sec())
                         self._tremor_buf.extend(msg["bytes"])
                         await self._audio_queue.put(msg["bytes"])
                 elif msg.get("text") is not None:
@@ -400,11 +408,15 @@ class VoicePipeline:
             return
         mtype = data.get("type")
         if mtype == "end":
+            self._clock_pair(data)
             await self._close(EndReason.USER_END, source="end_frame")
         elif mtype == "ping":
+            self._clock_pair(data)
             await self._send_json({"type": "pong"})
         elif mtype == "mute":
             self._muted = bool(data.get("muted", False))
+            if self._timeline is not None:
+                self._timeline.mute(self._muted)
         elif mtype == "playback_stats":
             log_metric(
                 "client_playback",
@@ -423,9 +435,13 @@ class VoicePipeline:
                 if not playback.done.is_set():
                     # 마이크 소리와 같은 연결로 오는 신호라, 지금까지 받은 녹음 길이가 곧 재생이 끝난 때다.
                     self._ai_heard_at = self._buf_sec()
+                    self._mark("ai_playback_done", playback=turn_id)
                 playback.done.set()
         elif mtype == "playback_capabilities":
             self._playback_ack_supported = data.get("completion_ack") is True
+        elif mtype == "biosignal_intent":
+            if self._timeline is not None:
+                self._timeline.intend(data)
 
     async def _stt_consumer(self) -> None:
         """stt 소비 발화마다 스트림 재오픈함"""
@@ -784,6 +800,7 @@ class VoicePipeline:
                         await self._ws.send_bytes(pcm)
                         self._ai_pcm_bytes += len(pcm)
                         self._playback.record(len(pcm))
+                        self._mark_ai_audio()
                     except Exception:
                         self._ws_alive = False
                         break
@@ -1197,6 +1214,7 @@ class VoicePipeline:
         playback = self._playback
         if playback is not None:
             playback.sent_end = True
+        self._mark("ai_speaking_end", playback=playback.turn_id if playback else None)
         await self._send_json(speaking_end_frame(playback.turn_id if playback else None))
 
     def _coalesce_target_bytes(self) -> int:
@@ -1236,6 +1254,7 @@ class VoicePipeline:
                         await self._ws.send_bytes(pcm)
                         self._ai_pcm_bytes += len(pcm)
                         self._playback.record(len(pcm))
+                        self._mark_ai_audio()
                     except Exception:
                         self._ws_alive = False
                         break
@@ -1415,6 +1434,7 @@ class VoicePipeline:
             return
         self._end_reason = reason
         self._closing.set()
+        self._mark("call_close", reason=reason.value)
         with suppress(Exception):
             fields = {
                 "session_id": self._session_id,
@@ -1638,6 +1658,7 @@ class VoicePipeline:
                 await self._send_json(end_frame(reason, feedback))
             with suppress(Exception):
                 await self._ws.close()
+        await self._save_biosignal_timeline()
 
     def _usage_acc(self) -> SessionUsage:
         acc = getattr(self, "_usage", None)
@@ -1954,6 +1975,38 @@ class VoicePipeline:
             turn_metrics=self._turn_metrics_for_storage(),
         )
 
+    async def _save_biosignal_timeline(self) -> None:
+        """실제 측정을 알린 통화만 업로드로 넘김"""
+        timeline = self._timeline
+        if timeline is None or timeline.intent is None:
+            return
+        saved = False
+        user_id = parse_user_id(self._session)
+        if user_id is None:
+            logger.warning("생체신호 사건표 저장 스킵 — 세션에 userId 없음", extra={"session_id": self._session_id})
+        else:
+            session_type = self._session.get("type")
+            try:
+                saved = await save_call_timeline(
+                    session_id=self._session_id,
+                    user_id=user_id,
+                    scenario_id=parse_scenario_id(self._session),
+                    session_type=session_type[:16] if isinstance(session_type, str) else None,
+                    difficulty=getattr(getattr(self, "_difficulty", None), "value", None),
+                    timeline=timeline.as_dict(),
+                    ai_personality=parse_ai_personality(self._session).value,
+                )
+            except Exception:
+                logger.warning("생체신호 사건표 저장 실패", exc_info=True, extra={"session_id": self._session_id})
+        log_metric(
+            "biosignal_timeline",
+            session_id=self._session_id,
+            events=len(timeline.events),
+            anchors=len(timeline.anchors),
+            clock_pairs=len(timeline.clock_pairs),
+            saved=saved,
+        )
+
     async def _send_json(self, payload: dict) -> None:
         """송신 도움"""
         if not self._ws_alive:
@@ -1975,15 +2028,29 @@ class VoicePipeline:
                 extra={"session_id": self._session_id},
             )
 
+    def _mark(self, kind: str, **fields: object) -> None:
+        if self._timeline is not None:
+            self._timeline.mark(kind, **fields)
+
+    def _mark_ai_audio(self) -> None:
+        if self._timeline is not None and self._playback is not None:
+            self._timeline.ai_audio(self._playback.turn_id)
+
+    def _clock_pair(self, data: dict) -> None:
+        if self._timeline is not None:
+            self._timeline.clock_pair(data.get("phone_ms"))
+
     def _buf_sec(self) -> float:
         return len(self._tremor_buf) / (16000 * 2)
 
     def _open_user_turn(self) -> None:
         self._turn_open_at = self._buf_sec()
+        self._mark("user_turn_open", turn=len(self._user_turn_intervals) + 1)
 
     def _close_user_turn(self, text: str = "") -> None:
         if self._turn_open_at is not None:
             self._user_turn_intervals.append((self._turn_open_at, self._buf_sec()))
+            self._mark("user_turn_close", turn=len(self._user_turn_intervals))
             self._user_turn_texts.append(text)
             # 끝난 뒤 대화 기록에서 번호로 찾으면 글 없는 턴 때문에 한 칸씩 밀린다. 지금 적어 둔다.
             self._user_turn_prompts.append(self._last_ai_utterance())
