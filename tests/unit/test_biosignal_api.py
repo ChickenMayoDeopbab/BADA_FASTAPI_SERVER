@@ -406,6 +406,20 @@ async def test_upload_locks_the_row_and_get_does_not(monkeypatch) -> None:
     assert locks == [True, False]
 
 
+async def test_a_failing_raw_sweep_does_not_fail_a_committed_upload(monkeypatch) -> None:
+    async def broken_sweep(*args, **kwargs):
+        raise RuntimeError("sweep down")
+
+    monkeypatch.setattr(svc, "sweep_expired_raw", broken_sweep)
+    async with _env() as env:
+        await _seed(env)
+
+        response = await env.client.post("/api/v1/biosignals/sess-1", json=_payload())
+
+        assert (response.status_code, response.json()["status"]) == (200, "ANALYZED")
+        assert (await _row(env)).status == "ANALYZED"
+
+
 def test_the_app_serves_the_biosignal_routes() -> None:
     from app.main import create_app
 
