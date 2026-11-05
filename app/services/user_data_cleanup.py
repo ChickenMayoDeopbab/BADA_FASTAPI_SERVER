@@ -66,15 +66,8 @@ async def delete_user_data(
         ).scalars()
     )
 
-    raw_keys = list(
-        (
-            await db.execute(
-                select(CallBiosignalORM.raw_key).where(
-                    CallBiosignalORM.user_id == user_id, CallBiosignalORM.raw_key.is_not(None)
-                )
-            )
-        ).scalars()
-    )
+    raw_stmt = select(CallBiosignalORM.raw_key).where(CallBiosignalORM.user_id == user_id).with_for_update()
+    raw_keys = [key for key in (await db.execute(raw_stmt)).scalars() if key]
 
     await _delete_owned_s3_objects(training_rows, scenario_rows, storage, extra_keys=raw_keys)
 
