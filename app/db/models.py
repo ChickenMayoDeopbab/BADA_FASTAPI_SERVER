@@ -109,6 +109,12 @@ class CallBiosignalORM(Base):
     status: Mapped[str] = mapped_column(String(16), nullable=False)
     timeline: Mapped[dict] = mapped_column(JSON, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    source: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    device: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    metrics: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    analyzed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    raw_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    raw_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 class FileORM(Base):
     __tablename__ = "file"
