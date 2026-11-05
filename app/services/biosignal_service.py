@@ -91,8 +91,13 @@ async def expire_stale(db: AsyncSession, now: datetime) -> None:
     )
 
 
-async def find_owned(db: AsyncSession, session_id: str, user_id: int) -> CallBiosignalORM | None:
+async def find_owned(
+    db: AsyncSession, session_id: str, user_id: int, *, for_update: bool = False,
+) -> CallBiosignalORM | None:
+    """내 통화의 생체신호 행"""
     stmt = select(CallBiosignalORM).where(CallBiosignalORM.session_id == session_id)
+    if for_update:
+        stmt = stmt.with_for_update()
     row = (await db.execute(stmt)).scalar_one_or_none()
     if row is not None and row.user_id != user_id:
         raise BiosignalError("FORBIDDEN")
