@@ -15,6 +15,7 @@ from app.services.biosignal.cardiac import analyze_cardiac
 from app.services.biosignal.clock import number
 from app.services.biosignal.eda import analyze_eda
 from app.services.biosignal.fusion import fuse_turns
+from app.services.biosignal.ppg import analyze_ppg
 from app.services.biosignal.skin_temp import analyze_skin_temp
 
 logger = logging.getLogger(__name__)
@@ -157,6 +158,7 @@ def analyze_upload(timeline: dict, payload: dict, previous: list[float], turn_me
         "eda": eda,
         "skin_temp": analyze_skin_temp(skin_temp=payload["skin_temp"], **common),
         "fusion": fuse_turns(cardiac=cardiac, eda=eda, turn_metrics=turn_metrics),
+        "ppg": analyze_ppg(ppg=payload.get("ppg") or [], acc=payload["acc"], **common),
     }
 
 
