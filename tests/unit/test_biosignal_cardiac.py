@@ -303,6 +303,21 @@ def test_without_any_baseline_only_relative_measures_remain() -> None:
     assert result["hr"]["recovery_pct"] == {"status": "UNAVAILABLE"}
 
 
+@pytest.mark.parametrize(
+    ("stop_after_ms", "status"),
+    [(20_000, "INSUFFICIENT_DATA"), (54_900, "INSUFFICIENT_DATA"), (55_100, "MEASURED"), (59_700, "MEASURED")],
+)
+def test_recovery_needs_at_least_55_seconds_after_hanging_up(stop_after_ms: int, status: str) -> None:
+    result = _analyze(markers={**_markers(), "recovery_end_ms": phone(C1 + stop_after_ms)})
+
+    recovery = result["hr"]["recovery_pct"]
+    assert recovery["status"] == status
+    if status == "MEASURED":
+        assert recovery["value"] > 0
+    else:
+        assert recovery["reason"] == "recovery_too_short"
+
+
 def test_no_heart_rate_at_all_is_unavailable_everywhere() -> None:
     result = _analyze(hr=[])
 
