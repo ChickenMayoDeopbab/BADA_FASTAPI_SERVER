@@ -148,6 +148,41 @@ def _payload(**overrides) -> dict:
     return body
 
 
+def _no_rest_markers() -> dict:
+    return {key: value for key, value in _markers().items() if key != "rest_baseline"}
+
+
+def _baseline_row(
+    session_id: str, value: float, at: datetime, *, user_id: int = 7, source: str = "rest", status: str = "MEASURED"
+) -> dict:
+    baseline = {"status": status, "value": value, "source": source}
+    return {
+        "session_id": session_id, "user_id": user_id, "status": "ANALYZED", "created_at": at,
+        "metrics": {"cardiac": {"baseline": baseline}},
+    }
+
+
+def _baseline_history(now: datetime) -> list[dict]:
+    start = now - timedelta(days=1)
+    rests = [
+        _baseline_row(f"sess-rest-{k}", value, start + timedelta(hours=k))
+        for k, value in enumerate((60.0, 70.0, 71.0, 69.0, 73.0, 90.0))
+    ]
+    without_rest = [
+        _baseline_row(f"sess-norest-{k}", 99.0, start + timedelta(hours=6 + k), source="previous_sessions")
+        for k in range(5)
+    ]
+    ignored = [
+        _baseline_row("sess-short-rest", 120.0, start + timedelta(hours=11), status="INSUFFICIENT_DATA"),
+        _baseline_row("sess-other-user", 150.0, start + timedelta(hours=12), user_id=9),
+        _baseline_row("sess-later", 160.0, now + timedelta(hours=1)),
+    ]
+    return rests + without_rest + ignored
+
+
+LATEST_FIVE_RESTS = [70.0, 71.0, 69.0, 73.0, 90.0]
+
+
 async def test_disabled_feature_is_not_found() -> None:
     async with _env(enabled=False) as env:
         await _seed(env)
@@ -276,6 +311,35 @@ async def test_previous_rest_baselines_fill_in_when_rest_is_missing() -> None:
 
         baseline = response.json()["metrics"]["cardiac"]["baseline"]
         assert (baseline["source"], baseline["value"], baseline["sessions"]) == ("previous_sessions", 73.0, 2)
+
+
+async def test_one_rest_baseline_outlasts_later_sessions_without_rest() -> None:
+    async with _env() as env:
+        start = now_utc() - timedelta(days=1)
+        await _seed(env, **_baseline_row("sess-rest", 72.0, start))
+        for k in range(6):
+            row = _baseline_row(f"sess-norest-{k}", 99.0, start + timedelta(hours=k + 1), source="previous_sessions")
+            await _seed(env, **row)
+        await _seed(env)
+
+        response = await env.client.post("/api/v1/biosignals/sess-1", json=_payload(markers=_no_rest_markers()))
+
+        baseline = response.json()["metrics"]["cardiac"]["baseline"]
+        assert (baseline["source"], baseline.get("value"), baseline.get("sessions")) == ("previous_sessions", 72.0, 1)
+
+
+async def test_previous_baselines_use_the_latest_five_rest_sessions() -> None:
+    async with _env() as env:
+        for row in _baseline_history(now_utc()):
+            await _seed(env, **row)
+        await _seed(env)
+
+        response = await env.client.post("/api/v1/biosignals/sess-1", json=_payload(markers=_no_rest_markers()))
+
+        baseline = response.json()["metrics"]["cardiac"]["baseline"]
+        assert (baseline["source"], baseline.get("value"), baseline.get("sessions")) == ("previous_sessions", 71.0, 5)
+        async with env.sessions() as session:
+            assert await svc.previous_baselines(session, 7, now_utc()) == LATEST_FIVE_RESTS
 
 
 async def test_raw_signals_are_kept_encrypted_only_for_allowed_users() -> None:
