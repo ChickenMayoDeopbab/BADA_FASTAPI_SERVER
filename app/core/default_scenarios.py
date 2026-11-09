@@ -1,6 +1,7 @@
 from app.core.enums import ALL_DIFFICULTIES, ALL_PERSONALITIES, ScenarioCategory
 
 PIZZA_TITLE = "배준하 피자 주문"
+LEGACY_PRESET_MAX_ID = 8
 
 # 이름은 최초 시드의 등록 여부를 확인하는 데도 쓰인다.
 _NEW_SCENARIOS = (

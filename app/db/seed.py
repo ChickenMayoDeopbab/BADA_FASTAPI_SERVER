@@ -7,12 +7,11 @@ from typing import Any
 from sqlalchemy import column, func, inspect, or_, select, table, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.default_scenarios import LEGACY_PRESET_MAX_ID
 from app.core.enums import AttachmentKind
 from app.core.preset_scenarios import NEW_PRESET_SCENARIOS, PRESET_SCENARIOS
 from app.core.timeutil import now_utc
 from app.db.models import CallBiosignalORM, FeedbackORM, PostAttachmentORM, ScenarioORM, UsageEventORM
-
-_LEGACY_PRESET_MAX_ID = 8
 
 
 def _preset_values(preset: dict[str, Any], created_at: datetime) -> dict[str, Any]:
@@ -101,7 +100,7 @@ async def _next_preset_start_id(db: AsyncSession, sequence_floor: int) -> int:
     reference_maxima = (await db.execute(select(
         *(select(func.max(ref)).scalar_subquery() for ref in columns), attachment_max,
     ))).one()
-    return max(_LEGACY_PRESET_MAX_ID, sequence_floor, *(value or 0 for value in reference_maxima)) + 1
+    return max(LEGACY_PRESET_MAX_ID, sequence_floor, *(value or 0 for value in reference_maxima)) + 1
 
 
 async def next_preset_start_id(db: AsyncSession) -> int:
@@ -149,7 +148,7 @@ async def seed_preset_scenarios(db: AsyncSession) -> None:
         preset_id = int(preset["scenario_id"])
         row = await db.get(ScenarioORM, preset_id)
 
-        if NEW_PRESET_SCENARIOS and preset_id <= _LEGACY_PRESET_MAX_ID and row is not None:
+        if NEW_PRESET_SCENARIOS and preset_id <= LEGACY_PRESET_MAX_ID and row is not None:
             if row.is_custom:
                 raise RuntimeError(f"Legacy preset ID {preset_id} is occupied by a custom scenario")
             # 신규 프리셋을 등록한 환경에서는 기존 1~8번의 DB 내용을 보존한다.
@@ -173,7 +172,7 @@ async def seed_preset_scenarios(db: AsyncSession) -> None:
         if row is None:
             db.add(ScenarioORM(**_preset_values(preset, now)))
         else:
-            _apply_preset(row, preset, preserve_image=preset_id > _LEGACY_PRESET_MAX_ID)
+            _apply_preset(row, preset, preserve_image=preset_id > LEGACY_PRESET_MAX_ID)
 
     await db.flush()
     if sequence_state is not None:
