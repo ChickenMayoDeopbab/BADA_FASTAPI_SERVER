@@ -121,24 +121,24 @@ def reject(row: CallBiosignalORM) -> None:
 
 
 async def previous_baselines(db: AsyncSession, user_id: int, before: datetime) -> list[float]:
-    """이전 회차들의 휴식 기준선 심박"""
+    """휴식 기준선이 있는 이전 회차 중 최근 5회의 심박을 오래된 순으로"""
     stmt = (
         select(CallBiosignalORM.metrics)
         .where(
             CallBiosignalORM.user_id == user_id,
             CallBiosignalORM.status == STATUS_ANALYZED,
             CallBiosignalORM.created_at < before,
+            CallBiosignalORM.metrics[("cardiac", "baseline", "source")].as_string() == "rest",
+            CallBiosignalORM.metrics[("cardiac", "baseline", "status")].as_string() == "MEASURED",
         )
         .order_by(CallBiosignalORM.created_at.desc())
         .limit(PREVIOUS_BASELINES)
     )
     values = []
     for metrics in (await db.execute(stmt)).scalars():
-        baseline = ((metrics or {}).get("cardiac") or {}).get("baseline") or {}
-        if baseline.get("source") == "rest" and baseline.get("status") == "MEASURED":
-            value = number(baseline.get("value"))
-            if value is not None:
-                values.append(value)
+        value = number(metrics["cardiac"]["baseline"].get("value"))
+        if value is not None:
+            values.append(value)
     return list(reversed(values))
 
 

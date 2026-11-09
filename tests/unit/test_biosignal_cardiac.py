@@ -303,6 +303,45 @@ def test_without_any_baseline_only_relative_measures_remain() -> None:
     assert result["hr"]["recovery_pct"] == {"status": "UNAVAILABLE"}
 
 
+@pytest.mark.parametrize(
+    ("stop_after_ms", "status"),
+    [(20_000, "INSUFFICIENT_DATA"), (54_900, "INSUFFICIENT_DATA"), (55_100, "MEASURED"), (59_700, "MEASURED")],
+)
+def test_recovery_needs_at_least_55_seconds_after_hanging_up(stop_after_ms: int, status: str) -> None:
+    result = _analyze(markers={**_markers(), "recovery_end_ms": phone(C1 + stop_after_ms)})
+
+    recovery = result["hr"]["recovery_pct"]
+    assert recovery["status"] == status
+    if status == "MEASURED":
+        assert recovery["value"] > 0
+    else:
+        assert recovery["reason"] == "recovery_too_short"
+
+
+def _hr_until_hang_up(*after_ms: int) -> list[list]:
+    kept = {watch(C1 + ms) for ms in after_ms}
+    return [row for row in _hr() if row[0] < watch(C1) or row[0] in kept]
+
+
+@pytest.mark.parametrize(
+    ("hr", "rest", "expected"),
+    [
+        (list, True, {"status": "UNAVAILABLE"}),
+        (_hr, False, {"status": "UNAVAILABLE"}),
+        (_hr_until_hang_up, True, {"status": "UNAVAILABLE"}),
+        (
+            lambda: _hr_until_hang_up(5000, 10_000), True,
+            {"status": "INSUFFICIENT_DATA", "reason": "recovery_too_short"},
+        ),
+    ],
+    ids=["no_heart_rate", "no_baseline", "nothing_after_hang_up", "sparse_after_hang_up"],
+)
+def test_short_recovery_still_reports_missing_data_as_unavailable(hr, rest: bool, expected: dict) -> None:
+    markers = {**_markers(rest=rest), "recovery_end_ms": phone(C1 + 20_000)}
+
+    assert _analyze(hr=hr(), markers=markers)["hr"]["recovery_pct"] == expected
+
+
 def test_no_heart_rate_at_all_is_unavailable_everywhere() -> None:
     result = _analyze(hr=[])
 
