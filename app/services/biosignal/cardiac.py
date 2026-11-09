@@ -122,11 +122,11 @@ def _first_vs_last(t, bpm, segments: Segments) -> dict:
 
 def _recovery(t, bpm, segments: Segments, baseline: dict, call: dict) -> dict:
     r0, r1 = segments.recovery
-    if r1 - r0 < RECOVERY_MIN_MS:
-        return {"status": "INSUFFICIENT_DATA", "reason": "recovery_too_short"}
     tail = window_mean(t, bpm, [(max(r0, r1 - RECOVERY_TAIL_MS), r1)], min_samples=TURN_MIN_SAMPLES)
     if "UNAVAILABLE" in (tail["status"], baseline["status"], call["status"]):
         return dict(UNAVAILABLE)
+    if r1 - r0 < RECOVERY_MIN_MS:
+        return {"status": "INSUFFICIENT_DATA", "reason": "recovery_too_short"}
     if "INSUFFICIENT_DATA" in (tail["status"], baseline["status"], call["status"]):
         return {"status": "INSUFFICIENT_DATA"}
     rise = call["value"] - baseline["value"]
