@@ -300,8 +300,8 @@ class _FakeSeedDB:
             return _SeedScalarResult(None)
         return _SeedScalarResult(None)
 
-    def get_bind(self) -> None:
-        return None
+    def get_bind(self) -> SimpleNamespace:
+        return SimpleNamespace(dialect=SimpleNamespace(name="sqlite"))
 
     async def commit(self) -> None:
         self.commits += 1

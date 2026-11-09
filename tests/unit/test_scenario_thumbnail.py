@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.core.default_scenarios import PIZZA_TITLE
 from app.core.enums import FileType, ScenarioCategory
 from app.core.preset_scenarios import PRESET_SCENARIOS
 from app.db.models import FeedbackORM, FileORM
@@ -11,6 +12,7 @@ from app.services.scenario_image_service import (
     _build_image_prompt,
     _extract_image,
     _image_key,
+    generate_pizza_thumbnail,
     generate_scenario_thumbnail,
 )
 from app.services.scenario_service import get_scenarios
@@ -76,7 +78,7 @@ class _FakeSession:
     async def __aexit__(self, *_exc) -> bool:
         return False
 
-    async def get(self, _model: type, _pk: int) -> SimpleNamespace | None:
+    async def get(self, _model: type, _pk: int, *, with_for_update: bool = False) -> SimpleNamespace | None:
         return self.row
 
     async def execute(self, _stmt: object) -> _FakeFileResult:
@@ -213,6 +215,24 @@ async def test_thumbnail_generation_stores_key_and_registers_file(
     assert _SCENE in image_calls[0]["contents"]
     assert "storybook" in image_calls[0]["contents"]
     assert image_calls[0]["model"] == stub_settings.gemini_image_model
+
+
+async def test_pizza_thumbnail_generates_once_and_reuses_saved_key(monkeypatch, stub_settings, fake_s3) -> None:
+    row = _scenario_row(scenario_id=84, title=PIZZA_TITLE)
+    row.is_custom = False
+    row.user_id = None
+    session = _FakeSession(row)
+    image_calls: list = []
+    monkeypatch.setattr(scenario_image_service, "AsyncSessionLocal", lambda: session)
+    monkeypatch.setattr(scenario_image_service, "genai", _fake_genai(calls=image_calls))
+
+    key = await generate_pizza_thumbnail(84)
+    assert await generate_pizza_thumbnail(84) == key == row.scenario_image
+
+    assert len(image_calls) == len(fake_s3.puts) == session.commits == 1
+    assert "round glasses" in image_calls[0]["contents"]
+    assert fake_s3.puts[0]["Key"] == key
+    assert [file.s3_key for file in session.added] == [key]
 
 
 async def test_thumbnail_skips_when_image_already_exists(

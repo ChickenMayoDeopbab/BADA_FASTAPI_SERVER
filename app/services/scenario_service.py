@@ -23,7 +23,7 @@ from app.core.enums import (
     ScenarioCategory,
     SpeakerTone,
 )
-from app.core.preset_scenarios import PRESET_MAP, PRESET_SCENARIOS, scenario_to_info
+from app.core.preset_scenarios import ACTIVE_PRESET_MAP, ACTIVE_PRESET_SCENARIOS, scenario_to_info
 from app.core.prompt_matrix import PERSONALITY_BASE
 from app.core.timeutil import as_kst, ensure_utc, now_utc
 from app.core.tts_voices import parse_speaker, pick_voice_id
@@ -111,7 +111,7 @@ async def get_scenarios(
     rows = result.scalars().all()
 
     if not rows:
-        result_list = PRESET_SCENARIOS
+        result_list = ACTIVE_PRESET_SCENARIOS
         if category is not None:
             result_list = [scenario for scenario in result_list if scenario["category"] == category]
         storage = (
@@ -155,14 +155,15 @@ async def get_scenarios(
 
             custom_rows.append((row, row_category))
             continue
-        seed = PRESET_MAP.get(row.scenario_id)
+        seed = ACTIVE_PRESET_MAP.get(row.scenario_id)
         if seed is None:
             continue
         if category is not None and seed["category"] != category:
             continue
         preset_rows.append((row, seed))
 
-    preset_rows.sort(key=lambda item: item[0].scenario_id)
+    preset_order = {scenario_id: index for index, scenario_id in enumerate(ACTIVE_PRESET_MAP)}
+    preset_rows.sort(key=lambda item: preset_order[item[0].scenario_id])
 
     def _by_recency(item: tuple) -> tuple:
         created = getattr(item[0], "created_at", None)

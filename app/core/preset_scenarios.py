@@ -1,3 +1,5 @@
+from app.core.config import get_settings
+from app.core.default_scenarios import LEGACY_VARIATIONS, new_preset_scenarios
 from app.core.enums import ALL_DIFFICULTIES, ALL_PERSONALITIES, ScenarioCategory
 from app.schemas.scenario import ScenarioInfo
 
@@ -300,7 +302,24 @@ PRESET_SCENARIOS: list[dict] = [
     }
 ]
 
+_settings = get_settings()
+NEW_PRESET_SCENARIOS = new_preset_scenarios(_settings.default_scenario_start_id)
+ACTIVE_PRESET_SCENARIOS = PRESET_SCENARIOS.copy()
+PRESET_SCENARIOS.extend(NEW_PRESET_SCENARIOS)
 PRESET_MAP: dict[int, dict] = {s["scenario_id"]: s for s in PRESET_SCENARIOS}
+
+SESSION_VARIATIONS: dict[int, str] = {}
+if NEW_PRESET_SCENARIOS and not _settings.legacy_default_scenario_list:
+    ACTIVE_PRESET_SCENARIOS = [
+        NEW_PRESET_SCENARIOS[0], PRESET_MAP[1], PRESET_MAP[5], *NEW_PRESET_SCENARIOS[1:],
+    ]
+    SESSION_VARIATIONS = {
+        **LEGACY_VARIATIONS,
+        **{preset["scenario_id"]: preset["variation"] for preset in NEW_PRESET_SCENARIOS},
+    }
+
+ACTIVE_PRESET_MAP: dict[int, dict] = {s["scenario_id"]: s for s in ACTIVE_PRESET_SCENARIOS}
+
 
 def scenario_to_info(scenario: dict) -> ScenarioInfo:
     return ScenarioInfo(

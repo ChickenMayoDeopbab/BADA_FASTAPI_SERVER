@@ -1,9 +1,10 @@
 from datetime import UTC, datetime
+from random import random
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.preset_scenarios import PRESET_MAP
+from app.core.preset_scenarios import PRESET_MAP, SESSION_VARIATIONS
 from app.core.security import require_internal_secret
 from app.db.models import ScenarioORM, is_deleted
 from app.deps.db import get_db
@@ -79,10 +80,17 @@ async def get_scenario_context(
 
     preset = PRESET_MAP.get(scenario_id)
     if preset is not None:
+        prompt = preset["ai_prompt"]
+        variation = SESSION_VARIATIONS.get(scenario_id)
+        if variation is not None:
+            if random() < 0.20:
+                prompt += f"\n이번 통화에서 흐름에 맞을 때만 다음 상황을 한 번 적용한다. {variation}"
+            else:
+                prompt += "\n이번 통화는 일반적인 흐름으로 진행하고 별도의 돌발 상황을 만들지 않는다."
         return ScenarioContextResponse(
             title=preset["title"],
             ai_role=preset["ai_role"],
-            ai_prompt=preset["ai_prompt"],
+            ai_prompt=prompt,
             script=[
                 ScriptTurnContext(
                     step=turn["step"],

@@ -2,7 +2,7 @@ import re
 
 from app.core.preset_scenarios import PRESET_SCENARIOS
 
-_TIME_PHRASES = ("15분 안에",)
+_TIME_PHRASES = ("15분 안에", "30분 정도", "59분까지")
 
 
 def test_all_presets_have_example_dialogue() -> None:
