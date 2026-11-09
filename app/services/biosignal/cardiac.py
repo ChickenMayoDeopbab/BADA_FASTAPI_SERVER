@@ -33,6 +33,7 @@ TURN_LAG_MS = 3000
 TURN_MIN_SAMPLES = 3
 RECOVERY_TAIL_MS = 30_000
 RECOVERY_MIN_RISE_BPM = 2.0
+RECOVERY_MIN_MS = 55_000
 PREVIOUS_BASELINES_MAX = 5
 HRV_WINDOWS = ("baseline", "anticipation", "listen", "speak", "recovery")
 
@@ -121,6 +122,8 @@ def _first_vs_last(t, bpm, segments: Segments) -> dict:
 
 def _recovery(t, bpm, segments: Segments, baseline: dict, call: dict) -> dict:
     r0, r1 = segments.recovery
+    if r1 - r0 < RECOVERY_MIN_MS:
+        return {"status": "INSUFFICIENT_DATA", "reason": "recovery_too_short"}
     tail = window_mean(t, bpm, [(max(r0, r1 - RECOVERY_TAIL_MS), r1)], min_samples=TURN_MIN_SAMPLES)
     if "UNAVAILABLE" in (tail["status"], baseline["status"], call["status"]):
         return dict(UNAVAILABLE)
