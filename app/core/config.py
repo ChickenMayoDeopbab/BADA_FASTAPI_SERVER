@@ -5,6 +5,8 @@ from typing import Literal
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.core.default_scenarios import MAX_NEW_PRESET_START_ID
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -58,7 +60,9 @@ class Settings(BaseSettings):
 
     # 시나리오 썸네일 이미지
     gemini_image_model: str = "gemini-2.5-flash-image"
-    default_scenario_start_id: int | None = Field(default=None, ge=9, le=9_007_199_254_740_986)
+
+    # 기본 시나리오 개편
+    default_scenario_start_id: int | None = Field(default=None, ge=9, le=MAX_NEW_PRESET_START_ID)
     legacy_default_scenario_list: bool = False
 
     # TTS

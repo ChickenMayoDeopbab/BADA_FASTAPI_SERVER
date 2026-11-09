@@ -152,6 +152,8 @@ async def seed_preset_scenarios(db: AsyncSession) -> None:
         if NEW_PRESET_SCENARIOS and preset_id <= _LEGACY_PRESET_MAX_ID and row is not None:
             if row.is_custom:
                 raise RuntimeError(f"Legacy preset ID {preset_id} is occupied by a custom scenario")
+            # 신규 프리셋을 등록한 환경에서는 기존 1~8번의 DB 내용을 보존한다.
+            # 기존 행의 내용 수정은 별도 데이터 변경으로 적용한다.
             continue
 
         if row is not None and getattr(row, "is_custom", False):

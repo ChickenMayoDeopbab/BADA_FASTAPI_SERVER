@@ -157,6 +157,9 @@ _NEW_SCENARIOS = (
     },
 )
 
+# 마지막 프리셋 ID까지 JavaScript의 안전한 정수 범위에 들어야 한다.
+MAX_NEW_PRESET_START_ID = (2**53 - 1) - (len(_NEW_SCENARIOS) - 1)
+
 LEGACY_VARIATIONS = {
     1: "사용자가 요청한 시간에 자리가 없다고 안내하고 가까운 시간대를 제안한다.",
     5: "기사 위치를 바로 확인하기 어렵다고 안내하고, 언제 다시 상태를 알려줄 수 있는지 합의한다.",
