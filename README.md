@@ -266,3 +266,11 @@ https://github.com/ChickenMayoDeopbab/BADA_WEB
 **Spring Server**<br>
 백엔드 서버로 핵심 비즈니스 로직과 API를 담당합니다.<br>
 https://github.com/ChickenMayoDeopbab/BADA_SPRING_SERVER
+
+## 기본 시나리오 교체
+
+1. 대상 DB에 연결된 환경에서 커스텀 시나리오 생성을 잠시 중지하고 `python -m app.db.preset_cli next-id`를 실행합니다. 출력된 번호를 `DEFAULT_SCENARIO_START_ID`에 설정합니다.
+2. 첫 서버 시작에서는 `LEGACY_DEFAULT_SCENARIO_LIST=true`를 함께 설정해 기존 목록을 유지합니다. 시작 시 신규 6개가 등록되며, 조회 이후 발급된 ID나 기존 참조와 충돌하면 등록을 중단합니다.
+3. 같은 DB와 S3 설정으로 `python -m app.db.preset_cli pizza-thumbnail`을 실행합니다. 반환된 S3 키와 이미지 표시를 확인한 뒤 `LEGACY_DEFAULT_SCENARIO_LIST=false`로 전환합니다.
+
+등록한 환경의 `DEFAULT_SCENARIO_START_ID`는 고정합니다. 기존 목록으로 되돌릴 때는 `LEGACY_DEFAULT_SCENARIO_LIST=true`만 설정해 신규 시나리오와 훈련 이력을 보존합니다.

@@ -2,6 +2,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -57,6 +58,8 @@ class Settings(BaseSettings):
 
     # 시나리오 썸네일 이미지
     gemini_image_model: str = "gemini-2.5-flash-image"
+    default_scenario_start_id: int | None = Field(default=None, ge=9, le=9_007_199_254_740_986)
+    legacy_default_scenario_list: bool = False
 
     # TTS
     elevenlabs_api_key: str

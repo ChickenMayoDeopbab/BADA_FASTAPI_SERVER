@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.aws import shared_boto_client
 from app.core.concurrency import loop_semaphore
 from app.core.config import Settings, get_settings
+from app.core.default_scenarios import PIZZA_TITLE
 from app.core.enums import FileType
 from app.core.usage import log_llm_usage
 from app.db.base import AsyncSessionLocal
@@ -49,6 +50,11 @@ _THUMBNAIL_STYLE = (
     "gentle shading, simple background, centered single subject, "
     "heartwarming friendly mood. "
     "No text, no letters, no watermark, no photorealism."
+)
+
+_PIZZA_SCENE = (
+    "A cheerful Korean pizza shop worker with round glasses and a blue shirt answers a phone "
+    "behind the counter. An open box with a pepperoni pizza sits beside him in the cozy pizzeria."
 )
 
 
@@ -157,26 +163,47 @@ async def _register_file(db: AsyncSession, key: str, title: str) -> None:
     db.add(FileORM(file_type=FileType.SCENARIO_PROFILE, s3_key=key, title=title))
 
 
+async def _store_thumbnail(db: AsyncSession, settings: Settings, row: ScenarioORM, scene: str) -> str | None:
+    prompt = _build_image_prompt(scene)
+    image, mime = await _generate_image(settings, prompt, user_id=row.user_id, scenario_id=row.scenario_id)
+
+    key = _image_key(row.scenario_id, prompt, mime)
+    stored_key = await asyncio.to_thread(_upload_image, settings, key, image, mime)
+    if stored_key is None:
+        return None
+
+    await _register_file(db, stored_key, row.title)
+    row.scenario_image = stored_key
+    await db.commit()
+    return stored_key
+
+
 async def _generate_and_store(scenario_id: int, settings: Settings) -> None:
     async with AsyncSessionLocal() as db:
         row = await db.get(ScenarioORM, scenario_id)
         if row is None or is_deleted(row) or row.scenario_image:
             return
-
         scene = await _write_scene_prompt(settings, row)
-        prompt = _build_image_prompt(scene)
-        image, mime = await _generate_image(
-            settings, prompt, user_id=row.user_id, scenario_id=row.scenario_id
-        )
+        await _store_thumbnail(db, settings, row, scene)
 
-        key = _image_key(scenario_id, prompt, mime)
-        stored_key = await asyncio.to_thread(_upload_image, settings, key, image, mime)
+
+async def generate_pizza_thumbnail(scenario_id: int) -> str:
+    settings = get_settings()
+    if not settings.s3_bucket:
+        raise RuntimeError("S3_BUCKET is required for the pizza thumbnail")
+
+    async with asyncio.timeout(_TIMEOUT_SEC), _image_semaphore(), AsyncSessionLocal() as db:
+        # 운영 명령을 중복 실행해도 한 번만 생성되도록 저장까지 행 잠금을 유지한다.
+        row = await db.get(ScenarioORM, scenario_id, with_for_update=True)
+        if row is None or row.is_custom or is_deleted(row) or row.title != PIZZA_TITLE:
+            raise RuntimeError("Seed the pizza preset before generating its thumbnail")
+        if row.scenario_image:
+            return row.scenario_image
+
+        stored_key = await _store_thumbnail(db, settings, row, _PIZZA_SCENE)
         if stored_key is None:
-            return
-
-        await _register_file(db, stored_key, row.title)
-        row.scenario_image = stored_key
-        await db.commit()
+            raise RuntimeError("Failed to upload the pizza thumbnail")
+        return stored_key
 
 
 async def generate_scenario_thumbnail(scenario_id: int) -> None:
