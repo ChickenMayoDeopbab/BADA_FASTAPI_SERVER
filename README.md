@@ -45,16 +45,26 @@
 <br>
 
 # 사용 스택
-### FrontEnd
+### FrontEnd (App)
 | 분야 | 기술 |
 | --- | --- |
 | Framework | React Native (Expo) |
 | Language | TypeScript |
-| Audio | expo-av, react-native-audio-record |
+| Audio | expo-audio, react-native-audio-record |
+| Video | expo-av |
 | Network | Axios, WebSocket |
 | Form | React Hook Form |
 
 React Native(Expo)와 TypeScript를 기반으로 모바일 애플리케이션을 개발했습니다. Axios를 이용한 서버 통신과 WebSocket 기반 실시간 음성 스트리밍을 구현했으며, React Hook Form을 활용해 사용자 입력 검증과 인증 흐름을 구성했습니다.
+
+### FrontEnd (Web)
+| 분야 | 기술 |
+| --- | --- |
+| Framework | React (Vite) |
+| Language | TypeScript |
+| Style | Tailwind CSS |
+| Network | Axios, TanStack Query, WebSocket |
+| Routing | React Router |
 
 ### BackEnd
 | 분야 | 기술 |
@@ -64,11 +74,11 @@ React Native(Expo)와 TypeScript를 기반으로 모바일 애플리케이션을
 | Database | PostgreSQL, Redis |
 | AI | Gemini, Claude, OpenAI |
 | Speech | Google Cloud Speech-to-Text, ElevenLabs, Qwen3-TTS |
-| Infra | Docker, GitHub Actions, AWS EC2, AWS S3 |
+| Infra | Docker, GitHub Actions, GHCR, AWS EC2, AWS S3, AWS KMS |
 
-Spring Boot는 회원 관리, 인증, 자가진단, 훈련 기록 등 핵심 비즈니스 로직을 담당하며, FastAPI는 AI 음성 처리 파이프라인을 담당합니다.
+Spring Boot는 회원 관리, 인증, 자가진단, 훈련 기록 등 핵심 비즈니스 로직을 담당하며, FastAPI는 AI 음성 처리 파이프라인과 시나리오·예시 대화 생성, 커뮤니티, 문의 API를 담당합니다.
 
-사용자의 음성을 STT로 변환하고 Gemini가 전화 상황에 맞는 대화 응답을 생성합니다. 생성된 응답은 Qwen3-TTS 또는 ElevenLabs를 통해 음성으로 출력됩니다.
+사용자의 음성을 STT로 변환하고 Gemini가 전화 상황에 맞는 대화 응답을 생성합니다. 생성된 응답은 GPU 서버의 Qwen3-TTS로 음성 합성해 출력하고, Qwen3-TTS를 쓸 수 없을 때는 ElevenLabs로 대신 출력합니다.
 
 Claude는 커스텀 시나리오, 예시 대화, 이미지 생성용 장면 묘사를 생성하며, OpenAI는 Spring 서버에서 자가진단 결과 요약에 사용됩니다.
 <br>
@@ -100,7 +110,7 @@ Claude는 커스텀 시나리오, 예시 대화, 이미지 생성용 장면 묘�
 | 도구 | 활용 내용 |
 | --- | --- |
 | Claude | 기능 구현, 오류 수정, 테스트 코드 작성 보조 |
-| Claude Code | FastAPI 저장소의 GitHub Pull Request 자동 코드 리뷰 |
+| Claude Agent SDK | FastAPI·Spring·App·Web 저장소의 GitHub Pull Request 자동 코드 리뷰 |
 
 <br>
 
@@ -109,13 +119,13 @@ Claude는 커스텀 시나리오, 예시 대화, 이미지 생성용 장면 묘�
 | --- | --- | --- |
 | LLM (실시간 대화·피드백) | Gemini 3.5 Flash Lite | 전화 대화 응답 스트리밍, 워밍업, 구간 피드백 생성 |
 | LLM (콘텐츠 검사) | Gemini 3.5 Flash Lite | 커뮤니티 게시글의 유해 콘텐츠 판별 |
-| LLM (시나리오·콘텐츠 생성) | Claude Sonnet 4 | 커스텀 시나리오, 예시 대화, 이미지 생성용 장면 묘사 생성 |
+| LLM (시나리오·콘텐츠 생성) | Claude Sonnet 4.6 | 커스텀 시나리오, 예시 대화, 이미지 생성용 장면 묘사 생성 |
 | LLM (자가진단 요약) | GPT-4o-mini | Spring 서버의 콜포비아 자가진단 결과 요약 |
 | 이미지 | Gemini 2.5 Flash Image | 시나리오 삽화 생성 |
 | STT | Google Cloud Speech-to-Text (chirp_3) | 사용자 음성 인식 |
 | STT (선택형) | gemini-3.5-transcribe-live | Gemini Live 기반 음성 인식 |
-| TTS | ElevenLabs Flash v2.5 | 대화 및 예시 대화 음성 합성 |
-| TTS | Qwen3-TTS-12Hz-1.7B-Base | 참조 음성 기반 합성, 실시간 스트리밍, 예시 대화 음성 생성 |
+| TTS (기본) | Qwen3-TTS-12Hz-1.7B-Base | 참조 음성 기반 합성, 실시간 스트리밍, 예시 대화 음성 생성 |
+| TTS (폴백) | ElevenLabs Flash v2.5 | Qwen3-TTS를 쓸 수 없을 때 대화·예시 대화 음성 합성 |
 
 <br>
 
@@ -124,6 +134,7 @@ Claude는 커스텀 시나리오, 예시 대화, 이미지 생성용 장면 묘�
 | --- | --- | --- |
 | 대화형 TTS | sesame/csm-1b | 한국어 대화형 음성 합성 학습·추론 실험 |
 | 음성 코덱 | kyutai/mimi | CSM 실험의 음성 인코딩·디코딩 |
+| 목소리 후보 생성 | Qwen3-TTS-12Hz-1.7B-VoiceDesign | 화자 칸별 참조 음성 후보 생성·청취 평가 |
 | 음성 품질 평가 | UTMOS (utmos22_strong) | 합성 음성의 품질 평가 |
 | 화자 유사도 평가 | WavLM-large SV / UniSpeech | 참조 음성과 합성 음성의 화자 유사도 평가 |
 | 화자 유사도 평가 (대체 경로) | microsoft/wavlm-base-plus-sv | 선택 가능한 화자 유사도 평가 |
@@ -138,13 +149,15 @@ CSM은 실험 후 운영 적용을 보류했습니다. 위 실험·평가 모델
 | [한국어 음성](https://www.aihub.or.kr/aihubdata/data/view.do?currMenu=115&topMenu=100&dataSetSn=123) | AI 허브 | CSM 대화형 음성 합성 학습 실험, 합성 품질 평가 문장 |
 | [상담 음성](https://www.aihub.or.kr/aihubdata/data/view.do?currMenu=115&topMenu=100&dataSetSn=100) | AI 허브 | CSM 대화 문맥 학습 실험, 평가 |
 | [감정이 태깅된 자유대화 (성인)](https://www.aihub.or.kr/aihubdata/data/view.do?currMenu=115&topMenu=100&dataSetSn=71631) | AI 허브 | CSM 재학습 실험, 시나리오 화자별 참조 음성 후보 추출·청취 평가 |
-| [The Korean Corpus of Spontaneous Speech (Seoul Corpus)](https://www.openslr.org/113/) | OpenSLR (SLR113) | 젊은 남성 화자 칸의 Qwen3-TTS 참조 음성 |
+| [The Korean Corpus of Spontaneous Speech (Seoul Corpus)](https://www.openslr.org/113/) | OpenSLR (SLR113) | 상 난이도 남성 목소리의 Qwen3-TTS 참조 음성 |
 
 이 프로젝트는 과학기술정보통신부의 재원으로 한국지능정보사회진흥원의 지원을 받아 구축된 "한국어 음성", "상담 음성", "감정이 태깅된 자유대화 (성인)"을 활용하여 수행되었습니다. 활용된 데이터는 AI 허브(aihub.or.kr)에서 다운로드할 수 있습니다.
 
 AI 허브 데이터 이용정책에 따라 이 저장소에는 데이터 원본과 원본을 자르거나 가공한 음성·전사를 포함하지 않습니다. `scripts/csm_experiments`, `scripts/tts_bench`의 데이터 처리 스크립트를 실행하려면 AI 허브에서 이용 승인을 받아 데이터를 직접 내려받아야 합니다.
 
-젊은 남성 화자 칸의 참조 음성은 Seoul Corpus 화자 s11의 발화 일부(약 10초)를 잘라 잡음을 정리해 사용합니다. 출처: Yun, W., Yoon, K., Park, S., Lee, J., Cho, S., Kang, D., Byun, K., Hahn, H., Kim, J. (2015). The Korean Corpus of Spontaneous Speech. *Journal of the Korean Society of Speech Sciences*, 7(2), 103–109. Seoul Corpus는 [CC BY-NC 2.0](https://creativecommons.org/licenses/by-nc/2.0/) 라이선스를 따르며 비상업적 목적으로만 이용합니다. 이 저장소에는 해당 음성을 포함하지 않습니다.
+상 난이도 남성 목소리(거친 말투)의 참조 음성은 Seoul Corpus 화자 s11의 발화 일부(약 10초)를 잘라 잡음을 정리해 사용합니다. 출처: Yun, W., Yoon, K., Park, S., Lee, J., Cho, S., Kang, D., Byun, K., Hahn, H., Kim, J. (2015). The Korean Corpus of Spontaneous Speech. *Journal of the Korean Society of Speech Sciences*, 7(2), 103–109. Seoul Corpus는 [CC BY-NC 2.0](https://creativecommons.org/licenses/by-nc/2.0/) 라이선스를 따르며 비상업적 목적으로만 이용합니다. 이 저장소에는 해당 음성을 포함하지 않습니다.
+
+Qwen3-TTS의 나머지 참조 음성(하·중 난이도 남성 목소리, 여성 목소리, 예시 대화의 '나' 역할)은 팀원이 직접 녹음한 음성입니다.
 
 <br>
 
@@ -241,12 +254,16 @@ librosa 에서 옮긴 코드는 ISC 라이선스를 따르며, 저작권·허가
 
 # 저장소 구조
 **Fast API** - 현재 저장소<br>
-바다의 AI 서버로 실시간 음성 인식(STT), LLM 기반 대화 생성, 음성 합성(TTS)과 같은 AI 전화 훈련 파이프라인을 담당합니다.<br>
+바다의 AI 서버로 실시간 음성 인식(STT), LLM 기반 대화 생성, 음성 합성(TTS)과 같은 AI 전화 훈련 파이프라인을 담당합니다. 커스텀 시나리오·예시 대화 생성, 커뮤니티, 문의 API도 이 서버가 맡습니다.<br>
 https://github.com/ChickenMayoDeopbab/BADA_FASTAPI_SERVER
 
 **App**<br>
 React Native(Expo) 기반 모바일 애플리케이션입니다.<br>
 https://github.com/ChickenMayoDeopbab/BADA_APP
+
+**Web**<br>
+React(Vite) 기반 웹 애플리케이션입니다.<br>
+https://github.com/ChickenMayoDeopbab/BADA_WEB
 
 **Spring Server**<br>
 백엔드 서버로 핵심 비즈니스 로직과 API를 담당합니다.<br>
