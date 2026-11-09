@@ -157,8 +157,6 @@ AI 허브 데이터 이용정책에 따라 이 저장소에는 데이터 원본�
 
 상 난이도 남성 목소리(거친 말투)의 참조 음성은 Seoul Corpus 화자 s11의 발화 일부(약 10초)를 잘라 잡음을 정리해 사용합니다. 출처: Yun, W., Yoon, K., Park, S., Lee, J., Cho, S., Kang, D., Byun, K., Hahn, H., Kim, J. (2015). The Korean Corpus of Spontaneous Speech. *Journal of the Korean Society of Speech Sciences*, 7(2), 103–109. Seoul Corpus는 [CC BY-NC 2.0](https://creativecommons.org/licenses/by-nc/2.0/) 라이선스를 따르며 비상업적 목적으로만 이용합니다. 이 저장소에는 해당 음성을 포함하지 않습니다.
 
-Qwen3-TTS의 나머지 참조 음성(하·중 난이도 남성 목소리, 여성 목소리, 예시 대화의 '나' 역할)은 팀원이 직접 녹음한 음성입니다.
-
 <br>
 
 # License
