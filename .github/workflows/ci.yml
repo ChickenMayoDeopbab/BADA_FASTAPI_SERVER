@@ -28,4 +28,4 @@ jobs:
         run: ruff check app tests/unit tests/integration
 
       - name: Pytest
-        run: pytest tests/unit tests/integration -v
+        run: pytest -n auto --dist loadfile tests/unit tests/integration -v
