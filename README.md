@@ -177,7 +177,7 @@ See the LICENSE file for details.
 | 음성 분석·처리 | librosa, scipy, numpy |
 | 녹음 암호화 | cryptography |
 | 인증·로깅 | PyJWT, python-json-logger |
-| 개발·테스트 | pytest, pytest-asyncio, aiosqlite, ruff, sounddevice, soundfile |
+| 개발·테스트 | pytest, pytest-asyncio, pytest-xdist, aiosqlite, ruff, sounddevice, soundfile |
 
 <br>
 
