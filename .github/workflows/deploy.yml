@@ -38,7 +38,6 @@ jobs:
         run: pytest -n auto --dist loadfile tests/unit tests/integration -v
 
   build-push:
-    needs: test
     runs-on: ubuntu-latest
     outputs:
       image: ${{ steps.image.outputs.ref }}
@@ -57,7 +56,6 @@ jobs:
         run: |
           BASE="ghcr.io/${GITHUB_REPOSITORY,,}"
           echo "ref=${BASE}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
-          echo "latest=${BASE}:latest" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-buildx-action@v3
 
@@ -66,14 +64,12 @@ jobs:
         with:
           context: .
           push: true
-          tags: |
-            ${{ steps.image.outputs.ref }}
-            ${{ steps.image.outputs.latest }}
+          tags: ${{ steps.image.outputs.ref }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
   deploy:
-    needs: build-push
+    needs: [test, build-push]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
