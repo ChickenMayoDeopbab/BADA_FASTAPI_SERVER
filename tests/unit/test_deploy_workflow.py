@@ -45,6 +45,27 @@ def _prune_flags() -> set[str]:
     return flags
 
 
+def _job(name: str) -> list[str]:
+    lines = DEPLOY_YML.read_text().splitlines()
+    start = next((i for i, line in enumerate(lines) if line == f"  {name}:"), None)
+    if start is None:
+        raise AssertionError(f"'{name}' 잡을 찾지 못했다: {DEPLOY_YML}")
+    body: list[str] = []
+    for line in lines[start + 1 :]:
+        if line.strip() and len(line) - len(line.lstrip()) <= 2:
+            break
+        body.append(line)
+    return body
+
+
+def _needs(name: str) -> set[str]:
+    for line in _job(name):
+        if line.startswith("    needs:"):
+            value = line.split(":", 1)[1].strip(" []")
+            return {item.strip() for item in value.split(",") if item.strip()}
+    return set()
+
+
 def test_ec2_script_is_valid_bash() -> None:
     result = subprocess.run(["bash", "-n"], input=_ec2_script(), capture_output=True, text=True, check=False)
     assert result.returncode == 0, result.stderr
@@ -67,4 +88,23 @@ def test_prune_keeps_recent_images_for_rollback() -> None:
 def test_prune_failure_cannot_fail_a_successful_deploy() -> None:
     assert "|| true" in _prune_command(), (
         f"set -e 아래라 정리 실패가 배포 성공을 CD 실패로 뒤집는다: {_prune_command()}"
+    )
+
+
+def test_deploy_waits_for_tests_and_image() -> None:
+    assert _needs("deploy") == {"test", "build-push"}, (
+        "빌드가 시험과 나란히 돌아서 deploy 가 둘 다 기다려야 한다 — "
+        f"test 가 빠지면 시험 안 된 이미지가 배포된다: {sorted(_needs('deploy'))}"
+    )
+
+
+def test_image_build_does_not_wait_for_tests() -> None:
+    assert "test" not in _needs("build-push"), "build-push 가 test 를 기다리면 CD 가 다시 직렬이 된다"
+
+
+def test_build_pushes_only_the_commit_tag() -> None:
+    tagged = [line.strip() for line in _job("build-push") if "latest" in line.replace("ubuntu-latest", "")]
+    assert not tagged, (
+        "빌드는 시험이 끝나기 전에 올라간다 — 여기서 latest 를 붙이면 시험이 깨진 커밋 이미지에도 붙는다: "
+        f"{tagged}"
     )
