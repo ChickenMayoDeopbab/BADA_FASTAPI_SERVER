@@ -3,6 +3,7 @@ import textwrap
 from pathlib import Path
 
 DEPLOY_YML = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "deploy.yml"
+CI_YML = DEPLOY_YML.with_name("ci.yml")
 
 
 def _ec2_script() -> str:
@@ -45,11 +46,11 @@ def _prune_flags() -> set[str]:
     return flags
 
 
-def _job(name: str) -> list[str]:
-    lines = DEPLOY_YML.read_text().splitlines()
+def _job(name: str, path: Path = DEPLOY_YML) -> list[str]:
+    lines = path.read_text().splitlines()
     start = next((i for i, line in enumerate(lines) if line == f"  {name}:"), None)
     if start is None:
-        raise AssertionError(f"'{name}' 잡을 찾지 못했다: {DEPLOY_YML}")
+        raise AssertionError(f"'{name}' 잡을 찾지 못했다: {path}")
     body: list[str] = []
     for line in lines[start + 1 :]:
         if line.strip() and len(line) - len(line.lstrip()) <= 2:
@@ -64,6 +65,21 @@ def _needs(name: str) -> set[str]:
             value = line.split(":", 1)[1].strip(" []")
             return {item.strip() for item in value.split(",") if item.strip()}
     return set()
+
+
+def _step(job: list[str], name: str) -> list[str]:
+    starts = [i for i, line in enumerate(job) if line.startswith("      - ")]
+    for start, end in zip(starts, [*starts[1:], len(job)], strict=True):
+        if job[start].strip() == f"- name: {name}":
+            return job[start:end]
+    raise AssertionError(f"'{name}' 스텝을 찾지 못했다")
+
+
+def _run(job: list[str], name: str) -> str:
+    step = _step(job, name)
+    at = next(i for i, line in enumerate(step) if line.strip().startswith("run:"))
+    inline = step[at].split("run:", 1)[1].strip()
+    return inline if inline != "|" else textwrap.dedent("\n".join(step[at + 1 :])).strip()
 
 
 def test_ec2_script_is_valid_bash() -> None:
@@ -107,4 +123,28 @@ def test_build_pushes_only_the_commit_tag() -> None:
     assert not tagged, (
         "빌드는 시험이 끝나기 전에 올라간다 — 여기서 latest 를 붙이면 시험이 깨진 커밋 이미지에도 붙는다: "
         f"{tagged}"
+    )
+
+
+def test_ci_and_cd_install_and_test_with_the_same_commands() -> None:
+    ci, cd = _job("lint-and-test", CI_YML), _job("test")
+    for name in ("Install dependencies", "Ruff", "Pytest"):
+        assert _run(ci, name) == _run(cd, name), (
+            f"'{name}' 명령이 CI 와 CD 에서 다르다 — CI 가 초록이어도 CD 에서 깨질 수 있다"
+        )
+
+
+def test_ci_venv_cache_key_tracks_what_changes_the_venv() -> None:
+    key = next((line.strip() for line in _job("lint-and-test", CI_YML) if line.strip().startswith("key:")), "")
+    for part in ("requirements.txt", "pyproject.toml", "python-version", "week"):
+        assert part in key, f"가상환경 캐시 키에 {part} 가 없다 — 그게 바뀌어도 옛 가상환경으로 시험한다: {key}"
+
+
+def test_cd_tests_against_freshly_installed_dependencies() -> None:
+    job = _job("test")
+    cached = [line.strip() for line in job if "actions/cache" in line]
+    skippable = [line.strip() for line in _step(job, "Install dependencies") if line.strip().startswith("if:")]
+    assert not cached and not skippable, (
+        "배포 전 시험은 의존성을 매번 새로 깐다 — 캐시한 가상환경을 쓰면 묵은 의존성으로 시험하고 배포한다: "
+        f"{cached + skippable}"
     )
