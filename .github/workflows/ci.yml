@@ -13,11 +13,34 @@ jobs:
       - uses: actions/checkout@v5
 
       - uses: actions/setup-python@v6
+        id: python
         with:
           python-version: "3.12"
           cache: pip
 
+      - name: Venv cache key
+        id: venv-key
+        run: |
+          . /etc/os-release
+          echo "os=${ID}-${VERSION_ID}" >> "$GITHUB_OUTPUT"
+          # 고정 안 된 의존성이 묵지 않게 주마다 새로 깐다
+          echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v6
+        id: venv
+        with:
+          path: .venv
+          key: venv-${{ steps.venv-key.outputs.os }}-py${{ steps.python.outputs.python-version }}-${{ steps.venv-key.outputs.week }}-${{ hashFiles('requirements.txt', 'pyproject.toml') }}
+
+      - name: Create venv
+        if: steps.venv.outputs.cache-hit != 'true'
+        run: python -m venv --clear .venv
+
+      - name: Put venv on PATH
+        run: echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+
       - name: Install dependencies
+        if: steps.venv.outputs.cache-hit != 'true'
         run: |
           python -m pip install --upgrade pip
           # 운영 이미지와 같은 고정판을 먼저, .[dev] 는 이미 만족된 것을 올리지 않는다
